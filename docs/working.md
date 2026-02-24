@@ -75,6 +75,11 @@
 ### AGENTS.md
 - Created AGENTS.md with Android Studio JDK build instructions
 
+### App Icon / Logo
+- Copied logo from opencode_ios_client (AppIcon.png)
+- scripts/resize_icon.py: generates Android mipmap + adaptive icon foreground
+- Replaced default Android icon with OpenCode logo
+
 ### Test Coverage & Integration Tests
 - Added Kover for unit test coverage (`./gradlew koverHtmlReport`)
 - Added OpenCodeRepositoryTest with MockWebServer (checkHealth, getSessions, getAgents)
@@ -82,3 +87,6 @@
 - Dynamic credential loading via Gradle: reads .env at build time, passes to instrumentation args
 - Added OpenCodeIntegrationTest (checkHealth, getSessions, getAgents)
 - Run integration tests: `./gradlew connectedDebugAndroidTest` (requires emulator/device + .env)
+
+### Android Studio Run Configuration
+- Added .idea/runConfigurations/app.xml for Android App run config (fixes grayed-out Run button when module shows \<no module\>)
