@@ -141,7 +141,7 @@ data class PartState(
 )
 
 object PartStateSerializer : kotlinx.serialization.KSerializer<PartState> {
-    override val descriptor = kotlinx.serialization.descriptors.SerialDescriptor("PartState", kotlinx.serialization.descriptors.PrimitiveKind.STRING)
+    override val descriptor = kotlinx.serialization.descriptors.PrimitiveSerialDescriptor("PartState", kotlinx.serialization.descriptors.PrimitiveKind.STRING)
 
     override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: PartState) {
         encoder.encodeString(value.displayString)
@@ -231,8 +231,8 @@ object PartStateSerializer : kotlinx.serialization.KSerializer<PartState> {
                 try {
                     val content = (item["content"] as? JsonPrimitive)?.content?.trim() ?: "Untitled todo"
                     val status = (item["status"] as? JsonPrimitive)?.content
-                        ?: if ((item["completed"] as? JsonPrimitive)?.booleanOrNull == true) "completed"
-                        else if ((item["isCompleted"] as? JsonPrimitive)?.booleanOrNull == true) "completed"
+                        ?: if ((item["completed"] as? JsonPrimitive)?.content == "true") "completed"
+                        else if ((item["isCompleted"] as? JsonPrimitive)?.content == "true") "completed"
                         else "pending"
                     val priority = (item["priority"] as? JsonPrimitive)?.content?.trim()?.takeIf { it.isNotEmpty() } ?: "medium"
                     val id = (item["id"] as? JsonPrimitive)?.content?.trim()?.takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString()

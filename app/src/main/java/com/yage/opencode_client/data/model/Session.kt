@@ -46,5 +46,5 @@ data class SessionStatus(
 ) {
     val isIdle: Boolean get() = type == "idle"
     val isBusy: Boolean get() = type == "busy"
-    val isRetry: Boolean get() == "retry"
+    val isRetry: Boolean get() = type == "retry"
 }

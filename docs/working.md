@@ -75,8 +75,10 @@
 ### AGENTS.md
 - Created AGENTS.md with Android Studio JDK build instructions
 
-### Next: Test Coverage & Integration Tests
-- [ ] Add Kover for unit test coverage
-- [ ] Add .env for integration test credentials (localhost:4096, opencode/restart_Web@)
-- [ ] Implement dynamic credential loading (no hardcoding)
-- [ ] Add integration tests against real server
+### Test Coverage & Integration Tests
+- Added Kover for unit test coverage (`./gradlew koverHtmlReport`)
+- Added OpenCodeRepositoryTest with MockWebServer (checkHealth, getSessions, getAgents)
+- Added .env for integration test credentials (copy .env.example to .env, fill in)
+- Dynamic credential loading via Gradle: reads .env at build time, passes to instrumentation args
+- Added OpenCodeIntegrationTest (checkHealth, getSessions, getAgents)
+- Run integration tests: `./gradlew connectedDebugAndroidTest` (requires emulator/device + .env)

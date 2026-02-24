@@ -10,8 +10,8 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.FolderOutlined
-import androidx.compose.material.icons.outlined.SettingsOutlined
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -45,14 +45,14 @@ sealed class Screen(
         "files",
         "Files",
         Icons.Default.Folder,
-        Icons.Outlined.FolderOutlined
+        Icons.Outlined.Folder
     )
 
     object Settings : Screen(
         "settings",
         "Settings",
         Icons.Default.Settings,
-        Icons.Outlined.SettingsOutlined
+        Icons.Outlined.Settings
     )
 }
 

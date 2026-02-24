@@ -11,3 +11,9 @@ export PATH="$JAVA_HOME/bin:$PATH"
 ```
 
 **持久化**：在 `~/.zshrc` 中加入上述 `JAVA_HOME` 和 `PATH` 两行，然后 `source ~/.zshrc`。
+
+## Test Commands
+
+- Unit tests: `./gradlew testDebugUnitTest`
+- Coverage report: `./gradlew koverHtmlReport` → `app/build/reports/kover/html/index.html`
+- Integration tests: `./gradlew connectedDebugAndroidTest` (requires .env with OPENCODE_* credentials)
