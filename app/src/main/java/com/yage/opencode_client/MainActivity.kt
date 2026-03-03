@@ -14,8 +14,12 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -62,6 +66,7 @@ sealed class Screen(
 
 val screens = listOf(Screen.Chat, Screen.Files, Screen.Settings)
 
+@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject
@@ -78,70 +83,153 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
+            val windowSizeClass = calculateWindowSizeClass(this)
+            val isTablet = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Expanded
+
             OpenCodeTheme(darkTheme = darkTheme) {
-                val navController = rememberNavController()
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
+                if (isTablet) {
+                    TabletLayout(repository = repository)
+                } else {
+                    PhoneLayout(repository = repository)
+                }
+            }
+        }
+    }
+}
 
-                var filePathToOpen by remember { mutableStateOf<String?>(null) }
+@Composable
+private fun PhoneLayout(repository: OpenCodeRepository) {
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
-                Scaffold(
-                    bottomBar = {
-                        NavigationBar {
-                            screens.forEach { screen ->
-                                val selected = currentRoute == screen.route
-                                NavigationBarItem(
-                                    selected = selected,
-                                    onClick = {
-                                        if (currentRoute != screen.route) {
-                                            navController.navigate(screen.route) {
-                                                popUpTo(navController.graph.startDestinationId) {
-                                                    saveState = true
-                                                }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        }
-                                    },
-                                    icon = {
-                                        Icon(
-                                            if (selected) screen.selectedIcon else screen.unselectedIcon,
-                                            contentDescription = screen.title
-                                        )
-                                    },
-                                    label = { Text(screen.title) }
-                                )
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                screens.forEach { screen ->
+                    val selected = currentRoute == screen.route
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = {
+                            if (currentRoute != screen.route) {
+                                navController.navigate(screen.route) {
+                                    popUpTo(navController.graph.startDestinationId) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
-                        }
+                        },
+                        icon = {
+                            Icon(
+                                if (selected) screen.selectedIcon else screen.unselectedIcon,
+                                contentDescription = screen.title
+                            )
+                        },
+                        label = { Text(screen.title) }
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Chat.route,
+            modifier = Modifier.padding(padding)
+        ) {
+            composable(Screen.Chat.route) {
+                ChatScreen(
+                    onNavigateToFiles = { path ->
+                        navController.navigate(Screen.Files.route)
                     }
-                ) { padding ->
-                    NavHost(
-                        navController = navController,
-                        startDestination = Screen.Chat.route,
-                        modifier = Modifier.padding(padding)
-                    ) {
-                        composable(Screen.Chat.route) {
-                            ChatScreen(
-                                onNavigateToFiles = { path ->
-                                    filePathToOpen = path
-                                    navController.navigate(Screen.Files.route)
-                                }
-                            )
-                        }
-                        composable(Screen.Files.route) {
-                            FilesScreen(
-                                repository = repository,
-                                onFileClick = { path ->
-                                    // Could show file in a viewer or do nothing
-                                }
-                            )
-                        }
-                        composable(Screen.Settings.route) {
-                            SettingsScreen()
-                        }
+                )
+            }
+            composable(Screen.Files.route) {
+                FilesScreen(
+                    repository = repository,
+                    onFileClick = { path ->
+                        // Could show file in a viewer or do nothing
+                    }
+                )
+            }
+            composable(Screen.Settings.route) {
+                SettingsScreen()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TabletLayout(repository: OpenCodeRepository) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        // Left panel: Workspace (Files + Settings)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        ) {
+            var showSettings by remember { mutableStateOf(false) }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 1.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (showSettings) "Settings" else "Files",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    IconButton(onClick = { showSettings = !showSettings }) {
+                        Icon(
+                            if (showSettings) Icons.Default.Folder else Icons.Default.Settings,
+                            contentDescription = if (showSettings) "Show Files" else "Show Settings"
+                        )
                     }
                 }
             }
+
+            if (showSettings) {
+                SettingsScreen()
+            } else {
+                FilesScreen(
+                    repository = repository,
+                    onFileClick = { }
+                )
+            }
+        }
+
+        VerticalDivider()
+
+        // Middle panel: File preview (shared files screen with preview focus)
+        Column(
+            modifier = Modifier
+                .weight(1.5f)
+                .fillMaxHeight()
+        ) {
+            FilesScreen(
+                repository = repository,
+                onFileClick = { }
+            )
+        }
+
+        VerticalDivider()
+
+        // Right panel: Chat
+        Column(
+            modifier = Modifier
+                .weight(1.5f)
+                .fillMaxHeight()
+        ) {
+            ChatScreen(
+                onNavigateToFiles = { }
+            )
         }
     }
 }

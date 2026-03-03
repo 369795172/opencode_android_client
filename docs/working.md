@@ -125,3 +125,31 @@
 - 语音输入
 - SSH Tunnel
 - Session 变更文件列表
+
+### Sprint 完成记录 (2026-03-02)
+
+#### Bug 修复
+1. **Repository lazy re-init** — `okHttpClient`/`retrofit` 从 `by lazy` 改为 mutable + `rebuildClients()`，`configure()` 后重建实例
+2. **network_security_config** — 保留 `base-config cleartextTrafficPermitted="true"`（因 Android domain-config 不支持 IP 子网匹配），添加 Tailscale `ts.net` exception
+3. **SSE 无重连** — 添加 `retryWhen` 指数退避重连（1s 初始，30s 上限，2x 倍率）
+4. **主题切换未生效** — SettingsScreen → SettingsManager.themeMode → MainViewModel.themeMode → MainActivity.darkTheme → OpenCodeTheme 全链路打通
+
+#### 新功能
+1. **Markdown 渲染** — AI 消息使用 `com.mikepenz.markdown.m3.Markdown` composable；文件预览 `.md` 文件自动渲染
+2. **模型选择 UI** — TopBar 添加 `Icons.Default.Tune` 下拉菜单，从 providers API 获取可用模型
+3. **Context Usage 环形进度** — `ContextUsageRing` composable，绿 <70% / 橙 70-90% / 红 >90%
+4. **平板三栏布局** — `calculateWindowSizeClass()` 检测 `WindowWidthSizeClass.Expanded`，三栏 Row 布局（左: Files/Settings，中: 文件预览，右: Chat）
+
+#### AppState 扩展
+- `ModelOption(displayName, providerId, modelId)` 内部类
+- `ContextUsage(percentage, totalTokens, contextLimit)` 内部类
+- `availableModels` 计算属性：从 providers 提取模型列表
+- `contextUsage` 计算属性：从最后一条 assistant 消息的 tokens 与模型 context limit 计算
+
+#### 测试覆盖
+- `AppStateTest` 新增 14 个测试：availableModels（空/单/多 provider/null name）、contextUsage（空消息/无 tokens/无 model/provider 不匹配/limit 为 0/正常计算/clamp/阈值/最新消息优先）
+- 全部 unit test 通过（`./gradlew testDebugUnitTest` BUILD SUCCESSFUL）
+
+#### 文档更新
+- PRD.md 标记所有已完成功能 ✅，更新实现规划表
+- RFC.md 状态从 Draft → Accepted (Implemented)

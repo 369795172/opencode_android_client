@@ -1,6 +1,6 @@
 # RFC-001: OpenCode Android Client 技术方案
 
-> Request for Comments · Draft · Feb 2026
+> Request for Comments · Accepted · Mar 2026
 
 ## 元数据
 
@@ -8,8 +8,9 @@
 |------|------|
 | **RFC 编号** | RFC-001 |
 | **标题** | OpenCode Android Client 技术方案 |
-| **状态** | Draft |
+| **状态** | Accepted (Implemented) |
 | **创建日期** | 2026-02 |
+| **最后更新** | 2026-03-02 |
 | **PRD 引用** | [PRD.md](PRD.md) |
 
 ---

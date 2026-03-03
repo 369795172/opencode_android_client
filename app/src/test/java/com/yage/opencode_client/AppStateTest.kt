@@ -2,6 +2,7 @@ package com.yage.opencode_client
 
 import com.yage.opencode_client.ui.AppState
 import com.yage.opencode_client.data.model.*
+import com.yage.opencode_client.util.ThemeMode
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -27,6 +28,7 @@ class AppStateTest {
         assertTrue(state.pendingPermissions.isEmpty())
         assertEquals("", state.inputText)
         assertNull(state.error)
+        assertEquals(ThemeMode.SYSTEM, state.themeMode)
     }
     
     @Test
@@ -108,5 +110,264 @@ class AppStateTest {
         assertEquals(2, state.visibleAgents.size)
         assertEquals("Visible1", state.visibleAgents[0].name)
         assertEquals("Visible2", state.visibleAgents[1].name)
+    }
+
+    private fun makeProviders(vararg models: Triple<String, String, String?>): ProvidersResponse {
+        val providers = models.groupBy { it.first }.map { (providerId, group) ->
+            ConfigProvider(
+                id = providerId,
+                models = group.associate { (_, modelId, name) ->
+                    modelId to ProviderModel(id = modelId, name = name)
+                }
+            )
+        }
+        return ProvidersResponse(providers = providers)
+    }
+
+    @Test
+    fun `availableModels returns empty when providers is null`() {
+        val state = AppState(providers = null)
+        assertTrue(state.availableModels.isEmpty())
+    }
+
+    @Test
+    fun `availableModels returns empty when providers list is empty`() {
+        val state = AppState(providers = ProvidersResponse(providers = emptyList()))
+        assertTrue(state.availableModels.isEmpty())
+    }
+
+    @Test
+    fun `availableModels returns models from single provider`() {
+        val providers = makeProviders(
+            Triple("openai", "gpt-4", "GPT-4"),
+            Triple("openai", "gpt-3.5", null)
+        )
+        val state = AppState(providers = providers)
+        val models = state.availableModels
+
+        assertEquals(2, models.size)
+        assertEquals("GPT-4", models[0].displayName)
+        assertEquals("openai", models[0].providerId)
+        assertEquals("gpt-4", models[0].modelId)
+        assertEquals("gpt-3.5", models[1].displayName)
+    }
+
+    @Test
+    fun `availableModels returns models from multiple providers`() {
+        val providers = makeProviders(
+            Triple("openai", "gpt-4", "GPT-4"),
+            Triple("anthropic", "claude-3", "Claude 3")
+        )
+        val state = AppState(providers = providers)
+        val models = state.availableModels
+
+        assertEquals(2, models.size)
+        val providerIds = models.map { it.providerId }.toSet()
+        assertTrue(providerIds.contains("openai"))
+        assertTrue(providerIds.contains("anthropic"))
+    }
+
+    @Test
+    fun `availableModels uses model id as displayName when name is null`() {
+        val providers = makeProviders(Triple("provider1", "model-x", null))
+        val state = AppState(providers = providers)
+
+        assertEquals("model-x", state.availableModels[0].displayName)
+    }
+
+    private fun makeContextUsageState(
+        totalTokens: Int?,
+        providerId: String = "openai",
+        modelId: String = "gpt-4",
+        contextLimit: Int? = 128000
+    ): AppState {
+        val message = MessageWithParts(
+            info = Message(
+                id = "msg-1",
+                role = "assistant",
+                model = Message.ModelInfo(providerId = providerId, modelId = modelId),
+                tokens = Message.TokenInfo(total = totalTokens)
+            )
+        )
+        val providerModel = ProviderModel(
+            id = modelId,
+            limit = if (contextLimit != null) ProviderModelLimit(context = contextLimit) else null
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = providerId,
+                    models = mapOf(modelId to providerModel)
+                )
+            )
+        )
+        return AppState(messages = listOf(message), providers = providers)
+    }
+
+    @Test
+    fun `contextUsage returns null when no messages`() {
+        val state = AppState()
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when no assistant messages`() {
+        val userMessage = MessageWithParts(
+            info = Message(id = "msg-1", role = "user")
+        )
+        val state = AppState(messages = listOf(userMessage))
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when assistant has no tokens`() {
+        val message = MessageWithParts(
+            info = Message(id = "msg-1", role = "assistant", tokens = null)
+        )
+        val state = AppState(messages = listOf(message))
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when total tokens is null`() {
+        val message = MessageWithParts(
+            info = Message(
+                id = "msg-1",
+                role = "assistant",
+                tokens = Message.TokenInfo(total = null),
+                model = Message.ModelInfo("openai", "gpt-4")
+            )
+        )
+        val state = AppState(messages = listOf(message))
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when no resolvedModel`() {
+        val message = MessageWithParts(
+            info = Message(
+                id = "msg-1",
+                role = "assistant",
+                tokens = Message.TokenInfo(total = 50000)
+            )
+        )
+        val state = AppState(messages = listOf(message))
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when provider model not found`() {
+        val message = MessageWithParts(
+            info = Message(
+                id = "msg-1",
+                role = "assistant",
+                model = Message.ModelInfo(providerId = "unknown", modelId = "missing"),
+                tokens = Message.TokenInfo(total = 50000)
+            )
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "openai",
+                    models = mapOf(
+                        "gpt-4" to ProviderModel(
+                            id = "gpt-4",
+                            limit = ProviderModelLimit(context = 128000)
+                        )
+                    )
+                )
+            )
+        )
+        val state = AppState(messages = listOf(message), providers = providers)
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when context limit is zero`() {
+        val state = makeContextUsageState(totalTokens = 50000, contextLimit = 0)
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage returns null when context limit is null`() {
+        val state = makeContextUsageState(totalTokens = 50000, contextLimit = null)
+        assertNull(state.contextUsage)
+    }
+
+    @Test
+    fun `contextUsage calculates correct percentage`() {
+        val state = makeContextUsageState(totalTokens = 64000, contextLimit = 128000)
+        val usage = state.contextUsage
+
+        assertNotNull(usage)
+        assertEquals(0.5f, usage!!.percentage, 0.001f)
+        assertEquals(64000, usage.totalTokens)
+        assertEquals(128000, usage.contextLimit)
+    }
+
+    @Test
+    fun `contextUsage clamps percentage to 1f`() {
+        val state = makeContextUsageState(totalTokens = 200000, contextLimit = 128000)
+        val usage = state.contextUsage
+
+        assertNotNull(usage)
+        assertEquals(1.0f, usage!!.percentage, 0.001f)
+    }
+
+    @Test
+    fun `contextUsage uses last assistant message with tokens`() {
+        val oldAssistant = MessageWithParts(
+            info = Message(
+                id = "msg-1",
+                role = "assistant",
+                model = Message.ModelInfo("openai", "gpt-4"),
+                tokens = Message.TokenInfo(total = 10000)
+            )
+        )
+        val userMsg = MessageWithParts(
+            info = Message(id = "msg-2", role = "user")
+        )
+        val newAssistant = MessageWithParts(
+            info = Message(
+                id = "msg-3",
+                role = "assistant",
+                model = Message.ModelInfo("openai", "gpt-4"),
+                tokens = Message.TokenInfo(total = 90000)
+            )
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "openai",
+                    models = mapOf(
+                        "gpt-4" to ProviderModel(
+                            id = "gpt-4",
+                            limit = ProviderModelLimit(context = 128000)
+                        )
+                    )
+                )
+            )
+        )
+        val state = AppState(
+            messages = listOf(oldAssistant, userMsg, newAssistant),
+            providers = providers
+        )
+        val usage = state.contextUsage
+
+        assertNotNull(usage)
+        assertEquals(90000, usage!!.totalTokens)
+    }
+
+    @Test
+    fun `contextUsage near thresholds`() {
+        val lowUsage = makeContextUsageState(totalTokens = 60000, contextLimit = 128000)
+        assertTrue(lowUsage.contextUsage!!.percentage < 0.7f)
+
+        val midUsage = makeContextUsageState(totalTokens = 100000, contextLimit = 128000)
+        val midPct = midUsage.contextUsage!!.percentage
+        assertTrue(midPct >= 0.7f && midPct < 0.9f)
+
+        val highUsage = makeContextUsageState(totalTokens = 120000, contextLimit = 128000)
+        assertTrue(highUsage.contextUsage!!.percentage >= 0.9f)
     }
 }
