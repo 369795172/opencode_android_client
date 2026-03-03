@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext HTTP is permitted globally because this app connects to
+    user-specified OpenCode servers, typically on LAN IP addresses.
+    Android's domain-config cannot match arbitrary IPs by subnet.
+    The app shows a protocol warning in Settings when connecting via
+    HTTP to non-private addresses.
+    
+    Tailscale MagicDNS (*.ts.net) is explicitly listed as a known
+    safe domain for cleartext HTTP, matching the iOS ATS exception.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- Local development -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
-    <!-- Private network ranges -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.0.0</domain>
-        <domain includeSubdomains="true">10.0.0.0</domain>
-        <domain includeSubdomains="true">172.16.0.0</domain>
-    </domain-config>
-    <!-- Tailscale MagicDNS -->
-    <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">ts.net</domain>
     </domain-config>
 </network-security-config>
