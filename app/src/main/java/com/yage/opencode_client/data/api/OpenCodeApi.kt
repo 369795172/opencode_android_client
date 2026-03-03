@@ -65,7 +65,7 @@ interface OpenCodeApi {
     suspend fun getSessionTodos(@Path("id") sessionId: String): List<TodoItem>
 
     @GET("file")
-    suspend fun getFileTree(@Query("path") path: String? = null): List<FileNode>
+    suspend fun getFileTree(@Query("path") path: String? = ""): List<FileNode>
 
     @GET("file/content")
     suspend fun getFileContent(@Query("path") path: String): FileContent

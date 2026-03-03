@@ -172,6 +172,7 @@ class MainViewModel @Inject constructor(
                         selectSession(sessions.first().id)
                     } else if (currentId != null) {
                         loadSessionStatus()
+                        loadMessages(currentId)
                     }
                 }
         }
@@ -205,8 +206,11 @@ class MainViewModel @Inject constructor(
                         isLoadingMessages = false
                     )}
                 }
-                .onFailure {
-                    _state.update { it.copy(isLoadingMessages = false) }
+                .onFailure { e ->
+                    _state.update { it.copy(
+                        isLoadingMessages = false,
+                        error = "Failed to load messages: ${e.message}"
+                    )}
                 }
         }
     }

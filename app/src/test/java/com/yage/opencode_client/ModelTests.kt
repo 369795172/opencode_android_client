@@ -231,4 +231,30 @@ class ModelTests {
         assertEquals("always", PermissionResponse.ALWAYS.value)
         assertEquals("reject", PermissionResponse.REJECT.value)
     }
+
+    @Test
+    fun `MessageWithParts parses real API format`() {
+        // Minimal JSON matching actual API: GET /session/{id}/message
+        val apiJson = """
+            [{"info":{"id":"msg_1","role":"assistant","sessionID":"ses_1","parentID":"msg_0",
+            "providerID":"anthropic","modelID":"claude-opus-4-6","time":{"created":1772559632705,"completed":1772559683414},
+            "finish":"stop","tokens":{"total":100,"input":1,"output":99}},"parts":[
+            {"type":"step-start","snapshot":"abc123","id":"prt_1","sessionID":"ses_1","messageID":"msg_1"},
+            {"type":"reasoning","text":"Some reasoning content","metadata":{"anthropic":{"signature":"xyz"}},"id":"prt_2","sessionID":"ses_1","messageID":"msg_1"},
+            {"type":"text","text":"Hello world","id":"prt_3","sessionID":"ses_1","messageID":"msg_1"}
+            ]}]
+        """.trimIndent()
+        val list = json.decodeFromString<List<MessageWithParts>>(apiJson)
+        assertEquals(1, list.size)
+        val mwp = list[0]
+        assertEquals("msg_1", mwp.info.id)
+        assertEquals("assistant", mwp.info.role)
+        assertEquals("ses_1", mwp.info.sessionId)
+        assertEquals(3, mwp.parts.size)
+        assertEquals("step-start", mwp.parts[0].type)
+        assertEquals("reasoning", mwp.parts[1].type)
+        assertEquals("Some reasoning content", mwp.parts[1].text)
+        assertEquals("text", mwp.parts[2].type)
+        assertEquals("Hello world", mwp.parts[2].text)
+    }
 }

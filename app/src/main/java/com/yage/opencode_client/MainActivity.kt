@@ -22,6 +22,9 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,6 +84,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            LaunchedEffect(lifecycleOwner) {
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.testConnection()
+                }
+            }
             val state by viewModel.state.collectAsStateWithLifecycle()
             val darkTheme = when (state.themeMode) {
                 ThemeMode.LIGHT -> false
@@ -92,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
             OpenCodeTheme(darkTheme = darkTheme) {
                 if (isTablet) {
-                    TabletLayout(repository = repository, viewModel = viewModel)
+                    TabletLayout(viewModel = viewModel, repository = repository)
                 } else {
                     PhoneLayout(repository = repository)
                 }
@@ -169,16 +178,16 @@ private fun PhoneLayout(repository: OpenCodeRepository) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TabletLayout(repository: OpenCodeRepository, viewModel: MainViewModel) {
+private fun TabletLayout(viewModel: MainViewModel, repository: OpenCodeRepository) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val onOpenSettings: () -> Unit = { selectedTab = 1 }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Row(modifier = Modifier.fillMaxSize()) {
-        // Left panel: Workspace (Session list + Files) or Settings
+        // Left panel: Workspace (Session list) or Settings — 25%
         Column(
             modifier = Modifier
-                .weight(1f)
+                .weight(0.25f)
                 .fillMaxHeight()
         ) {
             TabRow(
@@ -202,44 +211,37 @@ private fun TabletLayout(repository: OpenCodeRepository, viewModel: MainViewMode
             if (selectedTab == 1) {
                 SettingsScreen()
             } else {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    SessionList(
-                        sessions = state.sessions,
-                        currentSessionId = state.currentSessionId,
-                        onSelectSession = { viewModel.selectSession(it) },
-                        onCreateSession = { viewModel.createSession() }
-                    )
-                    HorizontalDivider()
-                    Box(modifier = Modifier.weight(1f)) {
-                        FilesScreen(
-                            repository = repository,
-                            onFileClick = { }
-                        )
-                    }
-                }
+                SessionList(
+                    sessions = state.sessions,
+                    currentSessionId = state.currentSessionId,
+                    onSelectSession = { viewModel.selectSession(it) },
+                    onCreateSession = { viewModel.createSession() }
+                )
             }
         }
 
         VerticalDivider()
 
-        // Middle panel: File preview (shared files screen with preview focus)
+        // Middle panel: FilesScreen (file preview) — 37.5%
         Column(
             modifier = Modifier
-                .weight(1.5f)
+                .weight(0.375f)
                 .fillMaxHeight()
         ) {
             FilesScreen(
                 repository = repository,
-                onFileClick = { }
+                onFileClick = { path ->
+                    // Could show file in a viewer or do nothing
+                }
             )
         }
 
         VerticalDivider()
 
-        // Right panel: Chat
+        // Right panel: Chat — 37.5%
         Column(
             modifier = Modifier
-                .weight(1.5f)
+                .weight(0.375f)
                 .fillMaxHeight()
         ) {
             ChatScreen(
@@ -257,7 +259,7 @@ private fun SessionList(
     onSelectSession: (String) -> Unit,
     onCreateSession: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             tonalElevation = 0.dp,
@@ -280,7 +282,9 @@ private fun SessionList(
             }
         }
         LazyColumn(
-            modifier = Modifier.height(180.dp)
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
         ) {
             items(sessions, key = { it.id }) { session ->
                 val isSelected = session.id == currentSessionId

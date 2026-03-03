@@ -143,7 +143,7 @@ class OpenCodeRepository @Inject constructor() {
     }
 
     suspend fun getFileTree(path: String? = null): Result<List<FileNode>> = runCatching {
-        api.getFileTree(path)
+        api.getFileTree(path ?: "")
     }
 
     suspend fun getFileContent(path: String): Result<FileContent> = runCatching {

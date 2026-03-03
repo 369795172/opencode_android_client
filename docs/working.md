@@ -182,3 +182,15 @@
 - **Session 列表**：Workspace Tab 顶部显示 Session 列表（含 New 按钮），下方为文件树
 - **消息空状态**：Chat 无消息时显示 "No messages yet. Send a message to start."
 - **Session.displayName**：提取 session 显示名逻辑为扩展属性，优先 title → directory 末段 → id
+
+### 平板布局简化 (2026-03-03 续)
+- **移除文件树**：左侧面板仅保留 Workspace（Session 列表）和 Settings，移除左下角 file tree
+- **恢复中间栏**：三栏布局保留，中栏为 FilesScreen（文件预览），右栏为 Chat
+- **栏宽比例**：左 25%、中 37.5%、右 37.5%
+- **消息加载错误**：loadMessages 失败时在 UI 显示具体错误信息，便于排查 API 解析问题
+- **/file path 参数**：getFileTree 传空字符串替代 null，部分服务端要求 path 参数存在
+
+### 自动连接与消息加载 (2026-03-03 续)
+- **自动连接**：App 启动及回到前台时自动调用 testConnection()，无需手动点 Settings → Test Connection
+- **消息加载修复**：loadSessions 成功且已有 currentSessionId 时，同时调用 loadMessages(currentId)，修复「No messages yet」问题
+- **MessageWithParts 解析测试**：ModelTests 新增 `MessageWithParts parses real API format`，验证 info/parts 与真实 API 响应格式一致
