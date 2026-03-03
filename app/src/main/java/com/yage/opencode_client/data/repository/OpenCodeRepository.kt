@@ -1,5 +1,6 @@
 package com.yage.opencode_client.data.repository
 
+import android.util.Log
 import com.yage.opencode_client.data.api.*
 import com.yage.opencode_client.data.model.*
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,8 @@ class OpenCodeRepository @Inject constructor() {
         ignoreUnknownKeys = true
         isLenient = true
         coerceInputValues = true
+        explicitNulls = false  // Omit null fields - server rejects model: null
+        encodeDefaults = true  // Include type in parts - server needs discriminator
     }
 
     private var okHttpClient: OkHttpClient = buildOkHttpClient()
@@ -111,7 +114,12 @@ class OpenCodeRepository @Inject constructor() {
             agent = agent,
             model = model?.let { PromptRequest.ModelInput(it.providerId, it.modelId) }
         )
-        api.promptAsync(sessionId, request)
+        val response = api.promptAsync(sessionId, request)
+        if (!response.isSuccessful) {
+            val errorBody = response.errorBody()?.string() ?: response.message()
+            Log.e("OpenCode", "sendMessage failed: ${response.code()} $errorBody")
+            throw Exception("Send failed ${response.code()}: $errorBody")
+        }
     }
 
     suspend fun abortSession(sessionId: String): Result<Unit> = runCatching {

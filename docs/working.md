@@ -240,3 +240,13 @@
 ### Markdown 标题字号 (2026-03-03 续)
 - **标题缩小**：Markdown 渲染使用 `markdownTypographyCompact()`，h1-h6 各缩小一号（h1 用 headlineLarge、h2 用 headlineMedium 等）；Chat 消息、ReasoningCard、Files 预览均生效
 - **可定制**：`com.mikepenz.markdown.m3.markdownTypography` 支持 h1-h6、text、code、quote 等参数，可在 Type.kt 的 `markdownTypographyCompact()` 中调整
+
+### 发送消息修复 (2026-03-03 续)
+- **promptAsync 错误处理**：Retrofit 4xx/5xx 不抛异常，需检查 `response.isSuccessful`；失败时抛出异常并显示给用户
+- **model: null 序列化**：服务器不接受 `model: null`，Json 配置 `explicitNulls = false` 省略 null 字段
+- **parts type discriminator**：服务器需要 `type` 字段区分 Part 类型，Json 配置 `encodeDefaults = true` 确保序列化默认值
+- **消息更新及时性**：sendMessage 成功后立即 loadMessagesWithRetry；session.status 变为 idle 时 loadMessagesWithRetry；session busy 时每 2 秒轮询 loadMessages 作为 SSE 补充
+
+### 状态栏 insets (2026-03-03 续)
+- **Scaffold contentWindowInsets**：PhoneLayout 添加 `WindowInsets.statusBars`，避免内容与状态栏重叠
+- **TabletLayout**：Row 添加 `windowInsetsPadding(WindowInsets.statusBars)`，Sessions 标题不再与状态栏重叠

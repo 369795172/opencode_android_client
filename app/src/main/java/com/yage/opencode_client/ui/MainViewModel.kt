@@ -9,6 +9,7 @@ import com.yage.opencode_client.util.SettingsManager
 import com.yage.opencode_client.util.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -96,6 +97,7 @@ class MainViewModel @Inject constructor(
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     private var sseJob: Job? = null
+    private var pollJob: Job? = null
 
     init {
         loadSettings()
@@ -146,6 +148,7 @@ class MainViewModel @Inject constructor(
                     if (health.healthy) {
                         loadInitialData()
                         startSSE()
+                        startBusyPolling()
                     }
                 }
                 .onFailure { e ->
@@ -202,19 +205,38 @@ class MainViewModel @Inject constructor(
             val limit = if (resetLimit) 6 else _state.value.messageLimit
             repository.getMessages(sessionId, limit)
                 .onSuccess { messages ->
-                    _state.update { it.copy(
-                        messages = messages,
-                        messageLimit = limit,
-                        isLoadingMessages = false
-                    )}
+                    if (sessionId == _state.value.currentSessionId) {
+                        _state.update { it.copy(
+                            messages = messages,
+                            messageLimit = limit,
+                            isLoadingMessages = false
+                        )}
+                    } else {
+                        Log.d("MainViewModel", "loadMessages ignored stale result sessionId=$sessionId current=${_state.value.currentSessionId}")
+                        _state.update { it.copy(isLoadingMessages = false) }
+                    }
                 }
                 .onFailure { e ->
                     Log.e("MainViewModel", "loadMessages failed: ${e.message}", e)
-                    _state.update { it.copy(
-                        isLoadingMessages = false,
-                        error = "Failed to load messages: ${e.message}"
-                    )}
+                    if (sessionId == _state.value.currentSessionId) {
+                        _state.update { it.copy(
+                            isLoadingMessages = false,
+                            error = "Failed to load messages: ${e.message}"
+                        )}
+                    } else {
+                        _state.update { it.copy(isLoadingMessages = false) }
+                    }
                 }
+        }
+    }
+
+    /** Load messages with short delay when triggered by SSE (server may need time to persist). */
+    private fun loadMessagesWithRetry(sessionId: String, resetLimit: Boolean = true) {
+        viewModelScope.launch {
+            delay(150)
+            if (sessionId == _state.value.currentSessionId) {
+                loadMessages(sessionId, resetLimit)
+            }
         }
     }
 
@@ -311,7 +333,8 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             repository.sendMessage(sessionId, text, agent, model)
                 .onSuccess {
-                    _state.update { it.copy(inputText = "") }
+                    _state.update { it.copy(inputText = "", error = null) }
+                    loadMessagesWithRetry(sessionId)
                 }
                 .onFailure { e ->
                     _state.update { it.copy(error = e.message) }
@@ -379,6 +402,19 @@ class MainViewModel @Inject constructor(
         _state.update { it.copy(filePathToShowInFiles = null) }
     }
 
+    /** Poll loadMessages every 2s when session is busy, as SSE fallback. */
+    private fun startBusyPolling() {
+        pollJob?.cancel()
+        pollJob = viewModelScope.launch {
+            while (true) {
+                delay(2000)
+                val sessionId = _state.value.currentSessionId ?: continue
+                if (!_state.value.isCurrentSessionBusy) continue
+                loadMessages(sessionId, resetLimit = false)
+            }
+        }
+    }
+
     private fun startSSE() {
         sseJob?.cancel()
         sseJob = viewModelScope.launch {
@@ -419,13 +455,14 @@ class MainViewModel @Inject constructor(
                             streamingPartTexts = emptyMap(),
                             streamingReasoningPart = null
                         )}
+                        loadMessagesWithRetry(sessionId, resetLimit = false)
                     }
                 } catch (e: Exception) { }
             }
             "message.created" -> {
                 val sessionId = event.payload.getString("sessionID")
-                if (sessionId == _state.value.currentSessionId) {
-                    loadMessages(sessionId!!)
+                if (sessionId != null && sessionId == _state.value.currentSessionId) {
+                    loadMessagesWithRetry(sessionId)
                 }
             }
             "message.part.updated" -> {
@@ -447,7 +484,7 @@ class MainViewModel @Inject constructor(
                     )}
                 } else {
                     _state.update { it.copy(streamingPartTexts = emptyMap(), streamingReasoningPart = null) }
-                    loadMessages(sessionId!!, resetLimit = false)
+                    loadMessagesWithRetry(sessionId!!, resetLimit = false)
                 }
                 }
             }
@@ -460,5 +497,6 @@ class MainViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         sseJob?.cancel()
+        pollJob?.cancel()
     }
 }

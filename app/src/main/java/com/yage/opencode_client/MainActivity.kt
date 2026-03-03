@@ -25,6 +25,9 @@ import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -121,6 +124,7 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
     val currentRoute = navBackStackEntry?.destination?.route
 
     Scaffold(
+        contentWindowInsets = WindowInsets.statusBars,
         bottomBar = {
             NavigationBar {
                 screens.forEach { screen ->
@@ -193,7 +197,11 @@ private fun TabletLayout(viewModel: MainViewModel, repository: OpenCodeRepositor
     val onOpenSettings: () -> Unit = { selectedTab = 1 }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    Row(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+        ) {
         // Left panel: Session list or Settings — 25% (no tabs on tablet)
         Column(
             modifier = Modifier

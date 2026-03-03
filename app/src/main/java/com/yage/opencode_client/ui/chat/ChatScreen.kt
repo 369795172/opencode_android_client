@@ -631,7 +631,10 @@ private fun ToolCard(
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (isRunning) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
@@ -647,9 +650,9 @@ private fun ToolCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = toolName.ifEmpty { reason ?: "tool" },
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f, fill = false)
+                    style = MaterialTheme.typography.labelLarge
                 )
+                Spacer(modifier = Modifier.weight(1f))
                 if (firstFile != null) {
                     IconButton(
                         onClick = { onFileClick(firstFile) },
