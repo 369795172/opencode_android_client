@@ -153,3 +153,21 @@
 #### 文档更新
 - PRD.md 标记所有已完成功能 ✅，更新实现规划表
 - RFC.md 状态从 Draft → Accepted (Implemented)
+
+---
+
+## 2026-03-03
+
+### 构建环境
+- 重新生成 Gradle wrapper（gradle-wrapper.jar 缺失），Gradle 9.3.1
+- 新增 gradle.properties：JVM 内存 `-Xmx16g`（适配 128GB+ 机器，避免 GC thrashing）
+- .gitignore 添加 `!gradle.properties` 以提交构建配置
+
+### 依赖升级
+- AGP 9.0.1 → 9.1.0
+- Kotlin 2.0.21 → 2.2.10
+
+### UI 改进
+- **Settings 入口**：Chat TopBar 右侧添加齿轮图标，点击可进入 Settings（解决 Fold 平板布局下底部导航栏不可见、Connect/Settings 点击无反应的问题）
+- **Connect 按钮**：增大触摸区域（`minimumInteractiveComponentSize` + padding），提升大屏设备可点性
+- **TabletLayout**：hoist `showSettings` 状态，支持从 Chat 面板直接打开 Settings
