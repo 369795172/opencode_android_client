@@ -412,15 +412,55 @@ private fun MessageRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
     ) {
-        message.parts.forEach { part ->
+        var i = 0
+        while (i < message.parts.size) {
+            val part = message.parts[i]
             val streamingKey = "${message.info.id}:${part.id}"
             val streamingText = streamingPartTexts[streamingKey]
-            PartView(
-                part = part,
-                isUser = isUser,
-                streamingTextOverride = streamingText,
-                onFileClick = onFileClick
-            )
+            when {
+                part.isTool -> {
+                    val next = message.parts.getOrNull(i + 1)
+                    if (next != null && next.isTool) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            PartView(part, isUser, streamingText, onFileClick, Modifier.weight(1f))
+                            PartView(next, isUser, streamingPartTexts["${message.info.id}:${next.id}"], onFileClick, Modifier.weight(1f))
+                        }
+                        i += 2
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            PartView(part, isUser, streamingText, onFileClick, Modifier.weight(1f))
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                        i += 1
+                    }
+                }
+                part.isPatch && part.filePathsForNavigationFiltered.isNotEmpty() -> {
+                    val next = message.parts.getOrNull(i + 1)
+                    if (next != null && next.isPatch && next.filePathsForNavigationFiltered.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            PartView(part, isUser, streamingText, onFileClick, Modifier.weight(1f))
+                            PartView(next, isUser, streamingPartTexts["${message.info.id}:${next.id}"], onFileClick, Modifier.weight(1f))
+                        }
+                        i += 2
+                    } else {
+                        PartView(part, isUser, streamingText, onFileClick, Modifier.fillMaxWidth())
+                        i += 1
+                    }
+                }
+                else -> {
+                    PartView(part, isUser, streamingText, onFileClick, Modifier.fillMaxWidth())
+                    i += 1
+                }
+            }
         }
     }
 }
@@ -430,20 +470,23 @@ private fun PartView(
     part: Part,
     isUser: Boolean,
     streamingTextOverride: String?,
-    onFileClick: (String) -> Unit
+    onFileClick: (String) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     when {
         part.isText -> {
             TextPart(
                 text = streamingTextOverride ?: part.text ?: "",
-                isUser = isUser
+                isUser = isUser,
+                modifier = modifier
             )
         }
         part.isReasoning -> {
             ReasoningCard(
                 text = streamingTextOverride ?: part.text ?: "",
                 title = part.toolReason,
-                isStreaming = false
+                isStreaming = false,
+                modifier = modifier
             )
         }
         part.isTool -> {
@@ -451,17 +494,16 @@ private fun PartView(
                 toolName = part.tool ?: "",
                 status = part.stateDisplay,
                 reason = part.toolReason,
-                input = part.toolInputSummary,
-                output = part.toolOutput,
-                todos = part.toolTodos,
                 filePaths = part.filePathsForNavigationFiltered,
-                onFileClick = onFileClick
+                onFileClick = onFileClick,
+                modifier = modifier
             )
         }
         part.isPatch && part.filePathsForNavigationFiltered.isNotEmpty() -> {
             PatchCard(
                 filePaths = part.filePathsForNavigationFiltered,
-                onFileClick = onFileClick
+                onFileClick = onFileClick,
+                modifier = modifier
             )
         }
     }
@@ -470,11 +512,10 @@ private fun PartView(
 @Composable
 private fun TextPart(
     text: String,
-    isUser: Boolean
+    isUser: Boolean,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
-    val modifier = Modifier
-        .fillMaxWidth()
-        .then(
+    val innerModifier = modifier.then(
             if (isUser) Modifier.background(
                 UserMessageBackground,
                 RoundedCornerShape(8.dp)
@@ -485,13 +526,13 @@ private fun TextPart(
     if (isUser) {
         Text(
             text = text,
-            modifier = modifier,
+            modifier = innerModifier,
             style = MaterialTheme.typography.bodyMedium
         )
     } else {
         Markdown(
             content = text,
-            modifier = modifier
+            modifier = innerModifier
         )
     }
 }
@@ -500,7 +541,8 @@ private fun TextPart(
 private fun ReasoningCard(
     text: String,
     title: String?,
-    isStreaming: Boolean = false
+    isStreaming: Boolean = false,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     var expanded by remember { mutableStateOf(isStreaming) }
 
@@ -509,9 +551,7 @@ private fun ReasoningCard(
     }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = modifier.padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
@@ -562,19 +602,16 @@ private fun ToolCard(
     toolName: String,
     status: String?,
     reason: String?,
-    input: String?,
-    output: String?,
-    todos: List<TodoItem>,
     filePaths: List<String>,
-    onFileClick: (String) -> Unit
+    onFileClick: (String) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     val isRunning = status == "running"
     var expanded by remember { mutableStateOf(isRunning) }
+    val firstFile = filePaths.firstOrNull()
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = modifier.padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
         )
@@ -596,9 +633,21 @@ private fun ToolCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = toolName.ifEmpty { reason ?: "tool" },
-                    style = MaterialTheme.typography.labelLarge
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
-                Spacer(modifier = Modifier.weight(1f))
+                if (firstFile != null) {
+                    IconButton(
+                        onClick = { onFileClick(firstFile) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.OpenInNew,
+                            contentDescription = "Show in Files",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { expanded = !expanded },
                     modifier = Modifier.size(24.dp)
@@ -611,106 +660,32 @@ private fun ToolCard(
                 }
             }
 
-            filePaths.chunked(2).forEach { pair ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    pair.forEach { path ->
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = path.substringAfterLast("/").ifEmpty { path },
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            IconButton(
-                                onClick = { onFileClick(path) },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.OpenInNew,
-                                    contentDescription = "Show in Files",
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                    if (pair.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-
-            if (expanded) {
+            if (expanded && filePaths.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
-
-                input?.let {
-                    Text(
-                        "Input:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-
-                if (todos.isNotEmpty()) {
-                    Text(
-                        "Tasks:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    todos.forEach { todo ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 2.dp)
+                filePaths.forEach { path ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = path,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { onFileClick(path) },
+                            modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
-                                if (todo.isCompleted) Icons.Default.CheckCircle else Icons.Default.Circle,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (todo.isCompleted)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                todo.content,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (todo.isCompleted)
-                                    MaterialTheme.colorScheme.outline
-                                else
-                                    MaterialTheme.colorScheme.onSurface
+                                Icons.Default.OpenInNew,
+                                contentDescription = "Show in Files",
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
-                }
-
-                output?.let {
-                    Text(
-                        "Output:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
                 }
             }
         }
@@ -720,12 +695,11 @@ private fun ToolCard(
 @Composable
 private fun PatchCard(
     filePaths: List<String>,
-    onFileClick: (String) -> Unit
+    onFileClick: (String) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = modifier.padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
         )

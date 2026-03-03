@@ -223,5 +223,6 @@
 
 ### UI 改进 (2026-03-03 续)
 - **Tool 卡片**：标题改为扳手图标 + tool 类型（read/patch/bash）；文件路径两列并排，不展开也显示「Show in Files」图标；展开后显示 Input/Tasks/Output
+- **Tool/Patch 布局**：一行显示两个 tool（或两个 patch），并排；Tool 收起时仅显示类型 + 打开图标，展开后仅显示文件名列表（不显示 Input/Output）
 - **Files 文件预览**：查看文件时隐藏 Files TopAppBar，仅保留 FileContentViewer 的 TopAppBar（叉号+文件名），去除中间大块空白
 - **文件跳转调试**：FilesScreen 与 MainViewModel 添加 Log.d 便于 logcat 排查 pathToShow/relPath；路径规范化（trimStart('/')）兼容有无前导斜杠；空目录显示 "Directory (empty or path not found)"
