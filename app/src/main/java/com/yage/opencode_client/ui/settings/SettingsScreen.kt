@@ -238,8 +238,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        var selectedTheme by remember { mutableStateOf(ThemeMode.SYSTEM) }
-
         Column {
             ThemeMode.values().forEach { mode ->
                 Row(
@@ -249,8 +247,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
-                        selected = selectedTheme == mode,
-                        onClick = { selectedTheme = mode }
+                        selected = state.themeMode == mode,
+                        onClick = { viewModel.setThemeMode(mode) }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(

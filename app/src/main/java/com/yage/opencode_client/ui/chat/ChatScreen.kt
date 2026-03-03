@@ -17,7 +17,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.mikepenz.markdown.m3.Markdown
 import com.yage.opencode_client.data.model.*
+import com.yage.opencode_client.ui.AppState
 import com.yage.opencode_client.ui.MainViewModel
 import com.yage.opencode_client.ui.theme.UserMessageBackground
 
@@ -36,10 +38,14 @@ fun ChatScreen(
             isBusy = state.isCurrentSessionBusy,
             agents = state.visibleAgents,
             selectedAgent = state.selectedAgentName,
+            availableModels = state.availableModels,
+            selectedModelIndex = state.selectedModelIndex,
+            contextUsage = state.contextUsage,
             onSelectSession = { viewModel.selectSession(it) },
             onCreateSession = { viewModel.createSession() },
             onAbort = { viewModel.abortSession() },
-            onSelectAgent = { viewModel.selectAgent(it) }
+            onSelectAgent = { viewModel.selectAgent(it) },
+            onSelectModel = { viewModel.selectModel(it) }
         )
 
         Box(modifier = Modifier.weight(1f)) {
@@ -99,13 +105,18 @@ private fun TopBar(
     isBusy: Boolean,
     agents: List<AgentInfo>,
     selectedAgent: String,
+    availableModels: List<AppState.ModelOption>,
+    selectedModelIndex: Int,
+    contextUsage: AppState.ContextUsage?,
     onSelectSession: (String) -> Unit,
     onCreateSession: () -> Unit,
     onAbort: () -> Unit,
-    onSelectAgent: (String) -> Unit
+    onSelectAgent: (String) -> Unit,
+    onSelectModel: (Int) -> Unit
 ) {
     var showSessionMenu by remember { mutableStateOf(false) }
     var showAgentMenu by remember { mutableStateOf(false) }
+    var showModelMenu by remember { mutableStateOf(false) }
 
     TopAppBar(
         title = {
@@ -113,6 +124,37 @@ private fun TopBar(
             Text(currentSession?.title ?: currentSession?.directory?.split("/")?.lastOrNull() ?: "OpenCode")
         },
         actions = {
+            contextUsage?.let { usage ->
+                ContextUsageRing(usage = usage)
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+
+            IconButton(onClick = { showModelMenu = true }) {
+                Icon(Icons.Default.Tune, contentDescription = "Model")
+            }
+            DropdownMenu(
+                expanded = showModelMenu,
+                onDismissRequest = { showModelMenu = false }
+            ) {
+                availableModels.forEachIndexed { index, model ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                model.displayName,
+                                color = if (index == selectedModelIndex)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = {
+                            onSelectModel(index)
+                            showModelMenu = false
+                        }
+                    )
+                }
+            }
+
             IconButton(onClick = { showAgentMenu = true }) {
                 Icon(Icons.Default.SmartToy, contentDescription = "Agent")
             }
@@ -172,6 +214,33 @@ private fun TopBar(
             }
         }
     )
+}
+
+@Composable
+private fun ContextUsageRing(usage: AppState.ContextUsage) {
+    val ringColor = when {
+        usage.percentage >= 0.9f -> MaterialTheme.colorScheme.error
+        usage.percentage >= 0.7f -> Color(0xFFFFA726)
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Box(
+        modifier = Modifier.size(28.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(
+            progress = { 1f },
+            modifier = Modifier.size(22.dp),
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+            strokeWidth = 3.dp
+        )
+        CircularProgressIndicator(
+            progress = { usage.percentage },
+            modifier = Modifier.size(22.dp),
+            color = ringColor,
+            strokeWidth = 3.dp
+        )
+    }
 }
 
 @Composable
@@ -314,19 +383,28 @@ private fun TextPart(
     text: String,
     isUser: Boolean
 ) {
-    Text(
-        text = text,
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (isUser) Modifier.background(
-                    UserMessageBackground,
-                    RoundedCornerShape(8.dp)
-                ) else Modifier
-            )
-            .padding(12.dp),
-        style = MaterialTheme.typography.bodyMedium
-    )
+    val modifier = Modifier
+        .fillMaxWidth()
+        .then(
+            if (isUser) Modifier.background(
+                UserMessageBackground,
+                RoundedCornerShape(8.dp)
+            ) else Modifier
+        )
+        .padding(12.dp)
+
+    if (isUser) {
+        Text(
+            text = text,
+            modifier = modifier,
+            style = MaterialTheme.typography.bodyMedium
+        )
+    } else {
+        Markdown(
+            content = text,
+            modifier = modifier
+        )
+    }
 }
 
 @Composable

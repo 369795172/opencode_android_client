@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.yage.opencode_client.data.model.*
 import com.yage.opencode_client.data.repository.OpenCodeRepository
 import com.yage.opencode_client.util.SettingsManager
+import com.yage.opencode_client.util.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -33,8 +34,13 @@ data class AppState(
     val providers: ProvidersResponse? = null,
     val pendingPermissions: List<PermissionRequest> = emptyList(),
     val inputText: String = "",
-    val error: String? = null
+    val error: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 ) {
+    data class ModelOption(val displayName: String, val providerId: String, val modelId: String)
+
+    data class ContextUsage(val percentage: Float, val totalTokens: Int, val contextLimit: Int)
+
     val currentSession: Session?
         get() = sessions.find { it.id == currentSessionId }
 
@@ -46,6 +52,41 @@ data class AppState(
 
     val visibleAgents: List<AgentInfo>
         get() = agents.filter { it.isVisible }
+
+    val availableModels: List<ModelOption>
+        get() = providers?.providers?.flatMap { provider ->
+            provider.models.map { (_, model) ->
+                ModelOption(
+                    displayName = model.name ?: model.id,
+                    providerId = provider.id,
+                    modelId = model.id
+                )
+            }
+        } ?: emptyList()
+
+    private val providerModelsIndex: Map<String, ProviderModel>
+        get() = providers?.providers?.flatMap { provider ->
+            provider.models.map { (_, model) ->
+                "${provider.id}/${model.id}" to model
+            }
+        }?.toMap() ?: emptyMap()
+
+    val contextUsage: ContextUsage?
+        get() {
+            val lastAssistant = messages.lastOrNull { it.info.isAssistant && it.info.tokens != null }
+                ?: return null
+            val tokens = lastAssistant.info.tokens ?: return null
+            val total = tokens.total ?: return null
+            val model = lastAssistant.info.resolvedModel ?: return null
+            val key = "${model.providerId}/${model.modelId}"
+            val limit = providerModelsIndex[key]?.limit?.context ?: return null
+            if (limit <= 0) return null
+            return ContextUsage(
+                percentage = (total.toFloat() / limit.toFloat()).coerceIn(0f, 1f),
+                totalTokens = total,
+                contextLimit = limit
+            )
+        }
 }
 
 @HiltViewModel
@@ -72,7 +113,8 @@ class MainViewModel @Inject constructor(
         _state.update { it.copy(
             currentSessionId = settingsManager.currentSessionId,
             selectedModelIndex = settingsManager.selectedModelIndex,
-            selectedAgentName = settingsManager.selectedAgentName ?: "build"
+            selectedAgentName = settingsManager.selectedAgentName ?: "build",
+            themeMode = settingsManager.themeMode
         )}
     }
 
@@ -249,7 +291,10 @@ class MainViewModel @Inject constructor(
         if (text.isEmpty()) return
 
         val agent = _state.value.selectedAgentName
-        val model = _state.value.providers?.default?.let { 
+        val selectedModel = _state.value.availableModels.getOrNull(_state.value.selectedModelIndex)
+        val model = selectedModel?.let {
+            Message.ModelInfo(it.providerId, it.modelId)
+        } ?: _state.value.providers?.default?.let {
             Message.ModelInfo(it.providerId, it.modelId)
         }
 
@@ -283,6 +328,11 @@ class MainViewModel @Inject constructor(
     fun selectModel(index: Int) {
         settingsManager.selectedModelIndex = index
         _state.update { it.copy(selectedModelIndex = index) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        settingsManager.themeMode = mode
+        _state.update { it.copy(themeMode = mode) }
     }
 
     fun respondPermission(sessionId: String, permissionId: String, response: PermissionResponse) {
