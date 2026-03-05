@@ -20,7 +20,7 @@ class AppStateTest {
         assertNull(state.currentSessionId)
         assertTrue(state.sessionStatuses.isEmpty())
         assertTrue(state.messages.isEmpty())
-        assertEquals(6, state.messageLimit)
+        assertEquals(30, state.messageLimit)
         assertFalse(state.isLoadingMessages)
         assertTrue(state.agents.isEmpty())
         assertEquals("build", state.selectedAgentName)

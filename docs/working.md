@@ -264,3 +264,9 @@
 - **根背景**：Theme 根布局用 `Surface(color = colorScheme.background)` 包裹，确保整屏背景随主题正确切换
 - **动态颜色**：API 31+ 使用 dynamicLight/darkColorScheme，API 30 及以下用 light/darkColorScheme
 - **主题模式**：从 UiModeManager 读取，替代 LocalConfiguration.uiMode
+
+### Tool 布局与 Agent/Model 同步 (2026-03-03 续)
+- **Tool 卡片最多两列**：连续 tool/patch 用 chunked(2) 分行，每行最多两列
+- **Model/Agent 高亮修复**：loadMessages 成功后从最后一条 assistant 消息同步 selectedModelIndex 和 selectedAgentName，下拉菜单正确高亮当前 session 的 model 与 agent
+- **Message.agent**：解析 API 返回的 agent 字段
+- **消息分页**：初始加载 30 条，上滑时自动 loadMore（每次 +30），messages.size < messageLimit 时不再触发

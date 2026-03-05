@@ -23,6 +23,7 @@ data class Message(
     @SerialName("providerID") val providerId: String? = null,
     @SerialName("modelID") val modelId: String? = null,
     val model: ModelInfo? = null,
+    val agent: String? = null,
     val error: MessageError? = null,
     val time: TimeInfo? = null,
     val finish: String? = null,

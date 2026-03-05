@@ -73,6 +73,7 @@ fun ChatScreen(
                     streamingPartTexts = state.streamingPartTexts,
                     streamingReasoningPart = state.streamingReasoningPart,
                     isLoading = state.isLoadingMessages,
+                    messageLimit = state.messageLimit,
                     onLoadMore = { viewModel.loadMoreMessages() },
                     onFileClick = onNavigateToFiles
                 )
@@ -336,15 +337,32 @@ private fun MessageList(
     streamingPartTexts: Map<String, String>,
     streamingReasoningPart: Part?,
     isLoading: Boolean,
+    messageLimit: Int,
     onLoadMore: () -> Unit,
     onFileClick: (String) -> Unit
 ) {
     val listState = rememberLazyListState()
+    val layoutInfo = listState.layoutInfo
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(0)
         }
+    }
+
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            if (isLoading || messages.isEmpty()) return@derivedStateOf false
+            if (messages.size < messageLimit) return@derivedStateOf false
+            val visible = layoutInfo.visibleItemsInfo
+            if (visible.isEmpty()) return@derivedStateOf false
+            val total = layoutInfo.totalItemsCount
+            val lastVisible = visible.maxOfOrNull { it.index } ?: return@derivedStateOf false
+            lastVisible >= total - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value) onLoadMore()
     }
 
     LazyColumn(
@@ -437,21 +455,23 @@ private fun MessageRow(
                         j++
                     } else break
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    run.forEach { p ->
-                        PartView(
-                            p,
-                            isUser,
-                            streamingPartTexts["${message.info.id}:${p.id}"],
-                            onFileClick,
-                            Modifier.weight(1f)
-                        )
-                    }
-                    if (run.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
+                run.chunked(2).forEach { chunk ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        chunk.forEach { p ->
+                            PartView(
+                                p,
+                                isUser,
+                                streamingPartTexts["${message.info.id}:${p.id}"],
+                                onFileClick,
+                                Modifier.weight(1f)
+                            )
+                        }
+                        if (chunk.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
                 i = j

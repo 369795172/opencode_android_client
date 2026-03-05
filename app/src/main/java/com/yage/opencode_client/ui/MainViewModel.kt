@@ -28,7 +28,7 @@ data class AppState(
     val currentSessionId: String? = null,
     val sessionStatuses: Map<String, SessionStatus> = emptyMap(),
     val messages: List<MessageWithParts> = emptyList(),
-    val messageLimit: Int = 6,
+    val messageLimit: Int = 30,
     val isLoadingMessages: Boolean = false,
     val agents: List<AgentInfo> = emptyList(),
     val selectedAgentName: String = "build",
@@ -197,7 +197,7 @@ class MainViewModel @Inject constructor(
         _state.update { it.copy(
             currentSessionId = sessionId,
             messages = emptyList(),
-            messageLimit = 6
+            messageLimit = 30
         )}
         loadMessages(sessionId)
         loadSessionStatus()
@@ -206,14 +206,23 @@ class MainViewModel @Inject constructor(
     fun loadMessages(sessionId: String, resetLimit: Boolean = true) {
         viewModelScope.launch {
             _state.update { it.copy(isLoadingMessages = true) }
-            val limit = if (resetLimit) 6 else _state.value.messageLimit
+            val limit = if (resetLimit) 30 else _state.value.messageLimit
             repository.getMessages(sessionId, limit)
                 .onSuccess { messages ->
                     if (sessionId == _state.value.currentSessionId) {
+                        val lastAssistant = messages.lastOrNull { it.info.isAssistant }
+                        val modelIndex = lastAssistant?.info?.resolvedModel?.let { model ->
+                            ModelPresets.list.indexOfFirst {
+                                it.providerId == model.providerId && it.modelId == model.modelId
+                            }.takeIf { it >= 0 }
+                        }
+                        val agentName = lastAssistant?.info?.agent
                         _state.update { it.copy(
                             messages = messages,
                             messageLimit = limit,
-                            isLoadingMessages = false
+                            isLoadingMessages = false,
+                            selectedModelIndex = modelIndex ?: it.selectedModelIndex,
+                            selectedAgentName = agentName ?: it.selectedAgentName
                         )}
                     } else {
                         Log.d("MainViewModel", "loadMessages ignored stale result sessionId=$sessionId current=${_state.value.currentSessionId}")
@@ -246,14 +255,26 @@ class MainViewModel @Inject constructor(
 
     fun loadMoreMessages() {
         val sessionId = _state.value.currentSessionId ?: return
-        val newLimit = _state.value.messageLimit + 6
+        if (_state.value.isLoadingMessages) return
+        val newLimit = _state.value.messageLimit + 30
         viewModelScope.launch {
+            _state.update { it.copy(isLoadingMessages = true) }
             repository.getMessages(sessionId, newLimit)
                 .onSuccess { messages ->
-                    _state.update { it.copy(
-                        messages = messages,
-                        messageLimit = newLimit
-                    )}
+                    if (sessionId == _state.value.currentSessionId) {
+                        _state.update { it.copy(
+                            messages = messages,
+                            messageLimit = newLimit,
+                            isLoadingMessages = false
+                        )}
+                    } else {
+                        _state.update { it.copy(isLoadingMessages = false) }
+                    }
+                }
+                .onFailure {
+                    if (sessionId == _state.value.currentSessionId) {
+                        _state.update { it.copy(isLoadingMessages = false) }
+                    }
                 }
         }
     }
