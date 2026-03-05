@@ -14,6 +14,10 @@ export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 
 **持久化**：在 `~/.zshrc` 中加入上述 `JAVA_HOME` 和 `PATH` 两行，然后 `source ~/.zshrc`。
 
+## Run / Module not found
+
+若 Run 报 "Module not found"：File → Sync Project with Gradle Files；若仍失败，File → Invalidate Caches / Restart。Run 配置使用 module `opencode_client.app`（对应 settings.gradle.kts 的 rootProject.name + `:app`）。
+
 ## Test Commands
 
 - Unit tests: `./gradlew testDebugUnitTest`
