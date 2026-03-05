@@ -235,7 +235,8 @@
 
 ### Tool 卡片样式 (2026-03-03 续)
 - **文件名换行**：Tool/Patch 展开后文件名支持多行换行（移除 maxLines=1），便于查看长路径
-- **write/patch 蓝色**：write 与 patch 类型工具卡片使用浅蓝背景（ToolWritePatchBackground），深色主题用深蓝（ToolWritePatchBackgroundDark）
+- **write/patch 颜色**：浅色模式用灰底（surfaceContainerHighest）+ 蓝色前景，避免深蓝底黑字看不清；深色模式保持深蓝底（ToolWritePatchBackgroundDark）
+- **Tool 并排布局**：连续 tool 与 patch 并排同一行（如 todoWrite 与 write 左右并排），不再分两行
 
 ### Markdown 标题字号 (2026-03-03 续)
 - **标题缩小**：Markdown 渲染使用 `markdownTypographyCompact()`，h1-h6 各缩小一号（h1 用 headlineLarge、h2 用 headlineMedium 等）；Chat 消息、ReasoningCard、Files 预览均生效
@@ -258,3 +259,8 @@
 - **selectSession 清空**：切换 session 时立即清空 messages，避免短暂显示上一 session 内容
 - **loadMessagesWithRetry**：延迟 150ms→400ms；发送后增加 1.2s 二次加载
 - **消息显示顺序**：API 返回 [旧→新]，LazyColumn reverseLayout 需 reversed() 使最新消息在底部；ModelTests 新增 `message display order reverses API chronological order`
+
+### 夜间模式与主题 (2026-03-03 续)
+- **根背景**：Theme 根布局用 `Surface(color = colorScheme.background)` 包裹，确保整屏背景随主题正确切换
+- **动态颜色**：API 31+ 使用 dynamicLight/darkColorScheme，API 30 及以下用 light/darkColorScheme
+- **主题模式**：从 UiModeManager 读取，替代 LocalConfiguration.uiMode

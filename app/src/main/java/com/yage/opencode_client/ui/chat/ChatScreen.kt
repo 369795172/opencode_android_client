@@ -11,6 +11,8 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,9 +26,7 @@ import com.yage.opencode_client.ui.AppState
 import com.yage.opencode_client.ui.MainViewModel
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.yage.opencode_client.ui.theme.markdownTypographyCompact
-import com.yage.opencode_client.ui.theme.ToolWritePatchBackground
 import com.yage.opencode_client.ui.theme.ToolWritePatchBackgroundDark
-import com.yage.opencode_client.ui.theme.UserMessageBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -426,49 +426,38 @@ private fun MessageRow(
             val part = message.parts[i]
             val streamingKey = "${message.info.id}:${part.id}"
             val streamingText = streamingPartTexts[streamingKey]
-            when {
-                part.isTool -> {
-                    val next = message.parts.getOrNull(i + 1)
-                    if (next != null && next.isTool) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            PartView(part, isUser, streamingText, onFileClick, Modifier.weight(1f))
-                            PartView(next, isUser, streamingPartTexts["${message.info.id}:${next.id}"], onFileClick, Modifier.weight(1f))
-                        }
-                        i += 2
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            PartView(part, isUser, streamingText, onFileClick, Modifier.weight(1f))
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                        i += 1
+            val isToolLike = part.isTool || (part.isPatch && part.filePathsForNavigationFiltered.isNotEmpty())
+            if (isToolLike) {
+                val run = mutableListOf<Part>()
+                var j = i
+                while (j < message.parts.size) {
+                    val p = message.parts[j]
+                    if (p.isTool || (p.isPatch && p.filePathsForNavigationFiltered.isNotEmpty())) {
+                        run.add(p)
+                        j++
+                    } else break
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    run.forEach { p ->
+                        PartView(
+                            p,
+                            isUser,
+                            streamingPartTexts["${message.info.id}:${p.id}"],
+                            onFileClick,
+                            Modifier.weight(1f)
+                        )
+                    }
+                    if (run.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
-                part.isPatch && part.filePathsForNavigationFiltered.isNotEmpty() -> {
-                    val next = message.parts.getOrNull(i + 1)
-                    if (next != null && next.isPatch && next.filePathsForNavigationFiltered.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            PartView(part, isUser, streamingText, onFileClick, Modifier.weight(1f))
-                            PartView(next, isUser, streamingPartTexts["${message.info.id}:${next.id}"], onFileClick, Modifier.weight(1f))
-                        }
-                        i += 2
-                    } else {
-                        PartView(part, isUser, streamingText, onFileClick, Modifier.fillMaxWidth())
-                        i += 1
-                    }
-                }
-                else -> {
-                    PartView(part, isUser, streamingText, onFileClick, Modifier.fillMaxWidth())
-                    i += 1
-                }
+                i = j
+            } else {
+                PartView(part, isUser, streamingText, onFileClick, Modifier.fillMaxWidth())
+                i += 1
             }
         }
     }
@@ -525,26 +514,29 @@ private fun TextPart(
     isUser: Boolean,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
-    val innerModifier = modifier.then(
-            if (isUser) Modifier.background(
-                UserMessageBackground,
-                RoundedCornerShape(8.dp)
-            ) else Modifier
-        )
-        .padding(12.dp)
+    val innerModifier = modifier.padding(12.dp)
 
     if (isUser) {
-        Text(
-            text = text,
-            modifier = innerModifier,
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(8.dp),
+            modifier = modifier
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     } else {
-        Markdown(
-            content = text,
-            typography = markdownTypographyCompact(),
-            modifier = innerModifier
-        )
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            Markdown(
+                content = text,
+                typography = markdownTypographyCompact(),
+                modifier = innerModifier
+            )
+        }
     }
 }
 
@@ -599,11 +591,13 @@ private fun ReasoningCard(
                 }
             }
             if ((expanded || isStreaming) && text.isNotBlank()) {
-                Markdown(
-                    content = text,
-                    typography = markdownTypographyCompact(),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                    Markdown(
+                        content = text,
+                        typography = markdownTypographyCompact(),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
             }
         }
     }
@@ -623,8 +617,9 @@ private fun ToolCard(
     var expanded by remember { mutableStateOf(isRunning) }
     val firstFile = filePaths.firstOrNull()
     val isWriteOrPatch = toolName == "write" || toolName == "patch" || toolName.contains("write")
-    val writePatchColor = if (isSystemInDarkTheme()) ToolWritePatchBackgroundDark else ToolWritePatchBackground
-    val cardColor = if (isWriteOrPatch) writePatchColor else MaterialTheme.colorScheme.surfaceContainerHighest
+    val isDark = isSystemInDarkTheme()
+    val cardColor = if (isWriteOrPatch && isDark) ToolWritePatchBackgroundDark else MaterialTheme.colorScheme.surfaceContainerHighest
+    val contentColor = if (isWriteOrPatch && !isDark) MaterialTheme.colorScheme.primary else LocalContentColor.current
 
     Card(
         modifier = modifier.padding(vertical = 4.dp),
@@ -632,6 +627,7 @@ private fun ToolCard(
             containerColor = cardColor
         )
     ) {
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -737,6 +733,7 @@ private fun ToolCard(
                 }
             }
         }
+        }
     }
 }
 
@@ -746,13 +743,17 @@ private fun PatchCard(
     onFileClick: (String) -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
-    val writePatchColor = if (isSystemInDarkTheme()) ToolWritePatchBackgroundDark else ToolWritePatchBackground
+    val isDark = isSystemInDarkTheme()
+    val cardColor = if (isDark) ToolWritePatchBackgroundDark else MaterialTheme.colorScheme.surfaceContainerHighest
+    val contentColor = if (!isDark) MaterialTheme.colorScheme.primary else LocalContentColor.current
+
     Card(
         modifier = modifier.padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(
-            containerColor = writePatchColor
+            containerColor = cardColor
         )
     ) {
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -787,6 +788,7 @@ private fun PatchCard(
                     }
                 }
             }
+        }
         }
     }
 }
