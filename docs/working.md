@@ -279,3 +279,11 @@
 
 ### Agent 显示修复 (2026-03-03 续)
 - **Agent 下拉**：显示完整 name（与 web 客户端一致），选中项高亮为 primary 色
+
+---
+
+## 2026-03-05
+
+### 物理键盘 IME 栏遮挡输入框修复
+- **InputBar imePadding**：接物理键盘时底部会显示 IME 栏，遮挡输入框。为 InputBar 的 Surface 添加 `imePadding()`，使输入框随键盘/IME 栏上移，保持可见
+- **测试**：新增 InputBarInsetsTest，验证 AndroidManifest 中 `windowSoftInputMode="adjustResize"` 配置正确（imePadding 依赖此配置）

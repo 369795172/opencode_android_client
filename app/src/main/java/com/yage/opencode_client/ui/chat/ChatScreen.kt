@@ -883,7 +883,9 @@ private fun InputBar(
     onSend: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding(),
         tonalElevation = 2.dp
     ) {
         Row(
