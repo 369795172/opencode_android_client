@@ -17,22 +17,22 @@ SOURCE = os.path.join(
 )
 RES_DIR = os.path.join(PROJECT_ROOT, "app", "src", "main", "res")
 
-# Android mipmap sizes for launcher icon (ic_launcher.png)
+# Android mipmap sizes: canvas and logo (logo ~66% to match adaptive icon safe zone)
 MIPMAP_SIZES = {
-    "mipmap-mdpi": 48,
-    "mipmap-hdpi": 72,
-    "mipmap-xhdpi": 96,
-    "mipmap-xxhdpi": 144,
-    "mipmap-xxxhdpi": 192,
+    "mipmap-mdpi": (48, 32),
+    "mipmap-hdpi": (72, 48),
+    "mipmap-xhdpi": (96, 64),
+    "mipmap-xxhdpi": (144, 96),
+    "mipmap-xxxhdpi": (192, 128),
 }
 
-# Adaptive icon foreground sizes (108dp at each density)
+# Adaptive icon foreground: 108dp canvas, 66dp safe zone (logo centered at 66dp)
 FOREGROUND_SIZES = {
-    "drawable-mdpi": 108,
-    "drawable-hdpi": 162,
-    "drawable-xhdpi": 216,
-    "drawable-xxhdpi": 324,
-    "drawable-xxxhdpi": 432,
+    "drawable-mdpi": (108, 66),
+    "drawable-hdpi": (162, 99),
+    "drawable-xhdpi": (216, 132),
+    "drawable-xxhdpi": (324, 198),
+    "drawable-xxxhdpi": (432, 264),
 }
 
 
@@ -45,28 +45,36 @@ def resize_icons():
         if img.mode != "RGBA":
             img = img.convert("RGBA")
 
-        # Mipmap launcher icons
-        for folder, size in MIPMAP_SIZES.items():
+        # Mipmap launcher icons: logo centered at ~66% size
+        for folder, (canvas_size, logo_size) in MIPMAP_SIZES.items():
             out_dir = os.path.join(RES_DIR, folder)
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, "ic_launcher.png")
-            resized = img.resize((size, size), Image.Resampling.LANCZOS)
-            resized.save(out_path, "PNG")
-            print(f"Saved {out_path} ({size}x{size})")
+            logo = img.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
+            canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+            paste_x = (canvas_size - logo_size) // 2
+            paste_y = (canvas_size - logo_size) // 2
+            canvas.paste(logo, (paste_x, paste_y), logo)
+            canvas.save(out_path, "PNG")
+            print(f"Saved {out_path} ({canvas_size}x{canvas_size}, logo {logo_size}px)")
 
             # Round icon (same as regular for now)
             round_path = os.path.join(out_dir, "ic_launcher_round.png")
-            resized.save(round_path, "PNG")
+            canvas.save(round_path, "PNG")
             print(f"Saved {round_path}")
 
-        # Adaptive icon foreground
-        for folder, size in FOREGROUND_SIZES.items():
+        # Adaptive icon foreground: logo at safe zone (66dp), centered in 108dp canvas
+        for folder, (canvas_size, logo_size) in FOREGROUND_SIZES.items():
             out_dir = os.path.join(RES_DIR, folder)
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, "ic_launcher_foreground.png")
-            resized = img.resize((size, size), Image.Resampling.LANCZOS)
-            resized.save(out_path, "PNG")
-            print(f"Saved {out_path} ({size}x{size})")
+            logo = img.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
+            canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+            paste_x = (canvas_size - logo_size) // 2
+            paste_y = (canvas_size - logo_size) // 2
+            canvas.paste(logo, (paste_x, paste_y), logo)
+            canvas.save(out_path, "PNG")
+            print(f"Saved {out_path} ({canvas_size}x{canvas_size}, logo {logo_size}dp)")
 
     return True
 

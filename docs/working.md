@@ -57,3 +57,4 @@
 - 修复部分 item 左滑无响应：gesturesEnabled = !listState.isScrollInProgress，避免 LazyColumn 滚动与 SwipeToDismissBox 手势冲突
 - 手机端 Session 删除：用 ModalBottomSheet 替代下拉菜单，展示与平板相同的 SessionList，左滑 reveal 删除
 - 修复 SwipeToDismissBox 松手弹回：改用 AnchoredDraggable，左滑后松手可定住，删除按钮保持可见可点击
+- Logo 缩小：resize_icon.py 按 Android 66dp 安全区生成 foreground（logo 居中 66dp/108dp）；mipmap 图标 logo 约 66% 尺寸
