@@ -58,4 +58,5 @@
 - SessionList 提取到 ui/session/SessionList.kt，平板与手机共用
 - 手机端 Session 删除：用 ModalBottomSheet 替代下拉菜单，展示与平板相同的 SessionList，左滑 reveal 删除
 - 修复 SwipeToDismissBox 松手弹回：改用 AnchoredDraggable，左滑后松手可定住，删除按钮保持可见可点击
+- 删除区域收窄至 56dp，行背景改为完全不透明（surfaceContainerLow / surface）解决半透明遮挡删除按钮问题
 - Logo 缩小：resize_icon.py 按 Android 66dp 安全区生成 foreground（logo 居中 66dp/108dp）；mipmap 图标 logo 约 66% 尺寸

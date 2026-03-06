@@ -54,7 +54,7 @@ private fun SwipeRevealRow(
                 Icons.Default.Delete,
                 contentDescription = "Delete session",
                 tint = MaterialTheme.colorScheme.onError,
-                modifier = Modifier.padding(horizontal = 20.dp)
+                modifier = Modifier.padding(horizontal = 12.dp)
             )
         }
         Row(
@@ -68,7 +68,7 @@ private fun SwipeRevealRow(
                     reverseDirection = true
                 )
                 .background(
-                    if (altBg) MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)
+                    if (altBg) MaterialTheme.colorScheme.surfaceContainerLow
                     else MaterialTheme.colorScheme.surface
                 )
                 .clickable(onClick = onSelect)
@@ -144,7 +144,7 @@ fun SessionList(
                 val isSelected = session.id == currentSessionId
                 val altBg = index % 2 == 1
                 val density = LocalDensity.current
-                val deleteWidthPx = with(density) { 80.dp.toPx() }
+                val deleteWidthPx = with(density) { 56.dp.toPx() }
                 val decay = rememberSplineBasedDecay<Float>()
                 val dragState = remember(deleteWidthPx) {
                     AnchoredDraggableState(
