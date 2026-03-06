@@ -101,7 +101,8 @@ fun ChatScreen(
                 text = state.inputText,
                 isBusy = state.isCurrentSessionBusy,
                 onTextChange = { viewModel.setInputText(it) },
-                onSend = { viewModel.sendMessage() }
+                onSend = { viewModel.sendMessage() },
+                onAbort = { viewModel.abortSession() }
             )
         }
 
@@ -557,12 +558,14 @@ private fun TextPart(
             }
         }
     } else {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-            Markdown(
-                content = text,
-                typography = markdownTypographyCompact(),
-                modifier = innerModifier
-            )
+        SelectionContainer {
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                Markdown(
+                    content = text,
+                    typography = markdownTypographyCompact(),
+                    modifier = innerModifier
+                )
+            }
         }
     }
 }
@@ -618,12 +621,14 @@ private fun ReasoningCard(
                 }
             }
             if ((expanded || isStreaming) && text.isNotBlank()) {
-                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
-                    Markdown(
-                        content = text,
-                        typography = markdownTypographyCompact(),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
+                SelectionContainer {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                        Markdown(
+                            content = text,
+                            typography = markdownTypographyCompact(),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
         }
@@ -879,7 +884,8 @@ private fun InputBar(
     text: String,
     isBusy: Boolean,
     onTextChange: (String) -> Unit,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    onAbort: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -899,12 +905,25 @@ private fun InputBar(
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("Type a message...") },
                 maxLines = 4,
-                enabled = !isBusy
+                enabled = true
             )
             Spacer(modifier = Modifier.width(8.dp))
+            if (isBusy) {
+                IconButton(
+                    onClick = onAbort,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Stop,
+                        contentDescription = "Stop",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             IconButton(
                 onClick = onSend,
-                enabled = text.isNotBlank() && !isBusy
+                enabled = text.isNotBlank()
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Send,
