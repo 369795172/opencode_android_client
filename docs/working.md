@@ -108,3 +108,8 @@
 - 将 `FilesScreen` 拆分为浏览区、预览区与纯 helper（路径归一化、目录预览文案），并补充 `FileNavigationUtilsTest`
 - 将 Chat UI 拆分为顶栏、消息内容、输入栏三个文件；同时把 `MessageSelectionTest` 从单文件断言改成 chat package 级行为断言，避免后续继续拆文件时产生伪失败
 - 执行验证：`./gradlew testDebugUnitTest` 通过
+- 继续收口 `MainViewModel`：新增 `MainViewModelConnectionActions.kt`、`MainViewModelSpeechActions.kt`、`MainViewModelSyncActions.kt`，把连接初始化、AI Builder 连接测试、录音转写编排、busy polling、SSE 收集与事件分发从主类中抽离出去
+- 收紧 `MainViewModel` 相关错误处理：session 列表/状态、load more、create/update/delete session、abort session、agent/pending permission 加载都改为统一日志或状态可观测路径
+- 根据 Oracle 复查补充收口：统一 AI Builder signature 的规范化计算，修复 saved session 丢失后的回退选择，避免 busy polling 与消息加载重叠，并把错误文案从 `null` 降级为明确 fallback
+- 清理 `docs/dev_code_review.md` 中已经失效的 `MainViewModel.kt:<line>` 引用，改成按职责分组的文件级定位
+- 执行验证：`./gradlew testDebugUnitTest assembleDebug koverHtmlReport` 通过

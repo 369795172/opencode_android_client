@@ -84,9 +84,9 @@
 
 代表位置：
 
-- `app/src/main/java/com/yage/opencode_client/ui/MainViewModel.kt:487`
-- `app/src/main/java/com/yage/opencode_client/ui/MainViewModel.kt:666`
-- `app/src/main/java/com/yage/opencode_client/ui/MainViewModel.kt:684`
+- `app/src/main/java/com/yage/opencode_client/ui/MainViewModel.kt` 中的 provider / permission / session 相关异步分支
+- `app/src/main/java/com/yage/opencode_client/ui/MainViewModelSessionActions.kt` 中的 session/message 协作分支
+- `app/src/main/java/com/yage/opencode_client/ui/MainViewModelSyncActions.kt` 中的 SSE / polling 同步分支
 
 项目里已经有多处 `onFailure { e -> }` 或 `catch (e: Exception) { }` 这种静默忽略的写法。短期看会让界面“不报错”，但长期会让调试和线上排障非常痛苦，因为异常既没有落日志，也没有进入统一状态通道。
 
@@ -473,38 +473,38 @@
 
 ### A. `MainViewModel` 拆分与收口
 
-- [ ] 抽离连接初始化与首屏加载逻辑
-- [ ] 抽离 session/message 同步逻辑（含 retry / polling / SSE fallback）
-- [ ] 抽离 speech orchestration，缩小 `MainViewModel` 对录音/转写细节的直接掌控
-- [ ] 收口 `MainViewModel` 中的硬编码 timing 常量
-- [ ] 统一非阻塞错误处理，替换静默吞错
+- [x] 抽离连接初始化与首屏加载逻辑
+- [x] 抽离 session/message 同步逻辑（含 retry / polling / SSE fallback）
+- [x] 抽离 speech orchestration，缩小 `MainViewModel` 对录音/转写细节的直接掌控
+- [x] 收口 `MainViewModel` 中的硬编码 timing 常量
+- [x] 统一非阻塞错误处理，替换静默吞错
 
 ### B. `ChatScreen` 文件拆分
 
-- [ ] 抽出顶栏相关组件
-- [ ] 抽出消息列表与自动跟随滚动逻辑
-- [ ] 抽出消息卡片 / part renderer
-- [ ] 抽出输入栏与操作按钮布局逻辑
-- [ ] 抽出权限/错误展示组件
+- [x] 抽出顶栏相关组件
+- [x] 抽出消息列表与自动跟随滚动逻辑
+- [x] 抽出消息卡片 / part renderer
+- [x] 抽出输入栏与操作按钮布局逻辑
+- [x] 抽出权限/错误展示组件
 
 ### C. `FilesScreen` 文件拆分
 
-- [ ] 抽出文件浏览区
-- [ ] 抽出文件内容预览区
-- [ ] 抽出图片预览与分享能力
-- [ ] 收口 preview 分支，避免继续堆叠 `when` 逻辑
+- [x] 抽出文件浏览区
+- [x] 抽出文件内容预览区
+- [x] 抽出图片预览与分享能力
+- [x] 收口 preview 分支，避免继续堆叠 `when` 逻辑
 
 ### D. `SettingsScreen` 与常量/错误治理
 
-- [ ] 按 section 拆分 Settings 页面
-- [ ] 抽出复用表单行/设置块，降低主文件密度
+- [x] 按 section 拆分 Settings 页面
+- [x] 抽出复用表单行/设置块，降低主文件密度
 - [ ] 将 UI / timing / audio 常量收敛到统一配置位置
-- [ ] 清理剩余静默错误处理，统一日志与状态策略
+- [x] 清理剩余静默错误处理，统一日志与状态策略
 
 ### E. 验证与交付
 
-- [ ] 视需要补测试，确保拆分过程中新增边界有回归保护
-- [ ] `./gradlew testDebugUnitTest`
-- [ ] `./gradlew koverHtmlReport`
-- [ ] 更新 `docs/working.md`
+- [x] 视需要补测试，确保拆分过程中新增边界有回归保护
+- [x] `./gradlew testDebugUnitTest`
+- [x] `./gradlew koverHtmlReport`
+- [x] 更新 `docs/working.md`
 - [ ] 提交、推送并创建新的 refactor PR
