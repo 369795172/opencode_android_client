@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.yage.opencode_client.ui.AIBuilderSettings
 import com.yage.opencode_client.ui.MainViewModel
 import com.yage.opencode_client.util.ThemeMode
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -27,6 +28,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val saved = remember { viewModel.getSavedConnectionSettings() }
+    val savedAIBuilder = remember { viewModel.getAIBuilderSettings() }
 
     var serverUrl by remember { mutableStateOf(saved.serverUrl) }
     var username by remember { mutableStateOf(saved.username) }
@@ -34,6 +36,11 @@ fun SettingsScreen(
     var showPassword by remember { mutableStateOf(false) }
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<TestResult?>(null) }
+    var aiBuilderBaseURL by remember { mutableStateOf(savedAIBuilder.baseURL) }
+    var aiBuilderToken by remember { mutableStateOf(savedAIBuilder.token) }
+    var aiBuilderCustomPrompt by remember { mutableStateOf(savedAIBuilder.customPrompt) }
+    var aiBuilderTerminology by remember { mutableStateOf(savedAIBuilder.terminology) }
+    var showAIBuilderToken by remember { mutableStateOf(false) }
 
     // Update test result when connection test completes
     LaunchedEffect(state.isConnecting) {
@@ -269,6 +276,158 @@ fun SettingsScreen(
                             ThemeMode.DARK -> "Dark"
                             ThemeMode.SYSTEM -> "System default"
                         }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        HorizontalDivider()
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Text(
+            "Speech Recognition",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = aiBuilderBaseURL,
+            onValueChange = { aiBuilderBaseURL = it },
+            label = { Text("AI Builder Base URL") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = {
+                Icon(Icons.Default.Cloud, contentDescription = null)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = aiBuilderToken,
+            onValueChange = { aiBuilderToken = it },
+            label = { Text("AI Builder Token") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = if (showAIBuilderToken) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { showAIBuilderToken = !showAIBuilderToken }) {
+                    Icon(
+                        if (showAIBuilderToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (showAIBuilderToken) "Hide token" else "Show token"
+                    )
+                }
+            },
+            leadingIcon = {
+                Icon(Icons.Default.Lock, contentDescription = null)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = aiBuilderCustomPrompt,
+            onValueChange = { aiBuilderCustomPrompt = it },
+            label = { Text("Custom Prompt") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+            maxLines = 6
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = aiBuilderTerminology,
+            onValueChange = { aiBuilderTerminology = it },
+            label = { Text("Terminology") },
+            placeholder = { Text("comma-separated terms") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    viewModel.saveAIBuilderSettings(
+                        AIBuilderSettings(
+                            baseURL = aiBuilderBaseURL,
+                            token = aiBuilderToken,
+                            customPrompt = aiBuilderCustomPrompt,
+                            terminology = aiBuilderTerminology
+                        )
+                    )
+                    viewModel.testAIBuilderConnection()
+                },
+                enabled = aiBuilderBaseURL.isNotBlank() && !state.isTestingAIBuilderConnection
+            ) {
+                if (state.isTestingAIBuilderConnection) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text("Test Connection")
+            }
+
+            OutlinedButton(
+                onClick = {
+                    viewModel.saveAIBuilderSettings(
+                        AIBuilderSettings(
+                            baseURL = aiBuilderBaseURL,
+                            token = aiBuilderToken,
+                            customPrompt = aiBuilderCustomPrompt,
+                            terminology = aiBuilderTerminology
+                        )
+                    )
+                },
+                enabled = aiBuilderBaseURL.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        }
+
+        if (state.aiBuilderConnectionOK || state.aiBuilderConnectionError != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (state.aiBuilderConnectionOK)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else
+                        MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val success = state.aiBuilderConnectionOK
+                    Icon(
+                        if (success) Icons.Default.Check else Icons.Default.Error,
+                        contentDescription = null,
+                        tint = if (success)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        if (success) "Connected successfully" else (state.aiBuilderConnectionError ?: "Connection failed"),
+                        color = if (success)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
             }

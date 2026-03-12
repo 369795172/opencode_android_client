@@ -41,6 +41,7 @@ fun ChatScreen(
     showSessionListInTopBar: Boolean = true
 ) {
     val state by viewModel.state.collectAsState()
+    val aiBuilderToken = viewModel.getAIBuilderSettings().token.trim()
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopBar(
@@ -102,9 +103,26 @@ fun ChatScreen(
             InputBar(
                 text = state.inputText,
                 isBusy = state.isCurrentSessionBusy,
+                isRecording = state.isRecording,
+                isTranscribing = state.isTranscribing,
+                isSpeechEnabled = !state.isTranscribing && state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
                 onTextChange = { viewModel.setInputText(it) },
                 onSend = { viewModel.sendMessage() },
-                onAbort = { viewModel.abortSession() }
+                onAbort = { viewModel.abortSession() },
+                onToggleRecording = { viewModel.toggleRecording() }
+            )
+        }
+
+        if (state.speechError != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearSpeechError() },
+                title = { Text("Speech Recognition") },
+                text = { Text(state.speechError ?: "") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.clearSpeechError() }) {
+                        Text("OK")
+                    }
+                }
             )
         }
 
@@ -889,9 +907,13 @@ private fun PermissionCard(
 private fun InputBar(
     text: String,
     isBusy: Boolean,
+    isRecording: Boolean,
+    isTranscribing: Boolean,
+    isSpeechEnabled: Boolean,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
-    onAbort: () -> Unit
+    onAbort: () -> Unit,
+    onToggleRecording: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -928,8 +950,25 @@ private fun InputBar(
                 Spacer(modifier = Modifier.width(4.dp))
             }
             IconButton(
+                onClick = onToggleRecording,
+                enabled = isSpeechEnabled || isRecording
+            ) {
+                if (isTranscribing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = "Speech",
+                        tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            IconButton(
                 onClick = onSend,
-                enabled = text.isNotBlank()
+                enabled = text.isNotBlank() && !isBusy && !isRecording && !isTranscribing
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Send,

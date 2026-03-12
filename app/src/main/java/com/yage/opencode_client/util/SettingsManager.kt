@@ -52,8 +52,35 @@ class SettingsManager @Inject constructor(
         get() = ThemeMode.valueOf(encryptedPrefs.getString(KEY_THEME, ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
         set(value) = encryptedPrefs.edit().putString(KEY_THEME, value.name).apply()
 
+    var aiBuilderBaseURL: String
+        get() = encryptedPrefs.getString(KEY_AI_BUILDER_BASE_URL, DEFAULT_AI_BUILDER_BASE_URL) ?: DEFAULT_AI_BUILDER_BASE_URL
+        set(value) = encryptedPrefs.edit().putString(KEY_AI_BUILDER_BASE_URL, value).apply()
+
+    var aiBuilderToken: String
+        get() = encryptedPrefs.getString(KEY_AI_BUILDER_TOKEN, "") ?: ""
+        set(value) = encryptedPrefs.edit().putString(KEY_AI_BUILDER_TOKEN, value).apply()
+
+    var aiBuilderCustomPrompt: String
+        get() = encryptedPrefs.getString(KEY_AI_BUILDER_CUSTOM_PROMPT, DEFAULT_AI_BUILDER_CUSTOM_PROMPT) ?: DEFAULT_AI_BUILDER_CUSTOM_PROMPT
+        set(value) = encryptedPrefs.edit().putString(KEY_AI_BUILDER_CUSTOM_PROMPT, value).apply()
+
+    var aiBuilderTerminology: String
+        get() = encryptedPrefs.getString(KEY_AI_BUILDER_TERMINOLOGY, DEFAULT_AI_BUILDER_TERMINOLOGY) ?: DEFAULT_AI_BUILDER_TERMINOLOGY
+        set(value) = encryptedPrefs.edit().putString(KEY_AI_BUILDER_TERMINOLOGY, value).apply()
+
+    var aiBuilderLastOKSignature: String?
+        get() = encryptedPrefs.getString(KEY_AI_BUILDER_LAST_OK_SIG, null)
+        set(value) = encryptedPrefs.edit().putString(KEY_AI_BUILDER_LAST_OK_SIG, value).apply()
+
+    var aiBuilderLastOKTestedAt: Long
+        get() = encryptedPrefs.getLong(KEY_AI_BUILDER_LAST_OK_TESTED, 0L)
+        set(value) = encryptedPrefs.edit().putLong(KEY_AI_BUILDER_LAST_OK_TESTED, value).apply()
+
     companion object {
         const val DEFAULT_SERVER = "http://localhost:4096"
+        const val DEFAULT_AI_BUILDER_BASE_URL = "https://space.ai-builders.com/backend"
+        const val DEFAULT_AI_BUILDER_CUSTOM_PROMPT = "All file and directory names should use snake_case (lowercase with underscores)."
+        const val DEFAULT_AI_BUILDER_TERMINOLOGY = "adhoc_jobs, life_consulting, survey_sessions, thought_review"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
@@ -61,6 +88,12 @@ class SettingsManager @Inject constructor(
         private const val KEY_MODEL_INDEX = "model_index"
         private const val KEY_AGENT_NAME = "agent_name"
         private const val KEY_THEME = "theme"
+        private const val KEY_AI_BUILDER_BASE_URL = "ai_builder_base_url"
+        private const val KEY_AI_BUILDER_TOKEN = "ai_builder_token"
+        private const val KEY_AI_BUILDER_CUSTOM_PROMPT = "ai_builder_custom_prompt"
+        private const val KEY_AI_BUILDER_TERMINOLOGY = "ai_builder_terminology"
+        private const val KEY_AI_BUILDER_LAST_OK_SIG = "ai_builder_last_ok_sig"
+        private const val KEY_AI_BUILDER_LAST_OK_TESTED = "ai_builder_last_ok_tested"
     }
 }
 

@@ -2,6 +2,8 @@ package com.yage.opencode_client.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yage.opencode_client.data.audio.AIBuildersAudioClient
+import com.yage.opencode_client.data.audio.AudioRecorderManager
 import com.yage.opencode_client.data.model.*
 import com.yage.opencode_client.data.repository.OpenCodeRepository
 import com.yage.opencode_client.util.SettingsManager
@@ -17,6 +19,13 @@ data class ConnectionFormSettings(
     val serverUrl: String,
     val username: String,
     val password: String
+)
+
+data class AIBuilderSettings(
+    val baseURL: String,
+    val token: String,
+    val customPrompt: String,
+    val terminology: String
 )
 
 data class AppState(
@@ -40,7 +49,13 @@ data class AppState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val filePathToShowInFiles: String? = null,
     val streamingPartTexts: Map<String, String> = emptyMap(),
-    val streamingReasoningPart: Part? = null
+    val streamingReasoningPart: Part? = null,
+    val isRecording: Boolean = false,
+    val isTranscribing: Boolean = false,
+    val speechError: String? = null,
+    val aiBuilderConnectionOK: Boolean = false,
+    val aiBuilderConnectionError: String? = null,
+    val isTestingAIBuilderConnection: Boolean = false
 ) {
     data class ModelOption(val displayName: String, val providerId: String, val modelId: String)
 
@@ -90,7 +105,8 @@ data class AppState(
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repository: OpenCodeRepository,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val audioRecorderManager: AudioRecorderManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppState())
@@ -120,6 +136,11 @@ class MainViewModel @Inject constructor(
             selectedAgentName = settingsManager.selectedAgentName ?: "build",
             themeMode = settingsManager.themeMode
         )}
+        val savedSig = settingsManager.aiBuilderLastOKSignature
+        val currentSig = aiBuilderSignature(settingsManager.aiBuilderBaseURL, settingsManager.aiBuilderToken)
+        if (savedSig != null && savedSig == currentSig) {
+            _state.update { it.copy(aiBuilderConnectionOK = true) }
+        }
     }
 
     fun configureServer(url: String, username: String? = null, password: String? = null) {
@@ -134,6 +155,152 @@ class MainViewModel @Inject constructor(
         username = settingsManager.username ?: "",
         password = settingsManager.password ?: ""
     )
+
+    fun getAIBuilderSettings(): AIBuilderSettings = AIBuilderSettings(
+        baseURL = settingsManager.aiBuilderBaseURL,
+        token = settingsManager.aiBuilderToken,
+        customPrompt = settingsManager.aiBuilderCustomPrompt,
+        terminology = settingsManager.aiBuilderTerminology
+    )
+
+    fun saveAIBuilderSettings(settings: AIBuilderSettings) {
+        settingsManager.aiBuilderBaseURL = settings.baseURL
+        settingsManager.aiBuilderToken = settings.token
+        settingsManager.aiBuilderCustomPrompt = settings.customPrompt
+        settingsManager.aiBuilderTerminology = settings.terminology
+        _state.update { it.copy(aiBuilderConnectionOK = false, aiBuilderConnectionError = null) }
+        settingsManager.aiBuilderLastOKSignature = null
+    }
+
+    fun testAIBuilderConnection() {
+        viewModelScope.launch {
+            _state.update { it.copy(isTestingAIBuilderConnection = true, aiBuilderConnectionError = null) }
+            val token = settingsManager.aiBuilderToken.trim()
+            if (token.isEmpty()) {
+                _state.update {
+                    it.copy(
+                        isTestingAIBuilderConnection = false,
+                        aiBuilderConnectionOK = false,
+                        aiBuilderConnectionError = "AI Builder token is empty"
+                    )
+                }
+                return@launch
+            }
+            val baseURL = settingsManager.aiBuilderBaseURL.trim()
+            AIBuildersAudioClient.testConnection(baseURL, token)
+                .onSuccess {
+                    val sig = aiBuilderSignature(baseURL, token)
+                    settingsManager.aiBuilderLastOKSignature = sig
+                    settingsManager.aiBuilderLastOKTestedAt = System.currentTimeMillis()
+                    _state.update {
+                        it.copy(
+                            isTestingAIBuilderConnection = false,
+                            aiBuilderConnectionOK = true,
+                            aiBuilderConnectionError = null
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    settingsManager.aiBuilderLastOKSignature = null
+                    _state.update {
+                        it.copy(
+                            isTestingAIBuilderConnection = false,
+                            aiBuilderConnectionOK = false,
+                            aiBuilderConnectionError = e.message ?: "Connection failed"
+                        )
+                    }
+                }
+        }
+    }
+
+    fun toggleRecording() {
+        val currentState = _state.value
+        if (currentState.isRecording) {
+            val file = audioRecorderManager.stop()
+            _state.update { it.copy(isRecording = false, isTranscribing = true) }
+            if (file == null) {
+                _state.update { it.copy(isTranscribing = false, speechError = "Recording failed: no file") }
+                return
+            }
+            val prefix = currentState.inputText
+            viewModelScope.launch {
+                try {
+                    val pcmData = audioRecorderManager.convertToPCM(file)
+                    val baseURL = settingsManager.aiBuilderBaseURL.trim()
+                    val token = settingsManager.aiBuilderToken.trim()
+                    val prompt = settingsManager.aiBuilderCustomPrompt.trim()
+                    val terms = settingsManager.aiBuilderTerminology.trim()
+                    val result = AIBuildersAudioClient.transcribe(
+                        baseURL = baseURL,
+                        token = token,
+                        pcmAudio = pcmData,
+                        language = null,
+                        prompt = prompt.ifEmpty { null },
+                        terms = terms.ifEmpty { null },
+                        onPartialTranscript = { partial ->
+                            _state.update { it.copy(inputText = mergedSpeechInput(prefix, partial)) }
+                        }
+                    )
+                    result.onSuccess { response ->
+                        val cleaned = response.text.trim()
+                        _state.update {
+                            it.copy(
+                                inputText = mergedSpeechInput(prefix, cleaned),
+                                isTranscribing = false
+                            )
+                        }
+                    }.onFailure { e ->
+                        _state.update {
+                            it.copy(
+                                inputText = prefix,
+                                isTranscribing = false,
+                                speechError = e.message ?: "Transcription failed"
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    _state.update {
+                        it.copy(
+                            inputText = prefix,
+                            isTranscribing = false,
+                            speechError = e.message ?: "Transcription failed"
+                        )
+                    }
+                }
+            }
+        } else {
+            val token = settingsManager.aiBuilderToken.trim()
+            if (token.isEmpty()) {
+                _state.update {
+                    it.copy(speechError = "Speech recognition requires an AI Builder token. Configure it in Settings.")
+                }
+                return
+            }
+            if (!currentState.aiBuilderConnectionOK) {
+                _state.update {
+                    it.copy(speechError = "AI Builder connection test has not passed. Please test in Settings first.")
+                }
+                return
+            }
+            try {
+                audioRecorderManager.start()
+                _state.update { it.copy(isRecording = true) }
+            } catch (e: Exception) {
+                _state.update { it.copy(speechError = "Failed to start recording: ${e.message}") }
+            }
+        }
+    }
+
+    fun clearSpeechError() {
+        _state.update { it.copy(speechError = null) }
+    }
+
+    private fun aiBuilderSignature(baseURL: String, token: String): String {
+        val input = "$baseURL|$token"
+        return java.security.MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+    }
 
     fun testConnection() {
         viewModelScope.launch {
@@ -531,4 +698,11 @@ class MainViewModel @Inject constructor(
         sseJob?.cancel()
         pollJob?.cancel()
     }
+}
+
+fun mergedSpeechInput(prefix: String, transcript: String): String {
+    val cleaned = transcript.trim()
+    if (cleaned.isEmpty()) return prefix
+    if (prefix.isEmpty()) return cleaned
+    return "$prefix $cleaned"
 }

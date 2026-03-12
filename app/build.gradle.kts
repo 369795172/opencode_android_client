@@ -36,6 +36,8 @@ android {
         testInstrumentationRunnerArguments["openCodeServerUrl"] = env["OPENCODE_SERVER_URL"] ?: "http://10.0.2.2:4096"
         testInstrumentationRunnerArguments["openCodeUsername"] = env["OPENCODE_USERNAME"] ?: ""
         testInstrumentationRunnerArguments["openCodePassword"] = env["OPENCODE_PASSWORD"] ?: ""
+        testInstrumentationRunnerArguments["aiBuilderBaseUrl"] = env["AI_BUILDER_BASE_URL"] ?: ""
+        testInstrumentationRunnerArguments["aiBuilderToken"] = env["AI_BUILDER_TOKEN"] ?: ""
     }
 
     buildTypes {
