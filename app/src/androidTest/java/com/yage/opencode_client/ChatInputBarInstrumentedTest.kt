@@ -17,7 +17,7 @@ class ChatInputBarInstrumentedTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun busyInputShowsStopAndDisablesSend() {
+    fun busyInputShowsStopAndKeepsSendEnabled() {
         composeRule.setContent {
             MaterialTheme {
                 ChatInputBar(
@@ -35,7 +35,7 @@ class ChatInputBarInstrumentedTest {
         }
 
         composeRule.onNodeWithContentDescription("Stop").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Send").assertIsNotEnabled()
+        composeRule.onNodeWithContentDescription("Send").assertIsEnabled()
         composeRule.onNodeWithContentDescription("Speech").assertIsEnabled()
     }
 

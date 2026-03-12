@@ -189,6 +189,34 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `sendMessage still queues prompt when current session is busy`() = runTest {
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+
+        val viewModel = createViewModel()
+        viewModel.selectSession("session-1")
+        advanceUntilIdle()
+        updateState(viewModel) {
+            it.copy(
+                inputText = "queue this next",
+                sessionStatuses = it.sessionStatuses + ("session-1" to SessionStatus(type = "busy"))
+            )
+        }
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify {
+            repository.sendMessage(
+                "session-1",
+                "queue this next",
+                any(),
+                any()
+            )
+        }
+        assertEquals("", viewModel.state.value.inputText)
+    }
+
+    @Test
     fun `sendMessage ignores blank input`() = runTest {
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")

@@ -81,7 +81,7 @@ internal fun ChatInputBar(
                 isTranscribing = isTranscribing,
                 isSpeechConfigured = isSpeechConfigured,
                 useVerticalActions = useVerticalActions,
-                canSend = text.isNotBlank() && !isBusy && !isTranscribing,
+                canSend = text.isNotBlank() && !isTranscribing,
                 onAbort = onAbort,
                 onToggleRecording = onToggleRecording,
                 onSend = onSend

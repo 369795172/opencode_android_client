@@ -120,3 +120,7 @@
 - 新增 `ChatInputBarInstrumentedTest.kt` 与 `SettingsSectionsInstrumentedTest.kt`，覆盖 Chat 输入区动作按钮状态、Settings 语音区按钮可用性与成功态展示
 - 调整 connected integration tests：仅在显式配置且服务可达时运行 OpenCode server smoke tests；未配置或服务不可达时自动 skip，避免把外部环境问题误报为回归
 - 执行验证：`./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest koverHtmlReport connectedDebugAndroidTest` 通过
+- 新建 busy-session 发送修复分支：`feature/allow-queued-send-while-busy`
+- 对齐 iOS 的会话排队行为：移除 Android Chat 输入区对 `isBusy` 的发送禁用，仅在转写中继续阻止发送；busy 状态下仍保留 stop 按钮
+- 新增 `MainViewModelTest` 回归用例，确认 current session 为 busy 时仍会调用 `repository.sendMessage(...)` 排队发送下一条 prompt
+- 更新 `ChatInputBarInstrumentedTest`，确认 busy 状态下 stop 可见且 send 仍可点击
