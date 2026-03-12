@@ -124,6 +124,9 @@
 - 修复工具调用折叠箭头方向：ToolCard 和 ReasoningCard 的折叠/展开箭头从 ExpandLess(↑)/ExpandMore(↓) 改为 ChevronRight(→)/KeyboardArrowDown(↓)，与 SessionList 树形折叠风格统一
 - 新增 `parseSessionUpdatedEvent` 解析器，兼容 "info" 和 "session" 两种 payload key（对齐 iOS）
 - 新增 2 个 MainViewModelTest：验证 session.updated 事件更新已有 session 标题、插入未知 session
+- 修复新建 session 崩溃：`createSession()` 的 REST 成功回调与 `session.created` / `session.updated` SSE 事件统一改为按 `session.id` 去重 upsert，避免 SessionList 的 LazyColumn 因重复 key 崩溃
+- 新增 `MainViewModelTest` 回归用例，覆盖 create response 与 `session.created` SSE 竞态下仍只保留一个 session 条目
+- 执行验证：`./gradlew testDebugUnitTest` 通过
 - 更新 PRD/RFC 标记相关功能完成
 
 ---

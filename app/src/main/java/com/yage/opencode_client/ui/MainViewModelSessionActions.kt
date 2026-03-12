@@ -197,7 +197,7 @@ internal fun launchCreateSession(
     scope.launch {
         repository.createSession(title)
             .onSuccess { session ->
-                state.update { it.copy(sessions = listOf(session) + it.sessions) }
+                state.update { it.copy(sessions = upsertSession(it.sessions, session)) }
                 onSelectSession(session.id)
             }
             .onFailure { error ->

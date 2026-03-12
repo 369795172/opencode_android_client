@@ -60,6 +60,10 @@ internal fun parseSessionUpdatedEvent(event: SSEEvent): Session? {
     }.getOrNull()
 }
 
+internal fun upsertSession(sessions: List<Session>, session: Session): List<Session> {
+    return listOf(session) + sessions.filter { it.id != session.id }
+}
+
 internal fun parseSessionStatusEvent(event: SSEEvent): SessionStatusEvent? {
     val sessionId = event.payload.getString("sessionID") ?: return null
     val statusJson = event.payload.getJsonObject("status") ?: return null

@@ -243,6 +243,45 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `createSession and session created SSE keep a single unique session`() = runTest {
+        val created = com.yage.opencode_client.data.model.Session(
+            id = "session-1",
+            directory = "/tmp/project",
+            title = "New Session"
+        )
+        coEvery { repository.createSession(any()) } returns Result.success(created)
+
+        val viewModel = createViewModel()
+
+        viewModel.createSession()
+        advanceUntilIdle()
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "session.created",
+                    properties = buildJsonObject {
+                        put(
+                            "session",
+                            buildJsonObject {
+                                put("id", JsonPrimitive("session-1"))
+                                put("directory", JsonPrimitive("/tmp/project"))
+                                put("title", JsonPrimitive("Server Title"))
+                            }
+                        )
+                    }
+                )
+            )
+        )
+
+        val sessions = viewModel.state.value.sessions
+        assertEquals(1, sessions.size)
+        assertEquals("session-1", sessions.single().id)
+        assertEquals("Server Title", sessions.single().title)
+    }
+
+    @Test
     fun `loadMessages updates selected agent and preset model from last assistant`() = runTest {
         val preset = ModelPresets.list[2]
         val messages = listOf(
