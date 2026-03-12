@@ -189,6 +189,32 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `sendMessage ignores blank input`() = runTest {
+        val viewModel = createViewModel()
+        viewModel.selectSession("session-1")
+        advanceUntilIdle()
+        viewModel.setInputText("   ")
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any()) }
+        assertEquals("   ", viewModel.state.value.inputText)
+    }
+
+    @Test
+    fun `sendMessage ignores request when no session is selected`() = runTest {
+        val viewModel = createViewModel()
+        viewModel.setInputText("hello")
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any()) }
+        assertEquals("hello", viewModel.state.value.inputText)
+    }
+
+    @Test
     fun `loadMessages updates selected agent and preset model from last assistant`() = runTest {
         val preset = ModelPresets.list[2]
         val messages = listOf(
@@ -288,6 +314,90 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `handleSSEEvent session created prepends parsed session`() = runTest {
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(sessions = listOf(com.yage.opencode_client.data.model.Session(id = "session-1", directory = "/tmp/old")))
+        }
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "session.created",
+                    properties = buildJsonObject {
+                        put(
+                            "session",
+                            buildJsonObject {
+                                put("id", JsonPrimitive("session-2"))
+                                put("directory", JsonPrimitive("/tmp/project"))
+                                put("title", JsonPrimitive("New Session"))
+                            }
+                        )
+                    }
+                )
+            )
+        )
+
+        assertEquals(listOf("session-2", "session-1"), viewModel.state.value.sessions.map { it.id })
+    }
+
+    @Test
+    fun `handleSSEEvent missing delta clears streaming state and refreshes messages`() = runTest {
+        val messages = listOf(MessageWithParts(info = Message(id = "a2", role = "assistant")))
+        coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                streamingPartTexts = mapOf("message-1:part-1" to "partial"),
+                streamingReasoningPart = Part(id = "part-1", messageId = "message-1", sessionId = "session-1", type = "reasoning")
+            )
+        }
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "message.part.updated",
+                    properties = buildJsonObject {
+                        put("sessionID", JsonPrimitive("session-1"))
+                        put("part", buildJsonObject { put("type", JsonPrimitive("reasoning")) })
+                    }
+                )
+            )
+        )
+        advanceTimeBy(1000)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.streamingPartTexts.isEmpty())
+        assertNull(viewModel.state.value.streamingReasoningPart)
+        assertEquals(messages, viewModel.state.value.messages)
+    }
+
+    @Test
+    fun `handleSSEEvent ignores message updates when no current session is selected`() = runTest {
+        val viewModel = createViewModel()
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "message.part.updated",
+                    properties = buildJsonObject {
+                        put("part", buildJsonObject { put("type", JsonPrimitive("reasoning")) })
+                        put("delta", JsonPrimitive("ignored"))
+                    }
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.streamingPartTexts.isEmpty())
+        assertNull(viewModel.state.value.streamingReasoningPart)
+    }
+
+    @Test
     fun `handleSSEEvent idle status clears streaming state and refreshes messages`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "a1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
@@ -317,7 +427,7 @@ class MainViewModelTest {
                 )
             )
         )
-        advanceTimeBy(401)
+        advanceTimeBy(1000)
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.streamingPartTexts.isEmpty())

@@ -691,7 +691,7 @@ class MainViewModel @Inject constructor(
             }
             "message.part.updated" -> {
                 val sessionId = event.payload.getString("sessionID")
-                if (sessionId == _state.value.currentSessionId) {
+                if (sessionId != null && sessionId == _state.value.currentSessionId) {
                 val partObj = event.payload.getJsonObject("part")
                 val msgId = (partObj?.get("messageID") as? kotlinx.serialization.json.JsonPrimitive)?.content
                 val partId = (partObj?.get("id") as? kotlinx.serialization.json.JsonPrimitive)?.content
@@ -708,7 +708,7 @@ class MainViewModel @Inject constructor(
                     )}
                 } else {
                     _state.update { it.copy(streamingPartTexts = emptyMap(), streamingReasoningPart = null) }
-                    loadMessagesWithRetry(sessionId!!, resetLimit = false)
+                    loadMessagesWithRetry(sessionId, resetLimit = false)
                 }
                 }
             }

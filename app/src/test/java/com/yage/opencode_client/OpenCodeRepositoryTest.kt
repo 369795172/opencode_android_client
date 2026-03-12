@@ -139,9 +139,28 @@ class OpenCodeRepositoryTest {
         assertEquals("Basic YWxpY2U6c2VjcmV0", request.getHeader("Authorization"))
         val body = request.body.readUtf8()
         assertTrue(body.contains("\"agent\":\"review\""))
+        assertTrue(body.contains("\"type\":\"text\""))
         assertTrue(body.contains("\"text\":\"hello repo\""))
         assertTrue(body.contains("\"providerID\":\"openai\""))
         assertTrue(body.contains("\"modelID\":\"gpt-4\""))
+    }
+
+    @Test
+    fun `sendMessage omits null model from payload`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(202))
+
+        val result = repository.sendMessage(
+            sessionId = "session-1",
+            text = "hello without model",
+            agent = "build",
+            model = null
+        )
+
+        assertTrue(result.isSuccess)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"type\":\"text\""))
+        assertTrue(body.contains("\"text\":\"hello without model\""))
+        assertFalse(body.contains("\"model\":null"))
     }
 
     @Test
