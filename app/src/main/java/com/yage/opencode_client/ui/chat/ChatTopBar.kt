@@ -146,7 +146,7 @@ internal fun ChatTopBar(
             }
             if (showSessionSheet) {
                 ModalBottomSheet(onDismissRequest = { showSessionSheet = false }) {
-                    Box(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+                    Box(modifier = Modifier.fillMaxWidth().height(ChatUiTuning.sessionSheetHeight)) {
                         SessionList(
                             sessions = sessions,
                             currentSessionId = currentSessionId,
@@ -186,16 +186,16 @@ internal fun ContextUsageRing(usage: AppState.ContextUsage) {
         else -> MaterialTheme.colorScheme.primary
     }
 
-    Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.size(ChatUiTuning.contextRingOuterSize), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             progress = { 1f },
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(ChatUiTuning.contextRingInnerSize),
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
             strokeWidth = 3.dp
         )
         CircularProgressIndicator(
             progress = { usage.percentage },
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(ChatUiTuning.contextRingInnerSize),
             color = ringColor,
             strokeWidth = 3.dp
         )

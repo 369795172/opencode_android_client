@@ -54,7 +54,9 @@ internal fun ChatInputBar(
 ) {
     val density = LocalDensity.current
     var textFieldHeightPx by remember { mutableIntStateOf(0) }
-    val useVerticalActions = with(density) { textFieldHeightPx.toDp() >= 112.dp }
+    val useVerticalActions = with(density) {
+        shouldUseVerticalChatActions(textFieldHeightPx.toDp())
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth().imePadding(),
