@@ -1,6 +1,11 @@
 package com.yage.opencode_client
 
+import com.yage.opencode_client.data.model.ConfigProvider
 import com.yage.opencode_client.data.model.AgentInfo
+import com.yage.opencode_client.data.model.FileContent
+import com.yage.opencode_client.data.model.Message
+import com.yage.opencode_client.data.model.ProviderModel
+import com.yage.opencode_client.data.model.ProvidersResponse
 import com.yage.opencode_client.data.model.Session
 import com.yage.opencode_client.data.repository.OpenCodeRepository
 import kotlinx.coroutines.runBlocking
@@ -109,5 +114,119 @@ class OpenCodeRepositoryTest {
         val list = result.getOrThrow()
         assertEquals(1, list.size)
         assertEquals("Build", list[0].name)
+    }
+
+    @Test
+    fun `sendMessage sends prompt body with auth header`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(202))
+        repository.configure(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            username = "alice",
+            password = "secret"
+        )
+
+        val result = repository.sendMessage(
+            sessionId = "session-1",
+            text = "hello repo",
+            agent = "review",
+            model = Message.ModelInfo(providerId = "openai", modelId = "gpt-4")
+        )
+
+        assertTrue(result.isSuccess)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/session/session-1/prompt_async", request.path)
+        assertEquals("Basic YWxpY2U6c2VjcmV0", request.getHeader("Authorization"))
+        val body = request.body.readUtf8()
+        assertTrue(body.contains("\"agent\":\"review\""))
+        assertTrue(body.contains("\"text\":\"hello repo\""))
+        assertTrue(body.contains("\"providerID\":\"openai\""))
+        assertTrue(body.contains("\"modelID\":\"gpt-4\""))
+    }
+
+    @Test
+    fun `sendMessage surfaces status code and server error body`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setBody("bad request body")
+        )
+
+        val result = repository.sendMessage(sessionId = "session-1", text = "hello")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("400"))
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("bad request body"))
+    }
+
+    @Test
+    fun `getFileContent parses text response and sends path query`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setBody(json.encodeToString(FileContent(type = "text", content = "# Hello")))
+                .setHeader("Content-Type", "application/json")
+        )
+
+        val result = repository.getFileContent("docs/README.md")
+
+        assertTrue(result.isSuccess)
+        assertEquals("# Hello", result.getOrThrow().content)
+        assertEquals("/file/content?path=docs%2FREADME.md", server.takeRequest().path)
+    }
+
+    @Test
+    fun `getProviders parses default provider mapping`() = runBlocking {
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "openai",
+                    models = mapOf("gpt-4" to ProviderModel(id = "gpt-4", name = "GPT-4"))
+                )
+            ),
+            defaultByProvider = mapOf("openai" to "gpt-4")
+        )
+        server.enqueue(
+            MockResponse()
+                .setBody(json.encodeToString(providers))
+                .setHeader("Content-Type", "application/json")
+        )
+
+        val result = repository.getProviders()
+
+        assertTrue(result.isSuccess)
+        assertEquals("openai", result.getOrThrow().default?.providerId)
+        assertEquals("gpt-4", result.getOrThrow().default?.modelId)
+    }
+
+    @Test
+    fun `configure rebuilds clients for new base url and credentials`() = runBlocking {
+        val replacementServer = MockWebServer()
+        replacementServer.start()
+        try {
+            repository.configure(
+                baseUrl = server.url("/").toString().trimEnd('/'),
+                username = "old",
+                password = "creds"
+            )
+            repository.configure(
+                baseUrl = replacementServer.url("/").toString().trimEnd('/'),
+                username = "new",
+                password = "secret"
+            )
+            replacementServer.enqueue(
+                MockResponse()
+                    .setBody("""{"healthy": true, "version": "2.0.0"}""")
+                    .setHeader("Content-Type", "application/json")
+            )
+
+            val result = repository.checkHealth()
+
+            assertTrue(result.isSuccess)
+            assertEquals("2.0.0", result.getOrThrow().version)
+            assertEquals(0, server.requestCount)
+            assertEquals("Basic bmV3OnNlY3JldA==", replacementServer.takeRequest().getHeader("Authorization"))
+        } finally {
+            replacementServer.shutdown()
+        }
     }
 }
