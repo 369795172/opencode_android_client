@@ -12,6 +12,7 @@
 # Kotlin
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.kt.swp
 
 # Build
