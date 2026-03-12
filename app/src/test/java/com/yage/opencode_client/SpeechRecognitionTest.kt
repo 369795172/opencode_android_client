@@ -36,6 +36,18 @@ class SpeechRecognitionTest {
         assertEquals("https://api.example.com/v1", AIBuildersAudioClient.normalizedBaseURL("https://api.example.com/v1"))
     }
 
+    @Test
+    fun `sanitizeBearerToken strips surrounding and hidden whitespace`() {
+        val raw = "  abc\u200B123\uFEFF  "
+        assertEquals("abc123", AIBuildersAudioClient.sanitizeBearerToken(raw))
+    }
+
+    @Test
+    fun `sanitizeBearerToken keeps normal token characters`() {
+        val raw = "sk-proj_ABC-123.xyz"
+        assertEquals(raw, AIBuildersAudioClient.sanitizeBearerToken(raw))
+    }
+
     // ─── AIBuildersAudioClient.buildAPIURL ────────────────────────────
 
     @Test

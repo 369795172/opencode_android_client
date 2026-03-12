@@ -1,5 +1,7 @@
 package com.yage.opencode_client.ui.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,16 +14,21 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import com.mikepenz.markdown.m3.Markdown
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.content.ContextCompat
+import com.yage.opencode_client.data.audio.AIBuildersAudioClient
 import com.yage.opencode_client.data.model.*
 import com.yage.opencode_client.ui.AppState
 import com.yage.opencode_client.ui.MainViewModel
@@ -41,7 +48,17 @@ fun ChatScreen(
     showSessionListInTopBar: Boolean = true
 ) {
     val state by viewModel.state.collectAsState()
-    val aiBuilderToken = viewModel.getAIBuilderSettings().token.trim()
+    val context = LocalContext.current
+    val aiBuilderToken = AIBuildersAudioClient.sanitizeBearerToken(viewModel.getAIBuilderSettings().token)
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.toggleRecording()
+        } else {
+            viewModel.setSpeechError("Microphone permission denied. Please allow microphone access in system settings.")
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopBar(
@@ -109,7 +126,21 @@ fun ChatScreen(
                 onTextChange = { viewModel.setInputText(it) },
                 onSend = { viewModel.sendMessage() },
                 onAbort = { viewModel.abortSession() },
-                onToggleRecording = { viewModel.toggleRecording() }
+                onToggleRecording = {
+                    if (state.isRecording) {
+                        viewModel.toggleRecording()
+                    } else {
+                        val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasRecordAudioPermission) {
+                            viewModel.toggleRecording()
+                        } else {
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                }
             )
         }
 

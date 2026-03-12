@@ -176,7 +176,7 @@ class MainViewModel @Inject constructor(
     fun testAIBuilderConnection() {
         viewModelScope.launch {
             _state.update { it.copy(isTestingAIBuilderConnection = true, aiBuilderConnectionError = null) }
-            val token = settingsManager.aiBuilderToken.trim()
+            val token = AIBuildersAudioClient.sanitizeBearerToken(settingsManager.aiBuilderToken)
             if (token.isEmpty()) {
                 _state.update {
                     it.copy(
@@ -216,7 +216,7 @@ class MainViewModel @Inject constructor(
 
     fun toggleRecording() {
         val currentState = _state.value
-        val token = settingsManager.aiBuilderToken.trim()
+        val token = AIBuildersAudioClient.sanitizeBearerToken(settingsManager.aiBuilderToken)
         Log.d(
             TAG,
             "toggleRecording clicked: recording=${currentState.isRecording}, transcribing=${currentState.isTranscribing}, aiBuilderOK=${currentState.aiBuilderConnectionOK}, tokenSet=${token.isNotEmpty()}"
@@ -314,6 +314,10 @@ class MainViewModel @Inject constructor(
 
     fun clearSpeechError() {
         _state.update { it.copy(speechError = null) }
+    }
+
+    fun setSpeechError(message: String) {
+        _state.update { it.copy(speechError = message) }
     }
 
     private fun aiBuilderSignature(baseURL: String, token: String): String {

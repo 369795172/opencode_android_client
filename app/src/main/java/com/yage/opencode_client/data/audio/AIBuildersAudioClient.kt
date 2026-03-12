@@ -39,11 +39,15 @@ object AIBuildersAudioClient {
         runCatching {
             val client = buildHttpClient()
             val url = buildAPIURL(normalizedBaseURL(baseURL), "/v1/embeddings")
+            val cleanedToken = sanitizeBearerToken(token)
+            if (cleanedToken.isEmpty()) {
+                throw IOException("AI Builder token is empty")
+            }
             val body = JSONObject().put("input", "ok").toString()
 
             val request = Request.Builder()
                 .url(url)
-                .header("Authorization", "Bearer $token")
+                .header("Authorization", "Bearer $cleanedToken")
                 .header("Content-Type", "application/json")
                 .post(body.toRequestBody(JSON_MEDIA_TYPE.toMediaType()))
                 .build()
@@ -70,11 +74,15 @@ object AIBuildersAudioClient {
         runCatching {
             val client = buildHttpClient()
             val normalizedBase = normalizedBaseURL(baseURL)
+            val cleanedToken = sanitizeBearerToken(token)
+            if (cleanedToken.isEmpty()) {
+                throw IOException("AI Builder token is empty")
+            }
 
             val session = createRealtimeSession(
                 client = client,
                 baseURL = normalizedBase,
-                token = token,
+                token = cleanedToken,
                 language = language,
                 prompt = prompt,
                 terms = terms
@@ -100,6 +108,16 @@ object AIBuildersAudioClient {
             return trimmed
         }
         return "https://$trimmed"
+    }
+
+    fun sanitizeBearerToken(rawToken: String): String {
+        return rawToken
+            .trim()
+            .filterNot { ch ->
+                ch.isWhitespace() ||
+                    Character.getType(ch) == Character.FORMAT.toInt() ||
+                    ch == '\uFEFF'
+            }
     }
 
     fun buildAPIURL(base: String, path: String): String {
