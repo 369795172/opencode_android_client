@@ -23,4 +23,24 @@ class FilePreviewUtilsTest {
         assertEquals("image/webp", FilePreviewUtils.imageMimeType("image.webp"))
         assertEquals("image/*", FilePreviewUtils.imageMimeType("image.unknown"))
     }
+
+    @Test
+    fun `previewContentKind prioritizes image markdown binary and text`() {
+        assertEquals(
+            FilePreviewUtils.PreviewContentKind.IMAGE,
+            FilePreviewUtils.previewContentKind("foo/image.png", isBinary = false)
+        )
+        assertEquals(
+            FilePreviewUtils.PreviewContentKind.MARKDOWN,
+            FilePreviewUtils.previewContentKind("foo/readme.md", isBinary = false)
+        )
+        assertEquals(
+            FilePreviewUtils.PreviewContentKind.BINARY,
+            FilePreviewUtils.previewContentKind("foo/archive.bin", isBinary = true)
+        )
+        assertEquals(
+            FilePreviewUtils.PreviewContentKind.TEXT,
+            FilePreviewUtils.previewContentKind("foo/notes.txt", isBinary = false)
+        )
+    }
 }

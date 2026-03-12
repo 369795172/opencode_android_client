@@ -34,16 +34,20 @@ class AudioRecorderManager @Inject constructor(
             throw IllegalStateException("Recorder is already running")
         }
 
-        val outputFile = File.createTempFile("opencode-recording-", ".m4a", context.cacheDir)
+        val outputFile = File.createTempFile(
+            AudioRecorderConfig.tempFilePrefix,
+            AudioRecorderConfig.tempFileSuffix,
+            context.cacheDir
+        )
         val mediaRecorder = MediaRecorder()
 
         try {
             mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            mediaRecorder.setAudioSamplingRate(44_100)
-            mediaRecorder.setAudioChannels(1)
-            mediaRecorder.setAudioEncodingBitRate(64_000)
+            mediaRecorder.setAudioSamplingRate(AudioRecorderConfig.outputSampleRate)
+            mediaRecorder.setAudioChannels(AudioRecorderConfig.outputChannelCount)
+            mediaRecorder.setAudioEncodingBitRate(AudioRecorderConfig.outputBitRate)
             mediaRecorder.setOutputFile(outputFile.absolutePath)
             mediaRecorder.prepare()
             mediaRecorder.start()
@@ -83,8 +87,12 @@ class AudioRecorderManager @Inject constructor(
     suspend fun convertToPCM(m4aFile: File): ByteArray = withContext(Dispatchers.Default) {
         Log.d(TAG, "Converting M4A to PCM: ${m4aFile.absolutePath}")
         val decodeResult = decodeM4aToPCM(m4aFile)
-        val pcmSamples = if (decodeResult.sampleRate != TARGET_SAMPLE_RATE) {
-            resamplePCM(decodeResult.samples, decodeResult.sampleRate, TARGET_SAMPLE_RATE)
+        val pcmSamples = if (decodeResult.sampleRate != AudioRecorderConfig.targetPcmSampleRate) {
+            resamplePCM(
+                decodeResult.samples,
+                decodeResult.sampleRate,
+                AudioRecorderConfig.targetPcmSampleRate
+            )
         } else {
             decodeResult.samples
         }
@@ -98,7 +106,7 @@ class AudioRecorderManager @Inject constructor(
 
         Log.d(
             TAG,
-            "PCM conversion complete. inputRate=${decodeResult.sampleRate}, outputRate=$TARGET_SAMPLE_RATE, bytes=${pcmBytes.array().size}"
+            "PCM conversion complete. inputRate=${decodeResult.sampleRate}, outputRate=${AudioRecorderConfig.targetPcmSampleRate}, bytes=${pcmBytes.array().size}"
         )
         pcmBytes.array()
     }
@@ -131,7 +139,7 @@ class AudioRecorderManager @Inject constructor(
 
                 while (!outputDone) {
                     if (!inputDone) {
-                        val inputBufferIndex = codec.dequeueInputBuffer(CODEC_TIMEOUT_US)
+                        val inputBufferIndex = codec.dequeueInputBuffer(AudioRecorderConfig.codecTimeoutUs)
                         if (inputBufferIndex >= 0) {
                             val inputBuffer = codec.getInputBuffer(inputBufferIndex)
                                 ?: throw IllegalStateException("Missing codec input buffer")
@@ -158,7 +166,7 @@ class AudioRecorderManager @Inject constructor(
                         }
                     }
 
-                    when (val outputBufferIndex = codec.dequeueOutputBuffer(info, CODEC_TIMEOUT_US)) {
+                    when (val outputBufferIndex = codec.dequeueOutputBuffer(info, AudioRecorderConfig.codecTimeoutUs)) {
                         MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                         MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                             val outputFormat = codec.outputFormat
@@ -258,8 +266,6 @@ class AudioRecorderManager @Inject constructor(
 
     private companion object {
         private const val TAG = "AudioRecorderManager"
-        private const val TARGET_SAMPLE_RATE = 24_000
-        private const val CODEC_TIMEOUT_US = 10_000L
     }
 }
 

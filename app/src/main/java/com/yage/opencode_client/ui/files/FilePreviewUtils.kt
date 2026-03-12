@@ -1,6 +1,13 @@
 package com.yage.opencode_client.ui.files
 
 object FilePreviewUtils {
+    enum class PreviewContentKind {
+        IMAGE,
+        MARKDOWN,
+        BINARY,
+        TEXT
+    }
+
     private val imageExtensions = setOf(
         "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic", "heif", "ico", "svg"
     )
@@ -23,6 +30,15 @@ object FilePreviewUtils {
             "ico" -> "image/x-icon"
             "svg" -> "image/svg+xml"
             else -> "image/*"
+        }
+    }
+
+    fun previewContentKind(path: String, isBinary: Boolean): PreviewContentKind {
+        return when {
+            isImagePath(path) -> PreviewContentKind.IMAGE
+            path.endsWith(".md", ignoreCase = true) -> PreviewContentKind.MARKDOWN
+            isBinary -> PreviewContentKind.BINARY
+            else -> PreviewContentKind.TEXT
         }
     }
 }

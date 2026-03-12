@@ -507,4 +507,67 @@
 - [x] `./gradlew testDebugUnitTest`
 - [x] `./gradlew koverHtmlReport`
 - [x] 更新 `docs/working.md`
-- [ ] 提交、推送并创建新的 refactor PR
+- [x] 提交、推送并创建新的 refactor PR
+
+## 九、Post Phase 2 执行结果（Phase 3 完成）
+
+这一步的目标不是再做一轮大规模拆文件，而是把 refactor 的最后几个工程化遗留项收掉：常量归位、关键 UI 护栏测试、以及对剩余热点文件做最小但有价值的结构整理。现在这几个目标已经完成。
+
+### 1. 常量归位已完成
+
+当前 `SettingsScreen` / `FilesScreen` / `ChatScreen` / `MainViewModel` 的结构性拆分已经完成，最明显的遗留项是常量仍然分散在 UI 层和音频层：
+
+- `ChatInputBar.kt` 中的输入栏布局阈值
+- `AIBuildersAudioClient.kt` 中的 chunk size / timeout / silence duration
+- `AudioRecorderManager.kt` 中的采样率 / 编码参数
+
+实际落地：
+
+- 在 `ui/chat/ChatUiTuning.kt` 中集中 Chat 输入区与 top bar 相关阈值
+- 在 `data/audio/AudioTranscriptionConfig.kt` 中集中录音与转写参数
+- 保持“UI 常量靠近 UI、音频常量靠近 audio”的边界，没有做全局杂物箱
+
+### 2. 剩余热点文件只做了有回报的结构整理
+
+Phase 2 之后，最大的两个剩余热点不再是顶层 screen，而是：
+
+- `ChatMessageContent.kt`
+- `FilePreviewPane.kt`
+
+这两个文件现在已经比原来清晰很多，但仍然承担了较多变化频率不同的逻辑。本轮没有为了“文件更短”继续硬拆，而是只做了一个有测试价值的整理点：
+
+- 将 `FilePreviewPane.kt` 的 preview 分流判断下沉到 `FilePreviewUtils.previewContentKind(...)`
+- 这样把 preview 路由逻辑从 Composable 中拿出来，后续继续拆 image / markdown / text preview 时更容易加测试和 review
+
+判断标准保持不变：只有当新的边界能降低 review 面积、减少回归面时才拆；如果只是为了让文件更短，可以先不做。
+
+### 3. UI 层护栏已经补上第一批高价值测试
+
+当前 JVM 层的回归护栏已经足够支撑这轮 refactor，本轮新增的 UI / instrumentation 测试把最值得固化的交互规则补上了：
+
+- Chat 输入区在 busy / ready 状态下的 send / stop / mic 可用性
+- 输入区横排/竖排切换阈值（转成纯函数 + JVM 测试）
+- Settings 语音识别 section 的按钮可用性与成功态展示
+- connected Android tests 在未配置或不可达环境下自动 skip，避免把“机器状态”误当成代码回归
+
+这一步的意义不是“补测试债”，而是给后续 UI 微调提供稳定护栏，避免每次改布局都要靠人工回归。
+
+### 4. 本轮验证结果
+
+- `./gradlew testDebugUnitTest` 通过
+- `./gradlew assembleDebug` 通过
+- `./gradlew assembleDebugAndroidTest` 通过
+- `./gradlew koverHtmlReport` 通过
+- `./gradlew connectedDebugAndroidTest` 通过（外部服务不可达的 integration case 自动 skip）
+
+### 5. 结论
+
+到这一步为止，这轮 refactor 可以视为基本结束：
+
+- [x] 收口 UI 常量（输入栏阈值、菜单尺寸、预览相关阈值）
+- [x] 收口音频/转写参数（chunk size、timeout、sample rate、silence duration）
+- [x] 为 Chat 输入区补一组 Compose UI / instrumentation 测试
+- [x] 为 Settings 补一组高价值 Compose UI / instrumentation 测试
+- [x] 评估剩余热点文件，并只对 `FilePreviewPane.kt` 做了值得保留的结构整理
+
+后续如果还继续做，不应再按“大型重构项目”来推进，而应转回普通迭代：哪里新增功能或发现热点，哪里局部优化、局部补测试。

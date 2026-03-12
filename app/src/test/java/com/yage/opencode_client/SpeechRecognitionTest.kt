@@ -1,7 +1,9 @@
 package com.yage.opencode_client
 
 import com.yage.opencode_client.data.audio.AIBuildersAudioClient
+import com.yage.opencode_client.data.audio.AudioRecorderConfig
 import com.yage.opencode_client.data.audio.AudioResampler
+import com.yage.opencode_client.data.audio.AudioTranscriptionConfig
 import com.yage.opencode_client.ui.AppState
 import com.yage.opencode_client.ui.mergedSpeechInput
 import org.junit.Assert.*
@@ -46,6 +48,16 @@ class SpeechRecognitionTest {
     fun `sanitizeBearerToken keeps normal token characters`() {
         val raw = "sk-proj_ABC-123.xyz"
         assertEquals(raw, AIBuildersAudioClient.sanitizeBearerToken(raw))
+    }
+
+    @Test
+    fun `audio transcription constants stay aligned with recorder pipeline`() {
+        assertEquals(24_000, AudioRecorderConfig.targetPcmSampleRate)
+        assertEquals(44_100, AudioRecorderConfig.outputSampleRate)
+        assertEquals(1, AudioRecorderConfig.outputChannelCount)
+        assertEquals(64_000, AudioRecorderConfig.outputBitRate)
+        assertEquals(240_000, AudioTranscriptionConfig.sendChunkSizeBytes)
+        assertEquals(1_200, AudioTranscriptionConfig.silenceDurationMs)
     }
 
     // ─── AIBuildersAudioClient.buildAPIURL ────────────────────────────

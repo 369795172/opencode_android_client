@@ -59,9 +59,11 @@ internal fun FilePreviewPane(
 ) {
     val context = LocalContext.current
     val content = fileContent.content.orEmpty()
-    val isMarkdown = path.endsWith(".md", ignoreCase = true)
+    val previewKind = remember(path, fileContent.isBinary) {
+        FilePreviewUtils.previewContentKind(path, fileContent.isBinary)
+    }
     val imagePayload = remember(path, content) {
-        if (FilePreviewUtils.isImagePath(path)) decodeImagePayload(content) else null
+        if (previewKind == FilePreviewUtils.PreviewContentKind.IMAGE) decodeImagePayload(content) else null
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -85,8 +87,8 @@ internal fun FilePreviewPane(
 
         when {
             imagePayload != null -> ImageViewer(bitmap = imagePayload.bitmap)
-            isMarkdown -> PreviewMarkdown(content = content)
-            fileContent.isBinary -> PreviewBinaryFallback()
+            previewKind == FilePreviewUtils.PreviewContentKind.MARKDOWN -> PreviewMarkdown(content = content)
+            previewKind == FilePreviewUtils.PreviewContentKind.BINARY -> PreviewBinaryFallback()
             else -> PreviewPlainText(content = content)
         }
     }

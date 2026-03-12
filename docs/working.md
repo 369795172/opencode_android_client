@@ -113,3 +113,10 @@
 - 根据 Oracle 复查补充收口：统一 AI Builder signature 的规范化计算，修复 saved session 丢失后的回退选择，避免 busy polling 与消息加载重叠，并把错误文案从 `null` 降级为明确 fallback
 - 清理 `docs/dev_code_review.md` 中已经失效的 `MainViewModel.kt:<line>` 引用，改成按职责分组的文件级定位
 - 执行验证：`./gradlew testDebugUnitTest assembleDebug koverHtmlReport` 通过
+- 新建 phase 3 收口分支：`feature/phase3-constant-and-structure-followups`
+- 新增 `ChatUiTuning.kt` 与 `AudioTranscriptionConfig.kt`，把 Chat 输入区 / top bar 阈值与音频转写参数从 UI、录音、WebSocket 实现中收口出来
+- 将 `FilePreviewPane.kt` 的 preview 分流逻辑下沉到 `FilePreviewUtils.previewContentKind(...)`，减少 Composable 内部 `when` 分支复杂度
+- 新增 `ChatUiTuningTest.kt`、扩充 `FilePreviewUtilsTest.kt` 与 `SpeechRecognitionTest.kt`，为阈值判断、preview 路由和音频参数对齐补充 JVM 护栏
+- 新增 `ChatInputBarInstrumentedTest.kt` 与 `SettingsSectionsInstrumentedTest.kt`，覆盖 Chat 输入区动作按钮状态、Settings 语音区按钮可用性与成功态展示
+- 调整 connected integration tests：仅在显式配置且服务可达时运行 OpenCode server smoke tests；未配置或服务不可达时自动 skip，避免把外部环境问题误报为回归
+- 执行验证：`./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest koverHtmlReport connectedDebugAndroidTest` 通过

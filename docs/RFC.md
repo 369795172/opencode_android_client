@@ -293,6 +293,8 @@ fun TabletLayout() {
 }
 ```
 
+当前实现里，`MainViewModel` 仍然是状态入口，但连接初始化、session/message 同步、SSE/polling、语音转写编排已经拆到同包 helper 文件；这样保留统一状态入口，同时把副作用逻辑按职责分散到更小的单元。
+
 ### 5.2 消息渲染
 
 ```kotlin
@@ -341,13 +343,15 @@ fun StreamingText(text: String, isStreaming: Boolean) {
 - Chat 列表使用 `reverseLayout = true`，底部为索引 0
 - 当列表当前停留在底部时，新消息、tool call、streaming delta 到来后自动滚动到索引 0，适合 monitor session
 - 当用户主动滚离底部查看历史内容时，自动跟随暂停，避免打断阅读
-- 输入栏右侧操作按钮根据输入框高度在横排 / 竖排之间切换；录音中允许继续发送已有文本，转写中仍阻止重复录音
+- 输入栏右侧操作按钮根据输入框高度在横排 / 竖排之间切换；该阈值已收口到 `ChatUiTuning`
+- 录音中允许继续发送已有文本，转写中仍阻止重复录音
 
 ### 5.5 文件预览模式
 
 - Markdown：直接渲染为视觉化预览
 - Text：使用等宽字体原样显示
 - Image：按扩展名识别，服务端返回的 base64 内容解码为位图后显示
+- preview 路由判断已经下沉到纯 helper，便于独立测试 Markdown / Image / Binary / Text 四类分支
 - 图片预览默认 fit-to-screen，支持双击缩放、拖动平移、系统分享
 - Android 分享通过 `FileProvider + ACTION_SEND` 实现，对外仅暴露 cache 中的临时文件 URI
 
@@ -463,6 +467,11 @@ app/
 | Markdown | multiplatform-markdown-renderer + m3 adapter |
 
 图片预览与分享暂未引入第三方图片库，直接使用 Android 平台位图解码、Compose 手势系统与 `FileProvider`。
+
+测试方面，当前同时保留两层护栏：
+
+- JVM 单元测试：覆盖 ViewModel 状态机、repository 协议行为、preview/helper 纯函数、音频参数与转写辅助逻辑
+- connected Android tests：覆盖关键 Compose 交互，同时对依赖真实服务的 smoke integration 采用“未配置或不可达即 skip”的策略，避免环境噪音污染回归结果
 
 ---
 

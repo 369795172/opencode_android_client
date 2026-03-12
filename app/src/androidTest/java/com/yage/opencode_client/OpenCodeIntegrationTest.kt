@@ -22,19 +22,32 @@ import org.junit.runner.RunWith
 class OpenCodeIntegrationTest {
 
     private lateinit var repository: OpenCodeRepository
+    private var serverUrl: String = ""
+    private var username: String = ""
+    private var password: String = ""
 
     @Before
     fun setup() {
         val args = InstrumentationRegistry.getArguments()
-        val serverUrl = args.getString("openCodeServerUrl") ?: ""
-        val username = args.getString("openCodeUsername") ?: ""
-        val password = args.getString("openCodePassword") ?: ""
+        serverUrl = args.getString("openCodeServerUrl") ?: ""
+        username = args.getString("openCodeUsername") ?: ""
+        password = args.getString("openCodePassword") ?: ""
+
+        assumeTrue(
+            "Skipping: no OpenCode server configured in OPENCODE_SERVER_URL",
+            serverUrl.isNotBlank()
+        )
 
         repository = OpenCodeRepository()
         repository.configure(
-            baseUrl = serverUrl.ifEmpty { "http://10.0.2.2:4096" },
+            baseUrl = serverUrl,
             username = username.ifEmpty { null },
             password = password.ifEmpty { null }
+        )
+
+        assumeTrue(
+            "Skipping: OpenCode server is not reachable at $serverUrl",
+            runBlocking { repository.checkHealth().isSuccess }
         )
     }
 
@@ -49,9 +62,6 @@ class OpenCodeIntegrationTest {
 
     @Test
     fun getSessions_withCredentials() = runBlocking {
-        val args = InstrumentationRegistry.getArguments()
-        val username = args.getString("openCodeUsername") ?: ""
-        val password = args.getString("openCodePassword") ?: ""
         assumeTrue("Skipping: no credentials in .env - copy .env.example to .env", username.isNotEmpty() && password.isNotEmpty())
 
         val result = repository.getSessions()

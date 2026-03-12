@@ -31,9 +31,6 @@ private data class RealtimeSessionResponse(
 
 object AIBuildersAudioClient {
     private const val TAG = "AIBuildersAudio"
-    private const val TARGET_SAMPLE_RATE = 24_000
-    private const val SEND_CHUNK_SIZE = 240_000
-    private const val JSON_MEDIA_TYPE = "application/json; charset=utf-8"
 
     suspend fun testConnection(baseURL: String, token: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -49,7 +46,7 @@ object AIBuildersAudioClient {
                 .url(url)
                 .header("Authorization", "Bearer $cleanedToken")
                 .header("Content-Type", "application/json")
-                .post(body.toRequestBody(JSON_MEDIA_TYPE.toMediaType()))
+                .post(body.toRequestBody(AudioTranscriptionConfig.jsonMediaType.toMediaType()))
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -159,9 +156,9 @@ object AIBuildersAudioClient {
 
     private fun buildHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(AudioTranscriptionConfig.connectTimeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(AudioTranscriptionConfig.readTimeoutSeconds, TimeUnit.SECONDS)
+            .writeTimeout(AudioTranscriptionConfig.writeTimeoutSeconds, TimeUnit.SECONDS)
             .build()
     }
 
@@ -176,7 +173,7 @@ object AIBuildersAudioClient {
         val url = buildAPIURL(baseURL, "/v1/audio/realtime/sessions")
         val payload = JSONObject()
             .put("vad", false)
-            .put("silence_duration_ms", 1200)
+            .put("silence_duration_ms", AudioTranscriptionConfig.silenceDurationMs)
 
         val normalizedLanguage = language?.trim().orEmpty()
         if (normalizedLanguage.isNotEmpty()) {
@@ -203,7 +200,7 @@ object AIBuildersAudioClient {
             .url(url)
             .header("Authorization", "Bearer $token")
             .header("Content-Type", "application/json")
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE.toMediaType()))
+            .post(payload.toString().toRequestBody(AudioTranscriptionConfig.jsonMediaType.toMediaType()))
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -320,14 +317,17 @@ object AIBuildersAudioClient {
 
         try {
             readySignal.await()
-            val chunkCount = if (pcmAudio.isEmpty()) 0 else (pcmAudio.size + SEND_CHUNK_SIZE - 1) / SEND_CHUNK_SIZE
+            val chunkCount = if (pcmAudio.isEmpty()) 0 else {
+                (pcmAudio.size + AudioTranscriptionConfig.sendChunkSizeBytes - 1) /
+                    AudioTranscriptionConfig.sendChunkSizeBytes
+            }
             Log.d(
                 TAG,
-                "Sending PCM audio: bytes=${pcmAudio.size}, chunks=$chunkCount, targetRate=$TARGET_SAMPLE_RATE"
+                "Sending PCM audio: bytes=${pcmAudio.size}, chunks=$chunkCount, targetRate=${AudioRecorderConfig.targetPcmSampleRate}"
             )
             var chunkStart = 0
             while (chunkStart < pcmAudio.size) {
-                val chunkEnd = minOf(chunkStart + SEND_CHUNK_SIZE, pcmAudio.size)
+                val chunkEnd = minOf(chunkStart + AudioTranscriptionConfig.sendChunkSizeBytes, pcmAudio.size)
                 val sent = webSocket.send(
                     pcmAudio
                         .copyOfRange(chunkStart, chunkEnd)
