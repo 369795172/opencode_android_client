@@ -17,18 +17,17 @@ import androidx.compose.ui.unit.dp
 import com.yage.opencode_client.ui.AIBuilderSettings
 import com.yage.opencode_client.ui.MainViewModel
 import com.yage.opencode_client.util.ThemeMode
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: MainViewModel = hiltViewModel(),
+    viewModel: MainViewModel,
     onBack: (() -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val saved = remember { viewModel.getSavedConnectionSettings() }
-    val savedAIBuilder = remember { viewModel.getAIBuilderSettings() }
+    val saved = remember(viewModel) { viewModel.getSavedConnectionSettings() }
+    val savedAIBuilder = remember(viewModel) { viewModel.getAIBuilderSettings() }
 
     var serverUrl by remember { mutableStateOf(saved.serverUrl) }
     var username by remember { mutableStateOf(saved.username) }

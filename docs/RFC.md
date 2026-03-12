@@ -10,14 +10,14 @@
 | **标题** | OpenCode Android Client 技术方案 |
 | **状态** | Accepted (Implemented) |
 | **创建日期** | 2026-02 |
-| **最后更新** | 2026-03-02 |
+| **最后更新** | 2026-03-12 |
 | **PRD 引用** | [PRD.md](PRD.md) |
 
 ---
 
 ## 摘要
 
-本 RFC 提出 OpenCode Android Client 的技术实现方案。核心是：在 Android 8.0+ 上构建一个基于 Jetpack Compose 的原生客户端，通过 HTTP REST + SSE 与 OpenCode Server 通信，实现远程监控、消息发送、文档审查等能力。
+本 RFC 提出 OpenCode Android Client 的技术实现方案。核心是：在 Android 8.0+ 上构建一个基于 Jetpack Compose 的原生客户端，通过 HTTP REST + SSE 与 OpenCode Server 通信，并通过 AI Builder WebSocket API 提供语音转写能力，实现远程监控、消息发送、文档审查等能力。
 
 ---
 
@@ -27,19 +27,22 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Android Client (Jetpack Compose)              │
 ├─────────────────────────────────────────────────────────────────┤
-│  UI Layer              │  ViewModel Layer      │  Data Layer     │
-│  ─────────             │  ────────────         │  ──────────     │
-│  ChatScreen            │  ChatViewModel        │  APIClient      │
-│  FilesScreen           │  FilesViewModel       │  SSEClient      │
-│  SettingsScreen        │  SettingsViewModel    │  Repository     │
-│  Components            │                       │                 │
+│  UI Layer              │  ViewModel Layer      │  Data Layer                 │
+│  ─────────             │  ────────────         │  ──────────                 │
+│  ChatScreen            │  MainViewModel        │  OpenCodeApi               │
+│  FilesScreen           │                       │  SSEClient                 │
+│  SettingsScreen        │                       │  OpenCodeRepository        │
+│  Components            │                       │  AIBuildersAudioClient     │
+│                        │                       │  AudioRecorderManager      │
+│                        │                       │  SettingsManager           │
 └─────────────────────────────────────────────────────────────────┘
                               │
-                              │ OkHttp (REST + SSE)
+                              │ OkHttp (REST + SSE + WebSocket)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     OpenCode Server (Mac/Linux)                  │
-│  GET /global/event  │  POST /session/:id/prompt_async  │  ...    │
+│          OpenCode Server + AI Builder Speech Services            │
+│  GET /global/event  │  POST /session/:id/prompt_async  │  ...     │
+│  POST /v1/audio/realtime/sessions  │  WS /v1/audio/realtime/ws    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,8 +63,7 @@
 | 网络 | OkHttp + Retrofit | 业界标准，SSE 支持好 |
 | 序列化 | Kotlinx Serialization | Kotlin 原生，性能好 |
 | 依赖注入 | Hilt | 官方推荐，Dagger 封装 |
-| Markdown | Markwon 或 Compose Markdown | 成熟稳定 |
-| 代码高亮 | Prism4j 或 Syntax Highlighter | 轻量级 |
+| Markdown | multiplatform-markdown-renderer-m3 | 已落地，Compose 兼容性好 |
 | SSH（可选） | Apache Mina SSHD 或 JSch | 成熟，支持端口转发 |
 | 安全存储 | EncryptedSharedPreferences + Keystore | Android 官方方案 |
 
@@ -165,6 +167,13 @@ class SSEClient(
 - SSE 断开：指数退避重连，上限 30s
 - 服务器不可达：显示 Disconnected 状态
 
+### 3.4 语音转写链路
+
+- 录音端使用 `AudioRecorderManager`：`MediaRecorder` 先录制 M4A，停止后解码为 PCM 24kHz mono
+- 转写端使用 `AIBuildersAudioClient`：先 `POST /v1/audio/realtime/sessions` 创建会话，再通过 WebSocket 发送 PCM chunk 并接收 partial / final transcript
+- 输入框合并策略使用 `mergedSpeechInput(prefix, transcript)`：保留原输入，在转写结果前后只做必要空格拼接
+- 连接测试使用 AI Builder API，成功状态按 `baseURL + token` 的签名缓存，避免每次进入页面都强制重测
+
 ---
 
 ## 4. 状态管理
@@ -173,20 +182,25 @@ class SSEClient(
 
 ```kotlin
 data class AppState(
-    val serverUrl: String = "",
     val isConnected: Boolean = false,
     val sessions: List<Session> = emptyList(),
     val currentSessionId: String? = null,
-    val messages: List<Message> = emptyList(),
+    val messages: List<MessageWithParts> = emptyList(),
     val selectedModelIndex: Int = 0,
-    val selectedAgentIndex: Int = 0,
-    val agents: List<AgentInfo> = emptyList()
+    val selectedAgentName: String = "build",
+    val agents: List<AgentInfo> = emptyList(),
+    val inputText: String = "",
+    val isRecording: Boolean = false,
+    val isTranscribing: Boolean = false,
+    val speechError: String? = null,
+    val aiBuilderConnectionOK: Boolean = false
 )
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    private val apiClient: OpenCodeApi,
-    private val sseClient: SSEClient
+    private val repository: OpenCodeRepository,
+    private val settingsManager: SettingsManager,
+    private val audioRecorderManager: AudioRecorderManager
 ) : ViewModel() {
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
@@ -315,19 +329,27 @@ fun StreamingText(text: String, isStreaming: Boolean) {
     var displayedText by remember(text) { mutableStateOf("") }
     
     LaunchedEffect(text) {
-        if (isStreaming) {
-            text.forEach { char ->
-                delay(10) // 打字机效果
-                displayedText += char
-            }
-        } else {
-            displayedText = text
-        }
+        displayedText = text
     }
     
     Text(displayedText)
 }
 ```
+
+### 5.4 Chat 自动跟随策略
+
+- Chat 列表使用 `reverseLayout = true`，底部为索引 0
+- 当列表当前停留在底部时，新消息、tool call、streaming delta 到来后自动滚动到索引 0，适合 monitor session
+- 当用户主动滚离底部查看历史内容时，自动跟随暂停，避免打断阅读
+- 输入栏右侧操作按钮根据输入框高度在横排 / 竖排之间切换；录音中允许继续发送已有文本，转写中仍阻止重复录音
+
+### 5.5 文件预览模式
+
+- Markdown：直接渲染为视觉化预览
+- Text：使用等宽字体原样显示
+- Image：按扩展名识别，服务端返回的 base64 内容解码为位图后显示
+- 图片预览默认 fit-to-screen，支持双击缩放、拖动平移、系统分享
+- Android 分享通过 `FileProvider + ACTION_SEND` 实现，对外仅暴露 cache 中的临时文件 URI
 
 ---
 
@@ -354,12 +376,22 @@ class CredentialManager(context: Context) {
             putString("server_url", url)
             putString("auth_username", username)
             putString("auth_password", password)
+            putString("ai_builder_base_url", "https://space.ai-builders.com/backend")
+            putString("ai_builder_token", "")
         }
     }
 }
 ```
 
-### 6.2 SSH 密钥管理（可选）
+语音相关配置也走 `EncryptedSharedPreferences`：AI Builder Base URL、Token、Custom Prompt、Terminology、上次成功连接签名与时间戳都保存在本地加密存储中。
+
+### 6.2 语音权限与输入行为
+
+- `RECORD_AUDIO` 采用运行时权限请求，未授权时在 Chat 页直接提示
+- 录音中允许继续发送当前已输入文本，避免语音输入阻塞文字输入流
+- 转写中保留 loading 态，不允许重复点麦克风，避免并发转写状态冲突
+
+### 6.3 SSH 密钥管理（可选）
 
 ```kotlin
 class SSHKeyManager(context: Context) {
@@ -386,8 +418,8 @@ class SSHKeyManager(context: Context) {
 ```
 app/
 ├── src/main/
-│   ├── java/com/opencode/android/
-│   │   ├── App.kt                    # Application 类
+│   ├── java/com/yage/opencode_client/
+│   │   ├── OpenCodeApp.kt            # Application 类
 │   │   ├── MainActivity.kt           # 入口 Activity
 │   │   ├── data/
 │   │   │   ├── api/
@@ -397,16 +429,17 @@ app/
 │   │   │   └── repository/           # 数据仓库
 │   │   ├── ui/
 │   │   │   ├── chat/
-│   │   │   │   ├── ChatScreen.kt
-│   │   │   │   ├── MessageRow.kt
-│   │   │   │   └── ChatViewModel.kt
+│   │   │   │   └── ChatScreen.kt
 │   │   │   ├── files/
+│   │   │   │   ├── FilesScreen.kt
+│   │   │   │   └── FilePreviewUtils.kt
 │   │   │   ├── settings/
-│   │   │   └── components/           # 共享组件
+│   │   │   └── theme/                # 颜色、字体、Markdown typography
 │   │   ├── di/                       # Hilt 模块
 │   │   └── util/                     # 工具类
 │   ├── res/
 │   │   ├── xml/network_security_config.xml
+│   │   ├── xml/file_paths.xml
 │   │   └── ...
 │   └── AndroidManifest.xml
 ├── build.gradle.kts
@@ -417,45 +450,19 @@ app/
 
 ## 8. 依赖配置
 
-```kotlin
-// build.gradle.kts (app)
-dependencies {
-    // Compose
-    implementation("androidx.compose.ui:ui:1.6.0")
-    implementation("androidx.compose.material3:material3:1.2.0")
-    implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
-    implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.navigation:navigation-compose:2.7.6")
-    
-    // Lifecycle
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-    
-    // Network
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
-    
-    // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-    
-    // DI
-    implementation("com.google.dagger:hilt-android:2.50")
-    kapt("com.google.dagger:hilt-compiler:2.50")
-    implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
-    
-    // Security
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    
-    // Markdown
-    implementation("io.noties.markwon:core:4.6.2")
-    implementation("io.noties.markwon:syntax-highlight:4.6.2")
-    
-    // SSH (optional)
-    implementation("org.apache.sshd:sshd-core:2.12.0")
-}
-```
+当前实现以 version catalog 管理依赖，核心依赖如下：
+
+| 类别 | 当前依赖 |
+|------|----------|
+| Compose | Compose BOM + Material 3 + activity-compose |
+| Lifecycle | lifecycle-runtime-compose + viewmodel-compose |
+| Network | OkHttp + OkHttp SSE + Retrofit |
+| Serialization | kotlinx-serialization-json |
+| DI | Hilt + KSP |
+| Security | EncryptedSharedPreferences |
+| Markdown | multiplatform-markdown-renderer + m3 adapter |
+
+图片预览与分享暂未引入第三方图片库，直接使用 Android 平台位图解码、Compose 手势系统与 `FileProvider`。
 
 ---
 
@@ -464,8 +471,8 @@ dependencies {
 | Phase | 范围 | 预计周期 |
 |-------|------|----------|
 | 1 | 项目搭建、网络层、SSE、Session、消息发送、流式渲染 | 2-3 周 |
-| 2 | Part 渲染、权限审批、主题、语音输入 | 1-2 周 |
-| 3 | 文件树、Markdown 预览、Diff、平板布局 | 2 周 |
+| 2 | Part 渲染、权限审批、主题、语音输入 | 已完成 |
+| 3 | 文件树、Markdown / 图片预览、Diff、平板布局 | 已完成 |
 | 4 | SSH Tunnel（可选） | 1 周 |
 
 ---

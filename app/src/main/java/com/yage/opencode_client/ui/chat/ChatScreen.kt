@@ -19,14 +19,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import com.mikepenz.markdown.m3.Markdown
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.core.content.ContextCompat
 import com.yage.opencode_client.data.audio.AIBuildersAudioClient
 import com.yage.opencode_client.data.model.*
@@ -36,11 +37,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import com.yage.opencode_client.ui.session.SessionList
 import com.yage.opencode_client.ui.theme.markdownTypographyCompact
 import com.yage.opencode_client.ui.theme.ToolWritePatchBackgroundDark
+import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    viewModel: MainViewModel = hiltViewModel(),
+    viewModel: MainViewModel,
     onNavigateToFiles: (String) -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     showSettingsButton: Boolean = true,
@@ -65,7 +67,6 @@ fun ChatScreen(
             sessions = state.sessions,
             currentSessionId = state.currentSessionId,
             expandedSessionIds = state.expandedSessionIds,
-            isBusy = state.isCurrentSessionBusy,
             agents = state.visibleAgents,
             selectedAgent = state.selectedAgentName,
             availableModels = state.availableModels,
@@ -75,7 +76,6 @@ fun ChatScreen(
             onCreateSession = { viewModel.createSession() },
             onDeleteSession = { viewModel.deleteSession(it) },
             onToggleSessionExpanded = { viewModel.toggleSessionExpanded(it) },
-            onAbort = { viewModel.abortSession() },
             onSelectAgent = { viewModel.selectAgent(it) },
             onSelectModel = { viewModel.selectModel(it) },
             onNavigateToSettings = onNavigateToSettings,
@@ -174,7 +174,6 @@ private fun TopBar(
     sessions: List<Session>,
     currentSessionId: String?,
     expandedSessionIds: Set<String> = emptySet(),
-    isBusy: Boolean,
     agents: List<AgentInfo>,
     selectedAgent: String,
     availableModels: List<AppState.ModelOption>,
@@ -184,7 +183,6 @@ private fun TopBar(
     onCreateSession: () -> Unit,
     onDeleteSession: (String) -> Unit,
     onToggleSessionExpanded: (String) -> Unit = {},
-    onAbort: () -> Unit,
     onSelectAgent: (String) -> Unit,
     onSelectModel: (Int) -> Unit,
     onNavigateToSettings: () -> Unit = {},
@@ -277,12 +275,6 @@ private fun TopBar(
                             }
                         )
                     }
-                }
-            }
-
-            if (isBusy) {
-                IconButton(onClick = onAbort) {
-                    Icon(Icons.Default.Stop, contentDescription = "Abort")
                 }
             }
 
@@ -404,9 +396,25 @@ private fun MessageList(
 ) {
     val listState = rememberLazyListState()
     val layoutInfo = listState.layoutInfo
+    var shouldAutoScroll by remember { mutableStateOf(true) }
+    val contentVersion = remember(messages, streamingPartTexts, streamingReasoningPart, isLoading) {
+        messages.size +
+            messages.sumOf { it.parts.size } +
+            streamingPartTexts.hashCode() +
+            (if (streamingReasoningPart != null) 1 else 0) +
+            (if (isLoading) 1 else 0)
+    }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 24
+        }.collect { atBottom ->
+            shouldAutoScroll = atBottom
+        }
+    }
+
+    LaunchedEffect(contentVersion) {
+        if (shouldAutoScroll && (messages.isNotEmpty() || streamingReasoningPart != null)) {
             listState.animateScrollToItem(0)
         }
     }
@@ -946,6 +954,10 @@ private fun InputBar(
     onAbort: () -> Unit,
     onToggleRecording: () -> Unit
 ) {
+    val density = LocalDensity.current
+    var textFieldHeightPx by remember { mutableIntStateOf(0) }
+    val useVerticalActions = with(density) { textFieldHeightPx.toDp() >= 112.dp }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -956,60 +968,132 @@ private fun InputBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = if (useVerticalActions) Alignment.Bottom else Alignment.CenterVertically
         ) {
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .onGloballyPositioned { textFieldHeightPx = it.size.height },
                 placeholder = { Text("Type a message...") },
                 maxLines = 4,
                 enabled = true
             )
             Spacer(modifier = Modifier.width(8.dp))
-            if (isBusy) {
-                IconButton(
-                    onClick = onAbort,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Stop,
-                        contentDescription = "Stop",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-            IconButton(
-                onClick = onToggleRecording,
-                enabled = !isTranscribing
-            ) {
-                if (isTranscribing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.Mic,
-                        contentDescription = "Speech",
-                        tint = when {
-                            isRecording -> Color.Red
-                            isSpeechConfigured -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                        }
-                    )
-                }
-            }
-            IconButton(
-                onClick = onSend,
-                enabled = text.isNotBlank() && !isBusy && !isRecording && !isTranscribing
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send"
-                )
-            }
+            InputActionButtons(
+                isBusy = isBusy,
+                isRecording = isRecording,
+                isTranscribing = isTranscribing,
+                isSpeechConfigured = isSpeechConfigured,
+                useVerticalActions = useVerticalActions,
+                canSend = text.isNotBlank() && !isBusy && !isTranscribing,
+                onAbort = onAbort,
+                onToggleRecording = onToggleRecording,
+                onSend = onSend
+            )
         }
+    }
+}
+
+@Composable
+private fun InputActionButtons(
+    isBusy: Boolean,
+    isRecording: Boolean,
+    isTranscribing: Boolean,
+    isSpeechConfigured: Boolean,
+    useVerticalActions: Boolean,
+    canSend: Boolean,
+    onAbort: () -> Unit,
+    onToggleRecording: () -> Unit,
+    onSend: () -> Unit
+) {
+    if (useVerticalActions) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            InputActionButton(
+                isBusy = isBusy,
+                isRecording = isRecording,
+                isTranscribing = isTranscribing,
+                isSpeechConfigured = isSpeechConfigured,
+                canSend = canSend,
+                onAbort = onAbort,
+                onToggleRecording = onToggleRecording,
+                onSend = onSend
+            )
+        }
+    } else {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InputActionButton(
+                isBusy = isBusy,
+                isRecording = isRecording,
+                isTranscribing = isTranscribing,
+                isSpeechConfigured = isSpeechConfigured,
+                canSend = canSend,
+                onAbort = onAbort,
+                onToggleRecording = onToggleRecording,
+                onSend = onSend
+            )
+        }
+    }
+}
+
+@Composable
+private fun InputActionButton(
+    isBusy: Boolean,
+    isRecording: Boolean,
+    isTranscribing: Boolean,
+    isSpeechConfigured: Boolean,
+    canSend: Boolean,
+    onAbort: () -> Unit,
+    onToggleRecording: () -> Unit,
+    onSend: () -> Unit
+) {
+    if (isBusy) {
+        IconButton(
+            onClick = onAbort,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Default.Stop,
+                contentDescription = "Stop",
+                tint = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+    IconButton(
+        onClick = onToggleRecording,
+        enabled = !isTranscribing
+    ) {
+        if (isTranscribing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = "Speech",
+                tint = when {
+                    isRecording -> Color.Red
+                    isSpeechConfigured -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                }
+            )
+        }
+    }
+    IconButton(
+        onClick = onSend,
+        enabled = canSend
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.Send,
+            contentDescription = "Send"
+        )
     }
 }

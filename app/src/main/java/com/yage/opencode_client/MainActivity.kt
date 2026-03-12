@@ -33,6 +33,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.yage.opencode_client.data.repository.OpenCodeRepository
 import com.yage.opencode_client.ui.MainViewModel
 import com.yage.opencode_client.ui.chat.ChatScreen
@@ -118,6 +119,17 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    fun navigateToTopLevel(route: String) {
+        if (currentRoute == route) return
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets.statusBars,
         bottomBar = {
@@ -126,18 +138,7 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
                     val selected = currentRoute == screen.route
                     NavigationBarItem(
                         selected = selected,
-                        onClick = {
-                            if (currentRoute != screen.route) {
-                                navController.navigate(screen.route) {
-                                    popUpTo(Screen.Chat.route) {
-                                        saveState = true
-                                        inclusive = (screen.route == Screen.Chat.route)
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
+                        onClick = { navigateToTopLevel(screen.route) },
                         icon = {
                             Icon(
                                 if (selected) screen.selectedIcon else screen.unselectedIcon,
@@ -160,10 +161,10 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
                     viewModel = viewModel,
                     onNavigateToFiles = { path ->
                         viewModel.showFileInFiles(path)
-                        navController.navigate(Screen.Files.route)
+                        navigateToTopLevel(Screen.Files.route)
                     },
                     onNavigateToSettings = {
-                        navController.navigate(Screen.Settings.route)
+                        navigateToTopLevel(Screen.Settings.route)
                     },
                     showSettingsButton = false
                 )
@@ -179,7 +180,7 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
                 )
             }
             composable(Screen.Settings.route) {
-                SettingsScreen()
+                SettingsScreen(viewModel = viewModel)
             }
         }
     }
@@ -205,6 +206,7 @@ private fun TabletLayout(viewModel: MainViewModel, repository: OpenCodeRepositor
         ) {
             if (selectedTab == 1) {
                 SettingsScreen(
+                    viewModel = viewModel,
                     onBack = { selectedTab = 0 }
                 )
             } else {
@@ -269,4 +271,3 @@ private fun TabletLayout(viewModel: MainViewModel, repository: OpenCodeRepositor
         }
     }
 }
-

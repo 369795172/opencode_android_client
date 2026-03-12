@@ -22,6 +22,7 @@ data class FileContent(
     val content: String? = null
 ) {
     val isText: Boolean get() = type == "text"
+    val isBinary: Boolean get() = type == "binary"
     val text: String? get() = if (isText) content else null
 }
 
