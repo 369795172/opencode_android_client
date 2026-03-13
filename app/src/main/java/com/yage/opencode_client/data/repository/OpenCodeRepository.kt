@@ -136,6 +136,26 @@ class OpenCodeRepository @Inject constructor() {
         api.respondPermission(sessionId, permissionId, PermissionResponseRequest(response.value))
     }
 
+    suspend fun getPendingQuestions(): Result<List<QuestionRequest>> = runCatching {
+        api.getPendingQuestions()
+    }
+
+    suspend fun replyQuestion(requestId: String, answers: List<List<String>>): Result<Unit> = runCatching {
+        val response = api.replyQuestion(requestId, QuestionReplyRequest(answers))
+        if (!response.isSuccessful) {
+            val errorBody = response.errorBody()?.string() ?: response.message()
+            throw Exception("Reply failed ${response.code()}: $errorBody")
+        }
+    }
+
+    suspend fun rejectQuestion(requestId: String): Result<Unit> = runCatching {
+        val response = api.rejectQuestion(requestId)
+        if (!response.isSuccessful) {
+            val errorBody = response.errorBody()?.string() ?: response.message()
+            throw Exception("Reject failed ${response.code()}: $errorBody")
+        }
+    }
+
     suspend fun getProviders(): Result<ProvidersResponse> = runCatching { api.getProviders() }
 
     suspend fun getAgents(): Result<List<AgentInfo>> = runCatching { api.getAgents() }

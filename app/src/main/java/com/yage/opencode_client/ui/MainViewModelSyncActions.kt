@@ -130,5 +130,31 @@ internal fun handleIncomingSseEvent(
         "permission.asked" -> {
             onLoadPendingPermissions()
         }
+        "question.asked" -> {
+            val question = parseQuestionAskedEvent(event)
+            if (question != null) {
+                state.update { currentState ->
+                    val existing = currentState.pendingQuestions.any { it.id == question.id }
+                    if (!existing) {
+                        currentState.copy(pendingQuestions = currentState.pendingQuestions + question)
+                    } else {
+                        currentState
+                    }
+                }
+            } else {
+                onNonFatalIssue("Ignoring invalid question.asked payload")
+            }
+        }
+        "question.replied", "question.rejected" -> {
+            val requestId = event.payload.getString("requestID") 
+                ?: event.payload.getString("id")
+            if (requestId != null) {
+                state.update { currentState ->
+                    currentState.copy(
+                        pendingQuestions = currentState.pendingQuestions.filter { it.id != requestId }
+                    )
+                }
+            }
+        }
     }
 }

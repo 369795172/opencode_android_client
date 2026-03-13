@@ -52,6 +52,18 @@ interface OpenCodeApi {
     @GET("permission")
     suspend fun getPendingPermissions(): List<PermissionRequest>
 
+    @GET("question")
+    suspend fun getPendingQuestions(): List<QuestionRequest>
+
+    @POST("question/{requestId}/reply")
+    suspend fun replyQuestion(
+        @Path("requestId") requestId: String,
+        @Body body: QuestionReplyRequest
+    ): Response<Unit>
+
+    @POST("question/{requestId}/reject")
+    suspend fun rejectQuestion(@Path("requestId") requestId: String): Response<Unit>
+
     @GET("config/providers")
     suspend fun getProviders(): ProvidersResponse
 
@@ -113,4 +125,9 @@ data class PromptRequest(
 @kotlinx.serialization.Serializable
 data class PermissionResponseRequest(
     val response: String
+)
+
+@kotlinx.serialization.Serializable
+data class QuestionReplyRequest(
+    val answers: List<List<String>>
 )

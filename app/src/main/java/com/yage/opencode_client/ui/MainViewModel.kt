@@ -394,9 +394,47 @@ class MainViewModel @Inject constructor(
             repository.getPendingPermissions()
                 .onSuccess { permissions ->
                     _state.update { it.copy(pendingPermissions = permissions) }
+                .onFailure { error ->
+                    Log.w(TAG, "Failed to load permissions: ${error.message}")
+                }
+        }
+    }
+
+    fun loadPendingQuestions() {
+        viewModelScope.launch {
+            repository.getPendingQuestions()
+                .onSuccess { questions ->
+                    _state.update { it.copy(pendingQuestions = questions) }
+                .onFailure { error ->
+                    Log.w(TAG, "Failed to load questions: ${error.message}")
+                }
+        }
+    }
+
+    fun replyQuestion(requestId: String, answers: List<List<String>>) {
+        viewModelScope.launch {
+            repository.replyQuestion(requestId, answers)
+                .onSuccess {
+                    _state.update { currentState ->
+                        currentState.copy(pendingQuestions = currentState.pendingQuestions.filter { it.id != requestId })
+                    }
                 }
                 .onFailure { error ->
-                    reportNonFatalIssue(TAG, "Failed to load pending permissions", error)
+                    Log.w(TAG, "Failed to reply question: ${error.message}")
+                }
+        }
+    }
+
+    fun rejectQuestion(requestId: String) {
+        viewModelScope.launch {
+            repository.rejectQuestion(requestId)
+                .onSuccess {
+                    _state.update { currentState ->
+                        currentState.copy(pendingQuestions = currentState.pendingQuestions.filter { it.id != requestId })
+                    }
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "Failed to reject question: ${error.message}")
                 }
         }
     }
@@ -430,6 +468,7 @@ class MainViewModel @Inject constructor(
             event = event,
             onRefreshMessages = ::loadMessagesWithRetry,
             onLoadPendingPermissions = ::loadPendingPermissions,
+            onLoadPendingQuestions = ::loadPendingQuestions,
             onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) }
         )
     }

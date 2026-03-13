@@ -1,3 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">opencode_client</string>
+    <string name="app_name">OpenCode Client</string>
+    <string name="question_title" translatable="false">Question</string>
+    <string name="question_multi_hint" translatable="false">Select one or more options</string>
+    <string name="question_single_hint" translatable="false">Select one option</string>
+    <string name="question_type_own_answer" translatable="false">Type your own answer</string>
+    <string name="question_custom_placeholder" translatable="false">Type your answer...</string>
+    <string name="question_dismiss" translatable="false">Dismiss</string>
+    <string name="question_back" translatable="false">Back</string>
+    <string name="question_next" translatable="false">Next</string>
+    <string name="question_submit" translatable="false">Submit</string>
+    <string name="question_of" translatable="false">%d of %d</string>
 </resources>

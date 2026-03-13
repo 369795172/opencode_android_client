@@ -2,6 +2,7 @@ package com.yage.opencode_client.ui
 
 import android.util.Log
 import com.yage.opencode_client.data.model.Part
+import com.yage.opencode_client.data.model.QuestionRequest
 import com.yage.opencode_client.data.model.SSEEvent
 import com.yage.opencode_client.data.model.Session
 import com.yage.opencode_client.data.model.SessionStatus
@@ -93,6 +94,12 @@ internal fun parseMessagePartDeltaEvent(event: SSEEvent): MessagePartDeltaEvent?
         partType = partType,
         delta = event.payload.getString("delta")
     )
+}
+
+internal fun parseQuestionAskedEvent(event: SSEEvent): QuestionRequest? {
+    return runCatching {
+        Json.decodeFromString<QuestionRequest>(event.payload.toString())
+    }.getOrNull()
 }
 
 internal fun reasoningPartOrNull(partType: String, partId: String, messageId: String, sessionId: String): Part? {
