@@ -10,6 +10,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import java.security.MessageDigest
 
+private val lenientJson = Json { ignoreUnknownKeys = true }
+
 internal object MainViewModelTimings {
     const val sessionPageSize = 100
     const val messageRetryDelayMs = 400L
@@ -99,7 +101,7 @@ internal fun parseMessagePartDeltaEvent(event: SSEEvent): MessagePartDeltaEvent?
 internal fun parseQuestionAskedEvent(event: SSEEvent): QuestionRequest? {
     val properties = event.payload.properties ?: return null
     return runCatching {
-        Json.decodeFromString<QuestionRequest>(properties.toString())
+        lenientJson.decodeFromString<QuestionRequest>(properties.toString())
     }.getOrNull()
 }
 

@@ -157,7 +157,7 @@ fun ChatScreen(
             ?.let { question ->
                 QuestionCardView(
                     question = question,
-                    onReply = { answers -> viewModel.replyQuestion(question.id, answers) },
+                    onReply = { answers, onError -> viewModel.replyQuestion(question.id, answers, onError) },
                     onReject = { viewModel.rejectQuestion(question.id) }
                 )
             }

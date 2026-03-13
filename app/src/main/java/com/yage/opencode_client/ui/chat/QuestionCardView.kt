@@ -27,31 +27,58 @@ import com.yage.opencode_client.data.model.QuestionRequest
 @Composable
 fun QuestionCardView(
     question: QuestionRequest,
-    onReply: (List<List<String>>) -> Unit,
+    onReply: (List<List<String>>, onError: () -> Unit) -> Unit,
     onReject: () -> Unit
 ) {
     val count = question.questions.size
-    var currentTab by remember { mutableIntStateOf(0) }
-    // Per-question selected answers
-    val answers = remember {
+
+    // Guard: empty questions list — show dismissible placeholder
+    if (count == 0) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.07f)
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("(No questions)", style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onReject) { Text("Dismiss") }
+            }
+        }
+        return
+    }
+
+    // Key all state by question.id — resets cleanly when a new question arrives
+    var currentTab by remember(question.id) { mutableIntStateOf(0) }
+    // Per-question selected answers — inner lists are snapshot-aware
+    val answers = remember(question.id) {
         mutableStateListOf<MutableList<String>>().also { list ->
             repeat(count) { list.add(mutableStateListOf()) }
         }
     }
     // Per-question custom text
-    val customTexts = remember {
+    val customTexts = remember(question.id) {
         mutableStateListOf<String>().also { list ->
             repeat(count) { list.add("") }
         }
     }
     // Per-question whether "custom" option is active
-    val customActive = remember {
+    val customActive = remember(question.id) {
         mutableStateListOf<Boolean>().also { list ->
             repeat(count) { list.add(false) }
         }
     }
-    var isCustomEditing by remember { mutableStateOf(false) }
-    var isSending by remember { mutableStateOf(false) }
+    var isCustomEditing by remember(question.id) { mutableStateOf(false) }
+    var isSending by remember(question.id) { mutableStateOf(false) }
 
     val accent = MaterialTheme.colorScheme.primary
     val cornerRadius = 12.dp
@@ -69,9 +96,9 @@ fun QuestionCardView(
 
         if (currentQuestion.allowMultiple) {
             val optionLabels = currentQuestion.options.map { it.label }.toSet()
-            val newAnswers: MutableList<String> = answers[currentTab]
-                .filter { optionLabels.contains(it) }
-                .toMutableList()
+            // Keep only predefined-option answers; replace with snapshot-aware list
+            val kept = answers[currentTab].filter { optionLabels.contains(it) }
+            val newAnswers = mutableStateListOf<String>().also { it.addAll(kept) }
             customTexts[currentTab] = text
             if (text.isNotEmpty()) {
                 if (!newAnswers.contains(text)) newAnswers.add(text)
@@ -83,7 +110,11 @@ fun QuestionCardView(
         } else {
             customTexts[currentTab] = text
             customActive[currentTab] = text.isNotEmpty()
-            answers[currentTab] = if (text.isEmpty()) mutableStateListOf() else mutableStateListOf(text)
+            answers[currentTab] = if (text.isEmpty()) {
+                mutableStateListOf()
+            } else {
+                mutableStateListOf(text)
+            }
         }
     }
 
@@ -136,7 +167,10 @@ fun QuestionCardView(
     fun submit() {
         if (isSending) return
         isSending = true
-        onReply(answers.map { it.toList() })
+        onReply(answers.map { it.toList() }) {
+            // onError: reset so the user can retry
+            isSending = false
+        }
     }
 
     fun next() {

@@ -239,6 +239,7 @@ class MainViewModel @Inject constructor(
         loadSessions()
         loadAgents()
         loadProviders()
+        loadPendingQuestions()
     }
 
     fun loadSessions() {
@@ -414,7 +415,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun replyQuestion(requestId: String, answers: List<List<String>>) {
+    fun replyQuestion(requestId: String, answers: List<List<String>>, onError: () -> Unit = {}) {
         viewModelScope.launch {
             repository.replyQuestion(requestId, answers)
                 .onSuccess {
@@ -424,6 +425,7 @@ class MainViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     Log.w(TAG, "Failed to reply question: ${error.message}")
+                    onError()
                 }
         }
     }

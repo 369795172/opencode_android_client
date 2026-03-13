@@ -144,3 +144,33 @@
 - 对齐 iOS 的会话排队行为：移除 Android Chat 输入区对 `isBusy` 的发送禁用，仅在转写中继续阻止发送；busy 状态下仍保留 stop 按钮
 - 新增 `MainViewModelTest` 回归用例，确认 current session 为 busy 时仍会调用 `repository.sendMessage(...)` 排队发送下一条 prompt
 - 更新 `ChatInputBarInstrumentedTest`，确认 busy 状态下 stop 可见且 send 仍可点击
+
+---
+
+## 2026-03-13
+
+**Question 功能实现（`feature/question-support`，参照 iOS 客户端）**
+
+**数据层**
+- `data/model/Question.kt` — `QuestionOption`、`QuestionInfo`、`QuestionRequest` 数据模型（镜像 iOS `QuestionModels.swift`）
+- `data/api/OpenCodeApi.kt` — 3 个新端点：`GET /question`、`POST /question/{id}/reply`、`POST /question/{id}/reject`
+- `data/repository/OpenCodeRepository.kt` — `getPendingQuestions()`、`replyQuestion()`、`rejectQuestion()`
+
+**ViewModel 层**
+- `AppState` 添加 `pendingQuestions: List<QuestionRequest>` 字段
+- `MainViewModelSupport.kt` — `parseQuestionAskedEvent()` 从 `payload.properties: JsonObject` 反序列化 `QuestionRequest`
+- `MainViewModelSyncActions.kt` — 内联处理 `question.asked`（去重 upsert）、`question.replied`、`question.rejected` SSE 事件
+- `MainViewModel.kt` — `loadPendingQuestions()`、`replyQuestion()`、`rejectQuestion()`
+
+**UI 层**
+- `ui/chat/QuestionCardView.kt` — 完整 Composable：单选/多选/自定义文本输入、多题分步导航、进度指示点、Dismiss/Back/Next/Submit 按钮
+- `ui/chat/ChatScreen.kt` — 集成 `QuestionCardView`，按 `currentSessionId` 过滤
+
+**测试**
+- `QuestionTest.kt` — 5 个单元测试，全部通过
+
+**构建验证**
+- `./gradlew assembleDebug` — BUILD SUCCESSFUL
+- `./gradlew testDebugUnitTest` — 5/5 QuestionTest pass
+
+**版本**：0.1.20260313，versionCode 2，GitHub Release + tag `v0.1.20260313`
