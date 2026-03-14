@@ -89,80 +89,138 @@ Android 9+ 默认禁止明文流量。`network_security_config.xml` 设置 base-
 
 ```kotlin
 interface OpenCodeApi {
-    @GET("/health")
+    @GET("global/health")
     suspend fun getHealth(): HealthResponse
-    
-    @GET("/session")
-    suspend fun getSessions(): List<Session>
-    
-    @GET("/session/{id}/message")
+
+    @GET("session")
+    suspend fun getSessions(@Query("limit") limit: Int? = null): List<Session>
+
+    @POST("session")
+    suspend fun createSession(@Body body: CreateSessionRequest = CreateSessionRequest()): Session
+
+    @GET("session/{id}")
+    suspend fun getSession(@Path("id") sessionId: String): Session
+
+    @PATCH("session/{id}")
+    suspend fun updateSession(@Path("id") sessionId: String, @Body body: UpdateSessionRequest): Session
+
+    @DELETE("session/{id}")
+    suspend fun deleteSession(@Path("id") sessionId: String): Response<Unit>
+
+    @GET("session/status")
+    suspend fun getSessionStatus(): Map<String, SessionStatus>
+
+    @GET("session/{id}/message")
     suspend fun getMessages(
         @Path("id") sessionId: String,
-        @Query("limit") limit: Int = 6
-    ): List<Message>
-    
-    @POST("/session/{id}/prompt_async")
-    suspend fun sendMessage(
+        @Query("limit") limit: Int? = null
+    ): List<MessageWithParts>
+
+    @POST("session/{id}/prompt_async")
+    suspend fun promptAsync(
         @Path("id") sessionId: String,
-        @Body request: PromptRequest
-    )
-    
-    @POST("/session/{id}/permissions/{permissionId}")
-    suspend fun handlePermission(
-        @Path("id") sessionId: String,
-        @Path("permissionId") permissionId: String,
-        @Body request: PermissionRequest
-    )
-    
-    @POST("/session/{id}/abort")
-    suspend fun abortSession(@Path("id") sessionId: String)
-    
-    @POST("/session/{id}/fork")
+        @Body body: PromptRequest
+    ): Response<Unit>
+
+    @POST("session/{id}/abort")
+    suspend fun abortSession(@Path("id") sessionId: String): Response<Unit>
+
+    @POST("session/{id}/fork")
     suspend fun forkSession(
         @Path("id") sessionId: String,
         @Body body: ForkSessionRequest
     ): Session
-    
-    @GET("/file")
-    suspend fun getFileTree(@Query("path") path: String?): FileNode
-    
-    @GET("/file/content")
-    suspend fun getFileContent(@Query("path") path: String): FileContent
-    
-    @GET("/agent")
+
+    @POST("session/{id}/permissions/{permissionId}")
+    suspend fun respondPermission(
+        @Path("id") sessionId: String,
+        @Path("permissionId") permissionId: String,
+        @Body body: PermissionResponseRequest
+    ): Response<Unit>
+
+    @GET("permission")
+    suspend fun getPendingPermissions(): List<PermissionRequest>
+
+    @GET("question")
+    suspend fun getPendingQuestions(): List<QuestionRequest>
+
+    @POST("question/{requestId}/reply")
+    suspend fun replyQuestion(
+        @Path("requestId") requestId: String,
+        @Body body: QuestionReplyRequest
+    ): Response<Unit>
+
+    @POST("question/{requestId}/reject")
+    suspend fun rejectQuestion(@Path("requestId") requestId: String): Response<Unit>
+
+    @GET("config/providers")
+    suspend fun getProviders(): ProvidersResponse
+
+    @GET("agent")
     suspend fun getAgents(): List<AgentInfo>
+
+    @GET("session/{id}/diff")
+    suspend fun getSessionDiff(@Path("id") sessionId: String): List<FileDiff>
+
+    @GET("session/{id}/todo")
+    suspend fun getSessionTodos(@Path("id") sessionId: String): List<TodoItem>
+
+    @GET("file")
+    suspend fun getFileTree(@Query("path") path: String? = ""): List<FileNode>
+
+    @GET("file/content")
+    suspend fun getFileContent(@Query("path") path: String): FileContent
+
+    @GET("file/status")
+    suspend fun getFileStatus(): List<FileStatusEntry>
+
+    @GET("find/file")
+    suspend fun findFile(
+        @Query("query") query: String,
+        @Query("limit") limit: Int = 50
+    ): List<String>
 }
 ```
 
 ### 3.2 SSE 连接
 
-使用 OkHttp 的 `EventSource`：
+使用 OkHttp 的 `EventSource`，构造时只注入 `OkHttpClient`，连接时传入服务器参数，返回 `Flow<Result<SSEEvent>>`，内置指数退避重连：
 
 ```kotlin
+// 构造器：只接受 okHttpClient，不持有 baseUrl
 class SSEClient(
-    private val okHttpClient: OkHttpClient,
-    private val baseUrl: String
+    private val okHttpClient: OkHttpClient
 ) {
-    private var eventSource: EventSource? = null
-    
-    fun connect(onEvent: (SSEEvent) -> Unit) {
-        val request = Request.Builder()
-            .url("$baseUrl/global/event")
-            .header("Accept", "text/event-stream")
-            .header("Cache-Control", "no-cache")
-            .build()
-            
-        eventSource = EventSources.createFactory(okHttpClient)
-            .newEventSource(request, object : EventSourceListener() {
-                override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                    val event = Json.decodeFromString<SSEEvent>(data)
-                    onEvent(event)
-                }
-            })
+    companion object {
+        private const val INITIAL_RETRY_DELAY_MS = 1000L
+        private const val MAX_RETRY_DELAY_MS = 30000L
+        private const val RETRY_MULTIPLIER = 2.0
     }
-    
-    fun disconnect() {
-        eventSource?.cancel()
+
+    // connect() 接受 baseUrl/username/password，返回 Flow<Result<SSEEvent>>
+    // 失败时自动指数退避重连（1s → 2s → 4s … 上限 30s）
+    fun connect(
+        baseUrl: String,
+        username: String? = null,
+        password: String? = null
+    ): Flow<Result<SSEEvent>> = connectOnce(baseUrl, username, password)
+        .retryWhen { _, attempt ->
+            val delayMs = (INITIAL_RETRY_DELAY_MS * Math.pow(RETRY_MULTIPLIER, attempt.toDouble()))
+                .toLong().coerceAtMost(MAX_RETRY_DELAY_MS)
+            delay(delayMs)
+            true
+        }
+
+    private fun connectOnce(
+        baseUrl: String,
+        username: String? = null,
+        password: String? = null
+    ): Flow<Result<SSEEvent>> = callbackFlow {
+        // 构造带 Basic Auth 的请求，连接 /global/event 端点
+        // onEvent → trySend(Result.success(event))
+        // onClosed → close()
+        // onFailure → close(t)
+        // awaitClose { eventSource.cancel() }
     }
 }
 ```
@@ -189,17 +247,36 @@ class SSEClient(
 ```kotlin
 data class AppState(
     val isConnected: Boolean = false,
+    val isConnecting: Boolean = false,
+    val serverVersion: String? = null,
     val sessions: List<Session> = emptyList(),
+    val loadedSessionLimit: Int = MainViewModelTimings.sessionPageSize,
+    val hasMoreSessions: Boolean = true,
+    val isLoadingMoreSessions: Boolean = false,
+    val expandedSessionIds: Set<String> = emptySet(),
     val currentSessionId: String? = null,
+    val sessionStatuses: Map<String, SessionStatus> = emptyMap(),
     val messages: List<MessageWithParts> = emptyList(),
-    val selectedModelIndex: Int = 0,
-    val selectedAgentName: String = "build",
+    val messageLimit: Int = 30,
+    val isLoadingMessages: Boolean = false,
     val agents: List<AgentInfo> = emptyList(),
+    val selectedAgentName: String = "build",
+    val selectedModelIndex: Int = 0,
+    val providers: ProvidersResponse? = null,
+    val pendingPermissions: List<PermissionRequest> = emptyList(),
+    val pendingQuestions: List<QuestionRequest> = emptyList(),
     val inputText: String = "",
+    val error: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val filePathToShowInFiles: String? = null,
+    val streamingPartTexts: Map<String, String> = emptyMap(),
+    val streamingReasoningPart: Part? = null,
     val isRecording: Boolean = false,
     val isTranscribing: Boolean = false,
     val speechError: String? = null,
-    val aiBuilderConnectionOK: Boolean = false
+    val aiBuilderConnectionOK: Boolean = false,
+    val aiBuilderConnectionError: String? = null,
+    val isTestingAIBuilderConnection: Boolean = false
 )
 
 @HiltViewModel
@@ -210,15 +287,17 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
-    
-    fun handleSSEEvent(event: SSEEvent) {
-        when (event.payload.type) {
-            "session.created" -> { /* 更新 sessions */ }
-            "session.updated" -> { /* 替换 session 对象（含 title） */ }
-            "message.created" -> { /* 追加消息 */ }
-            "message.part.updated" -> { /* 流式更新 */ }
-            // ...
-        }
+
+    // SSE 事件处理逻辑拆分到 MainViewModelSyncActions.kt 中的顶层函数
+    // MainViewModel 通过私有包装调用：
+    private fun handleSSEEvent(event: SSEEvent) {
+        handleIncomingSseEvent(   // 定义于 MainViewModelSyncActions.kt
+            state = _state,
+            event = event,
+            onRefreshMessages = ::loadMessagesWithRetry,
+            onLoadPendingPermissions = ::loadPendingPermissions,
+            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) }
+        )
     }
 }
 ```
@@ -229,27 +308,53 @@ class MainViewModel @Inject constructor(
 @Serializable
 data class Session(
     val id: String,
+    val slug: String? = null,
+    @SerialName("projectID") val projectId: String? = null,
     val directory: String,
-    val model: String? = null,
-    val createdAt: String? = null
+    @SerialName("parentID") val parentId: String? = null,
+    val title: String? = null,
+    val version: String? = null,
+    val time: TimeInfo? = null,
+    val share: ShareInfo? = null,
+    val summary: SummaryInfo? = null
+)
+
+// API 返回 MessageWithParts（info + parts 分离），不是裸 Message
+@Serializable
+data class MessageWithParts(
+    val info: Message,
+    val parts: List<Part> = emptyList()
 )
 
 @Serializable
 data class Message(
     val id: String,
+    @SerialName("sessionID") val sessionId: String? = null,
     val role: String,
-    val parts: List<Part>
+    @SerialName("parentID") val parentId: String? = null,
+    @SerialName("providerID") val providerId: String? = null,
+    @SerialName("modelID") val modelId: String? = null,
+    val model: ModelInfo? = null,
+    val agent: String? = null,
+    val error: MessageError? = null,
+    val time: TimeInfo? = null,
+    val finish: String? = null,
+    val tokens: TokenInfo? = null,
+    val cost: Double? = null
 )
 
 @Serializable
 data class Part(
     val id: String,
-    val type: String,
+    @SerialName("messageID") val messageId: String? = null,
+    @SerialName("sessionID") val sessionId: String? = null,
+    val type: String,          // "text" | "reasoning" | "tool" | "patch" | "step-start" | "step-finish"
     val text: String? = null,
-    val toolName: String? = null,
-    val toolInput: JsonObject? = null,
-    val toolOutput: String? = null,
-    val state: PartState? = null
+    val tool: String? = null,  // tool name (was toolName in RFC draft)
+    @SerialName("callID") val callId: String? = null,
+    val state: PartState? = null,
+    val metadata: PartMetadata? = null,
+    val files: List<FileChange>? = null
 )
 
 @Serializable
@@ -294,29 +399,36 @@ fun setDraftText(sessionId: String, text: String) {
 
 ### 4.4 Model/Agent 按 Session 记忆（Phase 5，对齐 iOS）
 
-**背景**：当前 `selectedModelIndex` 和 `selectedAgentName` 全局存储在 SettingsManager。切换 session 时通过 last assistant message 推断，但用户手动切了模型还没发消息就切走的场景会丢失选择。iOS 用 `selectedModelIDBySessionID` 字典做显式 per-session 持久化。
+**背景**：当前 `selectedModelIndex` 和 `selectedAgentName` 全局存储在 SettingsManager。切换 session 时通过 last assistant message 推断，但用户手动切了模型还没发消息就切走的场景会丢失选择。iOS 用 `selectedModelIDBySessionID` 字典做显式 per-session 持久化；Android 实现用 Int 索引（对应 `ModelPresets.list` 下标）而非 modelID 字符串。
 
 **数据存储**：
 
 ```kotlin
 // SettingsManager 新增
-private val modelBySessionKey = "selected_model_by_session"
-private val agentBySessionKey = "selected_agent_by_session"
+// 注意：模型存储的是 Int 索引（对应 ModelPresets.list 下标），不是 "{providerID}/{modelID}" 字符串
+// 底层用 Map<String, String> 持久化，取出时再 toIntOrNull()
 
-// modelID 格式："{providerID}/{modelID}"，与 iOS 的 ModelPreset.id 对齐
-fun getModelForSession(sessionId: String): String? {
-    val json = prefs.getString(modelBySessionKey, "{}") ?: "{}"
-    return Json.decodeFromString<Map<String, String>>(json)[sessionId]
+fun getModelForSession(sessionId: String): Int? {
+    val json = encryptedPrefs.getString(KEY_SESSION_MODELS, null) ?: return null
+    return try {
+        Json.decodeFromString<Map<String, String>>(json)[sessionId]?.toIntOrNull()
+    } catch (e: Exception) {
+        null
+    }
 }
 
-fun setModelForSession(sessionId: String, modelId: String) {
-    val json = prefs.getString(modelBySessionKey, "{}") ?: "{}"
-    val map = Json.decodeFromString<Map<String, String>>(json).toMutableMap()
-    map[sessionId] = modelId
-    prefs.edit { putString(modelBySessionKey, Json.encodeToString(map)) }
+fun setModelForSession(sessionId: String, modelIndex: Int) {
+    val json = encryptedPrefs.getString(KEY_SESSION_MODELS, null)
+    val map: MutableMap<String, String> = try {
+        json?.let { Json.decodeFromString<Map<String, String>>(it).toMutableMap() } ?: mutableMapOf()
+    } catch (e: Exception) {
+        mutableMapOf()
+    }
+    map[sessionId] = modelIndex.toString()
+    encryptedPrefs.edit().putString(KEY_SESSION_MODELS, Json.encodeToString(map)).apply()
 }
 
-// Agent 同理
+// Agent 同理（存字符串 agentName）
 fun getAgentForSession(sessionId: String): String? { /* 同上模式 */ }
 fun setAgentForSession(sessionId: String, agentName: String) { /* 同上模式 */ }
 ```
@@ -327,8 +439,8 @@ fun setAgentForSession(sessionId: String, agentName: String) { /* 同上模式 *
 3. 推断不到 → 保持当前全局 selectedModelIndex 不变
 
 **写入时机**：
-- `selectModel(index)` 时：若 `currentSessionId != null`，同时调 `setModelForSession(sessionId, modelId)`
-- `selectAgent(name)` 时：同理
+- `selectModel(index)` 时：若 `currentSessionId != null`，同时调 `setModelForSession(sessionId, index)`（存 Int 索引）
+- `selectAgent(name)` 时：同理，调 `setAgentForSession(sessionId, agentName)`
 
 **全局默认值保留**：SettingsManager 中原有的全局 `selectedModelIndex` 和 `selectedAgentName` 继续保留，作为新 session 或无 per-session 记录时的 fallback。
 
