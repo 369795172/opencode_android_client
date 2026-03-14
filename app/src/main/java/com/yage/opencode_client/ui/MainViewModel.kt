@@ -273,7 +273,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun loadMessages(sessionId: String, resetLimit: Boolean = true) {
-        launchLoadMessages(viewModelScope, repository, _state, sessionId, resetLimit)
+        launchLoadMessages(viewModelScope, repository, _state, sessionId, resetLimit, settingsManager)
     }
 
     /** Load messages with delay when triggered by SSE/send (server may need time to persist). */
@@ -332,7 +332,8 @@ class MainViewModel @Inject constructor(
             text = text,
             agent = agent,
             model = model,
-            onRefreshMessages = ::loadMessagesWithRetry
+            onRefreshMessages = ::loadMessagesWithRetry,
+            onSuccess = { settingsManager.setDraftText(sessionId, "") }
         )
     }
 
@@ -348,11 +349,13 @@ class MainViewModel @Inject constructor(
 
     fun setInputText(text: String) {
         _state.update { it.copy(inputText = text) }
+        _state.value.currentSessionId?.let { settingsManager.setDraftText(it, text) }
     }
 
     fun selectAgent(agentName: String) {
         settingsManager.selectedAgentName = agentName
         _state.update { it.copy(selectedAgentName = agentName) }
+        _state.value.currentSessionId?.let { settingsManager.setAgentForSession(it, agentName) }
     }
 
     fun toggleSessionExpanded(sessionId: String) {
@@ -370,6 +373,7 @@ class MainViewModel @Inject constructor(
         val clamped = index.coerceIn(0, ModelPresets.list.size - 1)
         settingsManager.selectedModelIndex = clamped
         _state.update { it.copy(selectedModelIndex = clamped) }
+        _state.value.currentSessionId?.let { settingsManager.setModelForSession(it, clamped) }
     }
 
     fun setThemeMode(mode: ThemeMode) {

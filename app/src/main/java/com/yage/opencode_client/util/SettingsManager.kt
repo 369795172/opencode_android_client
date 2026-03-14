@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -76,6 +78,70 @@ class SettingsManager @Inject constructor(
         get() = encryptedPrefs.getLong(KEY_AI_BUILDER_LAST_OK_TESTED, 0L)
         set(value) = encryptedPrefs.edit().putLong(KEY_AI_BUILDER_LAST_OK_TESTED, value).apply()
 
+    fun getDraftText(sessionId: String): String {
+        val json = encryptedPrefs.getString(KEY_SESSION_DRAFTS, null) ?: return ""
+        return try {
+            Json.decodeFromString<Map<String, String>>(json)[sessionId] ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    fun setDraftText(sessionId: String, text: String) {
+        val json = encryptedPrefs.getString(KEY_SESSION_DRAFTS, null)
+        val map: MutableMap<String, String> = try {
+            json?.let { Json.decodeFromString<Map<String, String>>(it).toMutableMap() } ?: mutableMapOf()
+        } catch (e: Exception) {
+            mutableMapOf()
+        }
+        if (text.isBlank()) {
+            map.remove(sessionId)
+        } else {
+            map[sessionId] = text
+        }
+        encryptedPrefs.edit().putString(KEY_SESSION_DRAFTS, Json.encodeToString(map)).apply()
+    }
+
+    fun getModelForSession(sessionId: String): Int? {
+        val json = encryptedPrefs.getString(KEY_SESSION_MODELS, null) ?: return null
+        return try {
+            Json.decodeFromString<Map<String, String>>(json)[sessionId]?.toIntOrNull()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun setModelForSession(sessionId: String, modelIndex: Int) {
+        val json = encryptedPrefs.getString(KEY_SESSION_MODELS, null)
+        val map: MutableMap<String, String> = try {
+            json?.let { Json.decodeFromString<Map<String, String>>(it).toMutableMap() } ?: mutableMapOf()
+        } catch (e: Exception) {
+            mutableMapOf()
+        }
+        map[sessionId] = modelIndex.toString()
+        encryptedPrefs.edit().putString(KEY_SESSION_MODELS, Json.encodeToString(map)).apply()
+    }
+
+    fun getAgentForSession(sessionId: String): String? {
+        val json = encryptedPrefs.getString(KEY_SESSION_AGENTS, null) ?: return null
+        return try {
+            Json.decodeFromString<Map<String, String>>(json)[sessionId]
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun setAgentForSession(sessionId: String, agentName: String) {
+        val json = encryptedPrefs.getString(KEY_SESSION_AGENTS, null)
+        val map: MutableMap<String, String> = try {
+            json?.let { Json.decodeFromString<Map<String, String>>(it).toMutableMap() } ?: mutableMapOf()
+        } catch (e: Exception) {
+            mutableMapOf()
+        }
+        map[sessionId] = agentName
+        encryptedPrefs.edit().putString(KEY_SESSION_AGENTS, Json.encodeToString(map)).apply()
+    }
+
     companion object {
         const val DEFAULT_SERVER = "http://localhost:4096"
         const val DEFAULT_AI_BUILDER_BASE_URL = "https://space.ai-builders.com/backend"
@@ -94,6 +160,9 @@ class SettingsManager @Inject constructor(
         private const val KEY_AI_BUILDER_TERMINOLOGY = "ai_builder_terminology"
         private const val KEY_AI_BUILDER_LAST_OK_SIG = "ai_builder_last_ok_sig"
         private const val KEY_AI_BUILDER_LAST_OK_TESTED = "ai_builder_last_ok_tested"
+        private const val KEY_SESSION_DRAFTS = "session_drafts"
+        private const val KEY_SESSION_MODELS = "session_models"
+        private const val KEY_SESSION_AGENTS = "session_agents"
     }
 }
 

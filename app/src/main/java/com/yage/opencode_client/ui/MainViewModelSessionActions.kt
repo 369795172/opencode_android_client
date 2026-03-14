@@ -136,12 +136,20 @@ internal fun selectSessionState(
     settingsManager: SettingsManager,
     sessionId: String
 ) {
+    val oldSessionId = state.value.currentSessionId
+    val currentInputText = state.value.inputText
+    if (oldSessionId != null) {
+        settingsManager.setDraftText(oldSessionId, currentInputText)
+    }
+
     settingsManager.currentSessionId = sessionId
+    val restoredDraft = settingsManager.getDraftText(sessionId)
     state.update {
         it.copy(
             currentSessionId = sessionId,
             messages = emptyList(),
-            messageLimit = 30
+            messageLimit = 30,
+            inputText = restoredDraft
         )
     }
 }
@@ -151,7 +159,8 @@ internal fun launchLoadMessages(
     repository: OpenCodeRepository,
     state: MutableStateFlow<AppState>,
     sessionId: String,
-    resetLimit: Boolean = true
+    resetLimit: Boolean = true,
+    settingsManager: SettingsManager? = null
 ) {
     scope.launch {
         state.update { it.copy(isLoadingMessages = true) }
@@ -160,12 +169,14 @@ internal fun launchLoadMessages(
             .onSuccess { messages ->
                 if (sessionId == state.value.currentSessionId) {
                     val lastAssistant = messages.lastOrNull { it.info.isAssistant }
-                    val modelIndex = lastAssistant?.info?.resolvedModel?.let { model ->
+                    val inferredModelIndex = lastAssistant?.info?.resolvedModel?.let { model ->
                         ModelPresets.list.indexOfFirst {
                             it.providerId == model.providerId && it.modelId == model.modelId
                         }.takeIf { it >= 0 }
                     }
-                    val agentName = lastAssistant?.info?.agent
+                    val inferredAgentName = lastAssistant?.info?.agent
+                    val modelIndex = settingsManager?.getModelForSession(sessionId) ?: inferredModelIndex
+                    val agentName = settingsManager?.getAgentForSession(sessionId) ?: inferredAgentName
                     state.update {
                         it.copy(
                             messages = messages,
@@ -342,7 +353,8 @@ internal fun launchSendMessage(
     text: String,
     agent: String,
     model: Message.ModelInfo?,
-    onRefreshMessages: (String, Boolean) -> Unit
+    onRefreshMessages: (String, Boolean) -> Unit,
+    onSuccess: (() -> Unit)? = null
 ) {
     scope.launch {
         repository.sendMessage(sessionId, text, agent, model)
@@ -354,6 +366,7 @@ internal fun launchSendMessage(
                         sessionStatuses = it.sessionStatuses + (sessionId to com.yage.opencode_client.data.model.SessionStatus(type = "busy"))
                     )
                 }
+                onSuccess?.invoke()
                 onRefreshMessages(sessionId, true)
                 launch {
                     delay(MainViewModelTimings.messageRefreshDelayMs)
