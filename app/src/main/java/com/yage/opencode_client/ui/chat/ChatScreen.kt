@@ -66,7 +66,11 @@ fun ChatScreen(
             onNavigateToSettings = onNavigateToSettings,
             showSettingsButton = showSettingsButton,
             showNewSessionInTopBar = showNewSessionInTopBar,
-            showSessionListInTopBar = showSessionListInTopBar
+            showSessionListInTopBar = showSessionListInTopBar,
+            onRenameSession = { title ->
+                val sessionId = state.currentSessionId ?: return@ChatTopBar
+                viewModel.updateSessionTitle(sessionId, title)
+            }
         )
 
         Box(modifier = Modifier.weight(1f)) {
