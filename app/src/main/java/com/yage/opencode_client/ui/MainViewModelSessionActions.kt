@@ -289,6 +289,26 @@ internal fun launchCreateSession(
     }
 }
 
+internal fun launchForkSession(
+    scope: CoroutineScope,
+    repository: OpenCodeRepository,
+    state: MutableStateFlow<AppState>,
+    sessionId: String,
+    messageId: String?,
+    onSelectSession: (String) -> Unit
+) {
+    scope.launch {
+        repository.forkSession(sessionId, messageId)
+            .onSuccess { session ->
+                state.update { it.copy(sessions = upsertSession(it.sessions, session)) }
+                onSelectSession(session.id)
+            }
+            .onFailure { error ->
+                state.update { it.copy(error = "Failed to fork session: ${errorMessageOrFallback(error, "unknown error")}") }
+            }
+    }
+}
+
 internal fun launchUpdateSessionTitle(
     scope: CoroutineScope,
     repository: OpenCodeRepository,

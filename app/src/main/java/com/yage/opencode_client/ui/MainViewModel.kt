@@ -319,6 +319,10 @@ class MainViewModel @Inject constructor(
         launchCreateSession(viewModelScope, repository, _state, title, ::selectSession)
     }
 
+    fun forkSession(sessionId: String, messageId: String?) {
+        launchForkSession(viewModelScope, repository, _state, sessionId, messageId, ::selectSession)
+    }
+
     fun updateSessionTitle(sessionId: String, title: String) {
         launchUpdateSessionTitle(viewModelScope, repository, _state, sessionId, title)
     }
