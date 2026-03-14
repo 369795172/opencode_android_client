@@ -91,6 +91,13 @@ class MainViewModelTest {
         every { settingsManager.aiBuilderLastOKSignature = any() } just runs
         every { settingsManager.aiBuilderLastOKTestedAt = any() } just runs
 
+        every { settingsManager.getDraftText(any()) } returns ""
+        every { settingsManager.setDraftText(any(), any()) } just runs
+        every { settingsManager.getModelForSession(any()) } returns null
+        every { settingsManager.setModelForSession(any(), any()) } just runs
+        every { settingsManager.getAgentForSession(any()) } returns null
+        every { settingsManager.setAgentForSession(any(), any()) } just runs
+
         every { repository.connectSSE() } returns emptyFlow()
         coEvery { repository.getSessionStatus() } returns Result.success(emptyMap())
         coEvery { repository.getMessages(any(), any()) } returns Result.success(emptyList())
@@ -671,6 +678,90 @@ class MainViewModelTest {
         viewModel.clearSpeechError()
 
         assertNull(viewModel.state.value.speechError)
+    }
+
+    @Test
+    fun `setInputText with active session saves draft to settings manager`() = runTest {
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(currentSessionId = "s1") }
+
+        viewModel.setInputText("hello")
+
+        verify { settingsManager.setDraftText("s1", "hello") }
+    }
+
+    @Test
+    fun `selectSession saves old draft and restores new draft from settings manager`() = runTest {
+        every { settingsManager.getDraftText("s2") } returns "draft2"
+
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(currentSessionId = "s1", inputText = "draft1") }
+
+        viewModel.selectSession("s2")
+        advanceUntilIdle()
+
+        verify { settingsManager.setDraftText("s1", "draft1") }
+        verify { settingsManager.getDraftText("s2") }
+        assertEquals("draft2", viewModel.state.value.inputText)
+    }
+
+    @Test
+    fun `selectModel with active session saves model index per session`() = runTest {
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(currentSessionId = "s1") }
+
+        viewModel.selectModel(2)
+
+        verify { settingsManager.setModelForSession("s1", 2) }
+    }
+
+    @Test
+    fun `selectAgent with active session saves agent name per session`() = runTest {
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(currentSessionId = "s1") }
+
+        viewModel.selectAgent("oracle")
+
+        verify { settingsManager.setAgentForSession("s1", "oracle") }
+    }
+
+    @Test
+    fun `sendMessage on success clears draft for current session`() = runTest {
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+
+        val viewModel = createViewModel()
+        viewModel.selectSession("s1")
+        advanceUntilIdle()
+        viewModel.setInputText("hello")
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify { settingsManager.setDraftText("s1", "") }
+    }
+
+    @Test
+    fun `loadMessages uses per-session saved model index over message inference`() = runTest {
+        val inferredPreset = ModelPresets.list[2]
+        val messages = listOf(
+            MessageWithParts(
+                info = Message(
+                    id = "a1",
+                    role = "assistant",
+                    model = Message.ModelInfo(inferredPreset.providerId, inferredPreset.modelId)
+                )
+            )
+        )
+        coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
+        every { settingsManager.getModelForSession("session-1") } returns 3
+
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(currentSessionId = "session-1") }
+
+        viewModel.loadMessages("session-1")
+        advanceUntilIdle()
+
+        assertEquals(3, viewModel.state.value.selectedModelIndex)
     }
 
     @org.junit.After
