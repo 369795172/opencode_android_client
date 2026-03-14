@@ -11,7 +11,5 @@ object ModelPresets {
         AppState.ModelOption("Sonnet 4.6", "anthropic", "claude-sonnet-4-6"),
         AppState.ModelOption("GPT-5.3 Codex", "openai", "gpt-5.3-codex"),
         AppState.ModelOption("GPT-5.4", "openai", "gpt-5.4"),
-        AppState.ModelOption("Gemini 3.1 Pro", "google", "gemini-3.1-pro-preview"),
-        AppState.ModelOption("Gemini 3 Flash", "google", "gemini-3-flash-preview"),
     )
 }

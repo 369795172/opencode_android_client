@@ -140,6 +140,12 @@
 
 ---
 
+## 2026-03-14
+
+- 从模型预设列表中移除 Gemini 3.1 Pro 和 Gemini 3 Flash 两个模型。
+
+---
+
 - 新建 busy-session 发送修复分支：`feature/allow-queued-send-while-busy`
 - 对齐 iOS 的会话排队行为：移除 Android Chat 输入区对 `isBusy` 的发送禁用，仅在转写中继续阻止发送；busy 状态下仍保留 stop 按钮
 - 新增 `MainViewModelTest` 回归用例，确认 current session 为 busy 时仍会调用 `repository.sendMessage(...)` 排队发送下一条 prompt
