@@ -143,6 +143,7 @@
 ## 2026-03-14
 
 - 从模型预设列表中移除 Gemini 3.1 Pro 和 Gemini 3 Flash 两个模型。
+- 实现 Fork Session 功能：在 assistant 消息末尾 model 标签旁添加 "..." 菜单，支持从指定消息处 fork 对话为新 session。
 
 ---
 
