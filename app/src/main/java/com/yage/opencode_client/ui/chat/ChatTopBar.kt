@@ -1,5 +1,6 @@
 package com.yage.opencode_client.ui.chat
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,14 +11,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -153,17 +154,34 @@ internal fun ChatTopBar(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        IconButton(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f, fill = false)) {
+                        Surface(
                             onClick = { showModelMenu = true },
-                            modifier = Modifier.size(36.dp)
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.primary
                         ) {
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = "Switch LLM model",
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = availableModels.getOrNull(selectedModelIndex)?.shortName ?: "Model",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    maxLines = 1
+                                )
+                                Icon(
+                                    Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Switch LLM model",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
                         }
                         DropdownMenu(
                             expanded = showModelMenu,
@@ -200,18 +218,30 @@ internal fun ChatTopBar(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    Box {
-                        IconButton(
+                    Box(modifier = Modifier.weight(1f, fill = false)) {
+                        Surface(
                             onClick = { showAgentMenu = true },
-                            modifier = Modifier.size(36.dp)
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
-                            Icon(
-                                Icons.Default.SmartToy,
-                                contentDescription = "Agent",
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = selectedAgent,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                                Icon(
+                                    Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Switch agent",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         DropdownMenu(
                             expanded = showAgentMenu,
@@ -248,14 +278,11 @@ internal fun ChatTopBar(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
-
                     contextUsage?.let { usage ->
                         ContextUsageRing(usage = usage)
                     }
 
                     if (showSettingsButton) {
-                        Spacer(modifier = Modifier.width(4.dp))
                         IconButton(
                             onClick = onNavigateToSettings,
                             modifier = Modifier.size(36.dp)
