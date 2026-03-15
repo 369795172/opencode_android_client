@@ -34,6 +34,7 @@ class AppStateTest {
         assertNull(state.error)
         assertEquals(ThemeMode.SYSTEM, state.themeMode)
         assertNull(state.filePathToShowInFiles)
+        assertNull(state.filePreviewOriginRoute)
         assertTrue(state.canLoadMoreSessions)
     }
 
@@ -41,6 +42,21 @@ class AppStateTest {
     fun `filePathToShowInFiles can be set and read`() {
         val state = AppState(filePathToShowInFiles = "src/main.kt")
         assertEquals("src/main.kt", state.filePathToShowInFiles)
+    }
+
+    @Test
+    fun `filePreviewOriginRoute can be set and read`() {
+        val state = AppState(
+            filePathToShowInFiles = "src/main.kt",
+            filePreviewOriginRoute = "chat"
+        )
+        assertEquals("chat", state.filePreviewOriginRoute)
+    }
+
+    @Test
+    fun `filePreviewOriginRoute defaults to null`() {
+        val state = AppState(filePathToShowInFiles = "src/main.kt")
+        assertNull(state.filePreviewOriginRoute)
     }
     
     @Test

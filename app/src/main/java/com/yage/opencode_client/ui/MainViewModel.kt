@@ -51,6 +51,7 @@ data class AppState(
     val error: String? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val filePathToShowInFiles: String? = null,
+    val filePreviewOriginRoute: String? = null,
     val streamingPartTexts: Map<String, String> = emptyMap(),
     val streamingReasoningPart: Part? = null,
     val isRecording: Boolean = false,
@@ -467,12 +468,12 @@ class MainViewModel @Inject constructor(
         _state.update { it.copy(error = null) }
     }
 
-    fun showFileInFiles(path: String) {
-        _state.update { it.copy(filePathToShowInFiles = path) }
+    fun showFileInFiles(path: String, originRoute: String? = null) {
+        _state.update { it.copy(filePathToShowInFiles = path, filePreviewOriginRoute = originRoute) }
     }
 
     fun clearFileToShow() {
-        _state.update { it.copy(filePathToShowInFiles = null) }
+        _state.update { it.copy(filePathToShowInFiles = null, filePreviewOriginRoute = null) }
     }
 
     /** Poll loadMessages every 2s when session is busy, as SSE fallback. */

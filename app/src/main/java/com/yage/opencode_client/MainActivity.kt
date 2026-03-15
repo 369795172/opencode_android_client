@@ -160,7 +160,7 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
                 ChatScreen(
                     viewModel = viewModel,
                     onNavigateToFiles = { path ->
-                        viewModel.showFileInFiles(path)
+                        viewModel.showFileInFiles(path, originRoute = Screen.Chat.route)
                         navigateToTopLevel(Screen.Files.route)
                     },
                     onNavigateToSettings = {
@@ -175,7 +175,13 @@ private fun PhoneLayout(viewModel: MainViewModel, repository: OpenCodeRepository
                     repository = repository,
                     pathToShow = state.filePathToShowInFiles,
                     sessionDirectory = state.currentSession?.directory,
-                    onCloseFile = { viewModel.clearFileToShow() },
+                    onCloseFile = {
+                        val origin = state.filePreviewOriginRoute
+                        viewModel.clearFileToShow()
+                        if (origin == Screen.Chat.route) {
+                            navigateToTopLevel(Screen.Chat.route)
+                        }
+                    },
                     onFileClick = { }
                 )
             }
