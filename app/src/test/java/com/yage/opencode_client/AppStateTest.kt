@@ -159,9 +159,9 @@ class AppStateTest {
 
         assertEquals(ModelPresets.list.size, models.size)
         assertEquals(ModelPresets.list, models)
-        assertEquals("GLM-5", models[0].displayName)
+        assertEquals("GLM-5-Turbo", models[0].displayName)
         assertEquals("zai-coding-plan", models[0].providerId)
-        assertEquals("glm-5", models[0].modelId)
+        assertEquals("glm-5-turbo", models[0].modelId)
         assertEquals("Opus 4.6", models[1].displayName)
         assertEquals("anthropic", models[1].providerId)
     }
