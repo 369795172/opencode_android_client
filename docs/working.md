@@ -10,6 +10,7 @@
 - 修复 Markdown 内嵌图片渲染：新增 `MarkdownImageResolver`，在渲染前把相对路径图片读取为 base64 data URI，Files 预览与 Chat 消息均可显示嵌入图片。
 - 修复 HTTPS Markdown 图片在 Android 端仅显示 placeholder 的问题：`DataUriImageTransformer` 现在支持远程 URL，并通过按 URL 的可观察缓存触发 Compose 重组；`Cursor Bench Benchmark Analysis` 已实机确认恢复显示。
 - 修复文件预览与聊天 Markdown 的图片预取路径，移除无效的 `imageVersion` 状态和排障临时日志，重新验证 `./gradlew assembleDebug` 与 `./gradlew testDebugUnitTest` 均通过。
+- 修复 Files 预览中的本地 Markdown 图片路径：当预览文件路径是缺少前导 `/` 的 Unix 绝对路径时，`MarkdownImageResolver` 现在会恢复正确的绝对路径，避免把 `Users/...` 这类路径误当成 workspace 相对路径传给 `/file/content`，导致图片节点只有占位没有内容。新增 `MarkdownImageResolverTest` 回归用例覆盖该场景，并验证 `./gradlew :app:testDebugUnitTest --tests com.yage.opencode_client.MarkdownImageResolverTest` 与 `./gradlew :app:compileDebugKotlin` 通过。
 - 新增 `docs/code_review.md`，完成一轮中文系统性代码审查，覆盖架构、安全与测试问题，并整理后续修复优先级。
 
 ### Code Review 修复（Sprint A/B/C）

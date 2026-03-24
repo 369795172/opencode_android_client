@@ -5,6 +5,8 @@ import java.nio.file.Paths
 
 object MarkdownImageResolver {
 
+    private val unixAbsoluteRoots = setOf("Users", "private", "var", "tmp", "home", "opt", "etc", "Volumes")
+
     private val imageExtensions = setOf(
         "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic", "heif", "ico", "svg"
     )
@@ -67,8 +69,33 @@ object MarkdownImageResolver {
 
         return resolved
             ?.replace('\\', '/')
-            ?.trimStart('/')
+            ?.let { restoreUnixAbsolutePathIfNeeded(it, markdownFilePath, workspaceDirectory) }
+            ?.let { normalized ->
+                if (workspaceDirectory.isNullOrBlank() && normalized.startsWith("/")) normalized else normalized.trimStart('/')
+            }
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun restoreUnixAbsolutePathIfNeeded(
+        path: String,
+        markdownFilePath: String?,
+        workspaceDirectory: String?
+    ): String {
+        if (!workspaceDirectory.isNullOrBlank()) return path
+        if (path.startsWith("/")) return path
+        if (path.matches(Regex("^[A-Za-z]:[/\\\\].*"))) return path
+
+        val firstSegment = path.substringBefore('/')
+        val contextFirstSegment = markdownFilePath
+            ?.replace('\\', '/')
+            ?.trimStart('/')
+            ?.substringBefore('/')
+
+        return if (firstSegment in unixAbsoluteRoots && contextFirstSegment == firstSegment) {
+            "/$path"
+        } else {
+            path
+        }
     }
 
     private fun relativizeAgainstWorkspace(path: String, workspaceDirectory: String?): String? {
