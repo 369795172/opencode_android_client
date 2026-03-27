@@ -6,7 +6,7 @@ package com.yage.opencode_client.ui
  */
 object ModelPresets {
     val list: List<AppState.ModelOption> = listOf(
-        AppState.ModelOption("GLM-5-Turbo", "zai-coding-plan", "glm-5-turbo"),
+        AppState.ModelOption("GLM-5.1", "zai-coding-plan", "glm-5.1"),
         AppState.ModelOption("Opus 4.6", "anthropic", "claude-opus-4-6"),
         AppState.ModelOption("Sonnet 4.6", "anthropic", "claude-sonnet-4-6"),
         AppState.ModelOption("GPT-5.3 Codex", "openai", "gpt-5.3-codex"),

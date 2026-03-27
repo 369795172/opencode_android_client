@@ -1,5 +1,9 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-03-27
+
+- 模型预设里的 GLM 选项从 `GLM-5-Turbo` / `glm-5-turbo` 更新为 `GLM-5.1` / `glm-5.1`。
+
 ## 2026-03-19
 
 - 默认发送模型从 `zai-coding-plan/glm-5` 切换为预设里的 `openai/gpt-5.4`；新安装和未保存过模型选择的 session 会直接使用 GPT-5.4。
