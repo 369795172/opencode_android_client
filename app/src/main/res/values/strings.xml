@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenCode Client</string>
+    <string name="app_name">OpenCode</string>
     <string name="question_title" translatable="false">Question</string>
     <string name="question_multi_hint" translatable="false">Select one or more options</string>
     <string name="question_single_hint" translatable="false">Select one option</string>

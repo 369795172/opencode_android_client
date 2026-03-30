@@ -16,7 +16,7 @@ export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 
 ## Run / Module not found
 
-若 Run 报 "Module not found"：File → Sync Project with Gradle Files；若仍失败，File → Invalidate Caches / Restart。Run 配置使用 module `opencode_client.app`（对应 settings.gradle.kts 的 rootProject.name + `:app`）。
+若 Run 报 "Module not found"：File → Sync Project with Gradle Files；若仍失败，File → Invalidate Caches / Restart。Run 配置使用 module `OpenCode.app`（对应 settings.gradle.kts 的 rootProject.name + `:app`）。
 
 ## Test Commands
 

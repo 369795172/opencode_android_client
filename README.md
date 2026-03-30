@@ -2,6 +2,8 @@
 
 OpenCode 的原生 Android 客户端，用于远程连接 OpenCode 服务端、发送指令、监控 AI 工作进度、浏览代码变更。
 
+**上游（特性与修复以这里为准）**：[grapeot/opencode_android_client](https://github.com/grapeot/opencode_android_client)。同步方式：`git remote add upstream https://github.com/grapeot/opencode_android_client.git`（若尚未添加），然后 `git fetch upstream && git merge upstream/master`（或 `rebase`）。本 fork 使用包名 **`ai.opencode.client`**、应用显示名 **OpenCode**。
+
 ## 功能概述
 
 - **Chat**：发送消息、切换模型和 Agent、查看 AI 回复与工具调用（Markdown 渲染、Patch diff、Todo 列表）
@@ -71,7 +73,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 ## 项目结构
 
 ```
-app/src/main/java/com/yage/opencode_client/
+app/src/main/java/ai/opencode/client/
 ├── data/
 │   ├── api/          # REST API 接口、SSE 客户端
 │   ├── audio/        # 语音录制、重采样、WebSocket 转写
@@ -105,6 +107,7 @@ app/src/main/java/com/yage/opencode_client/
 ## 姊妹项目
 
 - [OpenCode iOS Client](https://github.com/grapeot/opencode_ios_client) — iOS 原生客户端，功能对等
+- [grapeot/opencode_android_client](https://github.com/grapeot/opencode_android_client) — 本项目的上游开源仓库与 Release APK
 
 ## License
 

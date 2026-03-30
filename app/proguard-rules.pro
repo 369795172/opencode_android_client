@@ -5,7 +5,7 @@
 # Kotlinx Serialization - keep @Serializable class names for reflection
 -keepattributes *Annotation*, InnerClasses
 -dontwarn kotlinx.serialization.**
--keep,includedescriptorclasses class com.yage.opencode_client.data.model.** { *; }
+-keep,includedescriptorclasses class ai.opencode.client.data.model.** { *; }
 
 # EncryptedSharedPreferences / Tink - errorprone annotations are compile-only
 -dontwarn com.google.errorprone.annotations.**

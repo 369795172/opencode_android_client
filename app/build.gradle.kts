@@ -21,11 +21,11 @@ plugins {
 }
 
 android {
-    namespace = "com.yage.opencode_client"
+    namespace = "ai.opencode.client"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.yage.opencode_client"
+        applicationId = "ai.opencode.client"
         minSdk = 26
         targetSdk = 34
         versionCode = 4
