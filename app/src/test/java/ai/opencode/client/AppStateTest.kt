@@ -164,6 +164,7 @@ class AppStateTest {
         assertEquals("gpt-5.3-codex", models[0].modelId)
         assertEquals("GPT-5.4", models[1].displayName)
         assertEquals("openai", models[1].providerId)
+        assertEquals("gpt-5.4", models[1].modelId)
     }
 
     @Test

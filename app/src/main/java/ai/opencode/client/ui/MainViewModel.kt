@@ -36,6 +36,7 @@ data class AppState(
     val loadedSessionLimit: Int = MainViewModelTimings.sessionPageSize,
     val hasMoreSessions: Boolean = true,
     val isLoadingMoreSessions: Boolean = false,
+    val isRefreshingSessions: Boolean = false,
     val expandedSessionIds: Set<String> = emptySet(),
     val currentSessionId: String? = null,
     val sessionStatuses: Map<String, SessionStatus> = emptyMap(),
@@ -90,7 +91,8 @@ data class AppState(
         val expandedSessionIds: Set<String> = emptySet(),
         val loadedSessionLimit: Int = MainViewModelTimings.sessionPageSize,
         val hasMoreSessions: Boolean = true,
-        val isLoadingMoreSessions: Boolean = false,
+    val isLoadingMoreSessions: Boolean = false,
+    val isRefreshingSessions: Boolean = false,
         val messageLimit: Int = 30,
         val pendingPermissions: List<PermissionRequest> = emptyList(),
         val pendingQuestions: List<QuestionRequest> = emptyList()
@@ -158,6 +160,7 @@ data class AppState(
             loadedSessionLimit = loadedSessionLimit,
             hasMoreSessions = hasMoreSessions,
             isLoadingMoreSessions = isLoadingMoreSessions,
+            isRefreshingSessions = isRefreshingSessions,
             messageLimit = messageLimit,
             pendingPermissions = pendingPermissions,
             pendingQuestions = pendingQuestions

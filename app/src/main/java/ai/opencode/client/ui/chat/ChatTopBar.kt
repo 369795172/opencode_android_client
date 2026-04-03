@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,7 @@ internal data class ChatTopBarState(
     val sessionStatuses: Map<String, SessionStatus>,
     val hasMoreSessions: Boolean,
     val isLoadingMoreSessions: Boolean,
+    val isRefreshingSessions: Boolean = false,
     val expandedSessionIds: Set<String> = emptySet(),
     val agents: List<AgentInfo>,
     val selectedAgent: String,
@@ -73,6 +75,7 @@ internal data class ChatTopBarActions(
     val onCreateSession: () -> Unit,
     val onDeleteSession: (String) -> Unit,
     val onLoadMoreSessions: () -> Unit,
+    val onRefreshSessions: () -> Unit = {},
     val onToggleSessionExpanded: (String) -> Unit = {},
     val onSelectAgent: (String) -> Unit,
     val onSelectModel: (Int) -> Unit,
@@ -92,6 +95,10 @@ internal fun ChatTopBar(
     var showAgentMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showSessionSheet) {
+        if (showSessionSheet) actions.onRefreshSessions()
+    }
 
     Surface(
         modifier = modifier,
@@ -324,6 +331,7 @@ internal fun ChatTopBar(
                     sessionStatuses = state.sessionStatuses,
                     hasMoreSessions = state.hasMoreSessions,
                     isLoadingMoreSessions = state.isLoadingMoreSessions,
+                    isRefreshingSessions = state.isRefreshingSessions,
                     expandedSessionIds = state.expandedSessionIds,
                     onSelectSession = {
                         actions.onSelectSession(it)
@@ -338,6 +346,7 @@ internal fun ChatTopBar(
                         showSessionSheet = false
                     },
                     onLoadMoreSessions = actions.onLoadMoreSessions,
+                    onRefreshSessions = actions.onRefreshSessions,
                     onToggleSessionExpanded = actions.onToggleSessionExpanded,
                     onOpenSettings = null
                 )

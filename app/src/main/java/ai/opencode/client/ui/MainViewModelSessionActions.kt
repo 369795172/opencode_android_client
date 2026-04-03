@@ -23,7 +23,8 @@ internal fun launchLoadSessions(
             it.copy(
                 loadedSessionLimit = limit,
                 hasMoreSessions = true,
-                isLoadingMoreSessions = false
+                isLoadingMoreSessions = false,
+                isRefreshingSessions = true
             )
         }
         repository.getSessions(limit)
@@ -32,7 +33,8 @@ internal fun launchLoadSessions(
                     it.copy(
                         sessions = sessions,
                         hasMoreSessions = sessions.size >= limit,
-                        isLoadingMoreSessions = false
+                        isLoadingMoreSessions = false,
+                        isRefreshingSessions = false
                     )
                 }
                 val currentId = state.value.currentSessionId
@@ -55,6 +57,7 @@ internal fun launchLoadSessions(
                 state.update {
                     it.copy(
                         isLoadingMoreSessions = false,
+                        isRefreshingSessions = false,
                         error = "Failed to load sessions: ${errorMessageOrFallback(error, "unknown error")}"
                     )
                 }

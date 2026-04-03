@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -123,6 +124,7 @@ private fun SwipeRevealRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionList(
     sessions: List<Session>,
@@ -130,12 +132,14 @@ fun SessionList(
     sessionStatuses: Map<String, SessionStatus> = emptyMap(),
     hasMoreSessions: Boolean = false,
     isLoadingMoreSessions: Boolean = false,
+    isRefreshingSessions: Boolean = false,
     expandedSessionIds: Set<String> = emptySet(),
     onSelectSession: (String) -> Unit,
     onCreateSession: () -> Unit,
     onDeleteSession: (String) -> Unit,
     onToggleSessionExpanded: (String) -> Unit = {},
     onLoadMoreSessions: () -> Unit = {},
+    onRefreshSessions: () -> Unit = {},
     onOpenSettings: (() -> Unit)? = null
 ) {
     val tree = remember(sessions) { buildSessionTree(sessions) }
@@ -181,13 +185,18 @@ fun SessionList(
                 }
             }
         }
-        LazyColumn(
-            state = listState,
+        PullToRefreshBox(
+            isRefreshing = isRefreshingSessions,
+            onRefresh = onRefreshSessions,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .testTag("session_list")
         ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
             itemsIndexed(visibleRows, key = { _, (node, _) -> node.session.id }) { index, (node, depth) ->
                 val session = node.session
                 val isSelected = session.id == currentSessionId
@@ -245,6 +254,7 @@ fun SessionList(
                     }
                 }
             }
+        }
         }
     }
 }

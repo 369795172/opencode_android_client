@@ -309,6 +309,67 @@ class MainViewModelTest {
         assertEquals(100, viewModel.state.value.loadedSessionLimit)
         assertTrue(viewModel.state.value.hasMoreSessions)
         assertEquals(100, viewModel.state.value.sessions.size)
+        assertFalse(viewModel.state.value.isRefreshingSessions)
+    }
+
+    @Test
+    fun `loadSessions clears isRefreshingSessions after successful fetch`() = runTest {
+        val sessions = listOf(
+            ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/1")
+        )
+        coEvery { repository.getSessions(any()) } returns Result.success(sessions)
+
+        val viewModel = createViewModel()
+
+        viewModel.loadSessions()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isRefreshingSessions)
+    }
+
+    @Test
+    fun `loadSessions fetches sub_agent sessions created after initial load`() = runTest {
+        val initialSessions = listOf(
+            ai.opencode.client.data.model.Session(id = "parent-1", directory = "/tmp/project")
+        )
+        coEvery { repository.getSessions(100) } returns Result.success(initialSessions)
+
+        val viewModel = createViewModel()
+        viewModel.loadSessions()
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.state.value.sessions.size)
+        assertEquals("parent-1", viewModel.state.value.sessions.single().id)
+
+        val refreshedSessions = listOf(
+            ai.opencode.client.data.model.Session(id = "parent-1", directory = "/tmp/project"),
+            ai.opencode.client.data.model.Session(
+                id = "child-1",
+                directory = "/tmp/project",
+                parentId = "parent-1"
+            )
+        )
+        coEvery { repository.getSessions(100) } returns Result.success(refreshedSessions)
+
+        viewModel.loadSessions()
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.state.value.sessions.size)
+        assertEquals("child-1", viewModel.state.value.sessions.find { it.parentId == "parent-1" }?.id)
+        assertFalse(viewModel.state.value.isRefreshingSessions)
+    }
+
+    @Test
+    fun `loadSessions clears isRefreshingSessions on failure`() = runTest {
+        coEvery { repository.getSessions(any()) } returns Result.failure(IllegalStateException("network error"))
+
+        val viewModel = createViewModel()
+
+        viewModel.loadSessions()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isRefreshingSessions)
+        assertEquals("Failed to load sessions: network error", viewModel.state.value.error)
     }
 
     @Test

@@ -220,11 +220,13 @@ private fun TabletLayout(viewModel: MainViewModel) {
                     sessionStatuses = state.sessionStatuses,
                     hasMoreSessions = state.hasMoreSessions,
                     isLoadingMoreSessions = state.isLoadingMoreSessions,
+                    isRefreshingSessions = state.isRefreshingSessions,
                     expandedSessionIds = state.expandedSessionIds,
                     onSelectSession = { viewModel.selectSession(it) },
                     onCreateSession = { viewModel.createSession() },
                     onDeleteSession = { viewModel.deleteSession(it) },
                     onLoadMoreSessions = { viewModel.loadMoreSessions() },
+                    onRefreshSessions = { viewModel.loadSessions() },
                     onToggleSessionExpanded = { viewModel.toggleSessionExpanded(it) },
                     onOpenSettings = { selectedTab = 1 }
                 )

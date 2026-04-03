@@ -1,5 +1,9 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-03-30
+
+- 模型预设里的 GLM 选项从 `GLM-5.1` / `glm-5.1` 切换回 `GLM-5-turbo` / `glm-5-turbo`，保持 iOS 与 Android selector 一致。
+
 ## 2026-03-27
 
 - 模型预设里的 GLM 选项从 `GLM-5-Turbo` / `glm-5-turbo` 更新为 `GLM-5.1` / `glm-5.1`。
