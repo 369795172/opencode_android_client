@@ -68,6 +68,7 @@ class MainViewModelTest {
         audioRecorderManager = mockk(relaxed = true)
 
         every { settingsManager.serverUrl } returns "http://server.test"
+        every { settingsManager.workspaceDirectory } returns ""
         every { settingsManager.username } returns null
         every { settingsManager.password } returns null
         every { settingsManager.currentSessionId } returns null
@@ -140,7 +141,7 @@ class MainViewModelTest {
 
         assertEquals(ModelPresets.list.lastIndex, viewModel.state.value.selectedModelIndex)
         verify { settingsManager.selectedModelIndex = ModelPresets.list.lastIndex }
-        verify { repository.configure("http://server.test", null, null) }
+        verify { repository.configure("http://server.test", null, null, null) }
     }
 
     @Test

@@ -16,7 +16,8 @@ internal fun applySavedSettings(
     repository.configure(
         baseUrl = settingsManager.serverUrl,
         username = settingsManager.username,
-        password = settingsManager.password
+        password = settingsManager.password,
+        workspaceDirectory = settingsManager.workspaceDirectory.ifBlank { null }
     )
 
     val savedModelIndex = settingsManager.selectedModelIndex

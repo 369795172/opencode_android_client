@@ -16,6 +16,7 @@ import javax.inject.Inject
 
 data class ConnectionFormSettings(
     val serverUrl: String,
+    val workspaceDirectory: String,
     val username: String,
     val password: String
 )
@@ -266,15 +267,27 @@ class MainViewModel @Inject constructor(
         applySavedSettings(repository, settingsManager, _state)
     }
 
-    fun configureServer(url: String, username: String? = null, password: String? = null) {
+    fun configureServer(
+        url: String,
+        workspaceDirectory: String = "",
+        username: String? = null,
+        password: String? = null
+    ) {
         settingsManager.serverUrl = url
+        settingsManager.workspaceDirectory = workspaceDirectory
         settingsManager.username = username
         settingsManager.password = password
-        repository.configure(url, username, password)
+        repository.configure(
+            url,
+            username,
+            password,
+            workspaceDirectory.ifBlank { null }
+        )
     }
 
     fun getSavedConnectionSettings(): ConnectionFormSettings = ConnectionFormSettings(
         serverUrl = settingsManager.serverUrl,
+        workspaceDirectory = settingsManager.workspaceDirectory,
         username = settingsManager.username ?: "",
         password = settingsManager.password ?: ""
     )

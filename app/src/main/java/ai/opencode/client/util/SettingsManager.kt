@@ -38,6 +38,11 @@ class SettingsManager @Inject constructor(
         get() = encryptedPrefs.getString(KEY_PASSWORD, null)
         set(value) = encryptedPrefs.edit().putString(KEY_PASSWORD, value).apply()
 
+    /** Absolute path on the OpenCode server host (e.g. /Users/you/CursorWorks/jennyai). Sent as x-opencode-directory. */
+    var workspaceDirectory: String
+        get() = encryptedPrefs.getString(KEY_WORKSPACE_DIR, "") ?: ""
+        set(value) = encryptedPrefs.edit().putString(KEY_WORKSPACE_DIR, value.trim()).apply()
+
     var currentSessionId: String?
         get() = encryptedPrefs.getString(KEY_SESSION_ID, null)
         set(value) = encryptedPrefs.edit().putString(KEY_SESSION_ID, value).apply()
@@ -150,6 +155,7 @@ class SettingsManager @Inject constructor(
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
+        private const val KEY_WORKSPACE_DIR = "workspace_directory"
         private const val KEY_SESSION_ID = "session_id"
         private const val KEY_MODEL_INDEX = "model_index"
         private const val KEY_AGENT_NAME = "agent_name"

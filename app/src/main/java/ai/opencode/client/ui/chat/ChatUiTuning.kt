@@ -5,6 +5,7 @@ import androidx.compose.ui.unit.dp
 
 internal object ChatUiTuning {
     val inputActionVerticalThreshold: Dp = 112.dp
+    val inputActionHorizontalThreshold: Dp = 104.dp
     val sessionSheetHeight: Dp = 400.dp
     val contextRingOuterSize: Dp = 28.dp
     val contextRingInnerSize: Dp = 22.dp
@@ -12,4 +13,15 @@ internal object ChatUiTuning {
 
 internal fun shouldUseVerticalChatActions(textFieldHeight: Dp): Boolean {
     return textFieldHeight >= ChatUiTuning.inputActionVerticalThreshold
+}
+
+internal fun resolveChatActionsVerticalLayout(
+    textFieldHeight: Dp,
+    wasVertical: Boolean
+): Boolean {
+    return if (wasVertical) {
+        textFieldHeight >= ChatUiTuning.inputActionHorizontalThreshold
+    } else {
+        textFieldHeight >= ChatUiTuning.inputActionVerticalThreshold
+    }
 }

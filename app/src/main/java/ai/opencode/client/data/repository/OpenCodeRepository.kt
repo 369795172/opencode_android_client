@@ -18,6 +18,7 @@ class OpenCodeRepository @Inject constructor() {
     private var baseUrl: String = DEFAULT_SERVER
     private var username: String? = null
     private var password: String? = null
+    private var workspaceDirectory: String? = null
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -47,6 +48,10 @@ class OpenCodeRepository @Inject constructor() {
                             val encoded = Base64.getEncoder().encodeToString(credential.toByteArray())
                             header("Authorization", "Basic $encoded")
                         }
+                        val dir = workspaceDirectory
+                        if (!dir.isNullOrBlank()) {
+                            header("x-opencode-directory", dir)
+                        }
                     }
                     .build()
                 chain.proceed(request)
@@ -74,10 +79,16 @@ class OpenCodeRepository @Inject constructor() {
     }
 
     @Synchronized
-    fun configure(baseUrl: String, username: String? = null, password: String? = null) {
+    fun configure(
+        baseUrl: String,
+        username: String? = null,
+        password: String? = null,
+        workspaceDirectory: String? = null
+    ) {
         this.baseUrl = baseUrl
         this.username = username
         this.password = password
+        this.workspaceDirectory = workspaceDirectory
         rebuildClients()
     }
 

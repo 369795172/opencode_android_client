@@ -26,8 +26,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,8 +56,14 @@ internal fun ChatInputBar(
 ) {
     val density = LocalDensity.current
     var textFieldHeightPx by remember { mutableIntStateOf(0) }
-    val useVerticalActions = with(density) {
-        shouldUseVerticalChatActions(textFieldHeightPx.toDp())
+    var useVerticalActions by remember { mutableStateOf(false) }
+    LaunchedEffect(textFieldHeightPx) {
+        useVerticalActions = with(density) {
+            resolveChatActionsVerticalLayout(
+                textFieldHeight = textFieldHeightPx.toDp(),
+                wasVertical = useVerticalActions
+            )
+        }
     }
 
     Surface(

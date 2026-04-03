@@ -13,6 +13,10 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import java.util.Base64
 
+/**
+ * Server-sent events for OpenCode. Uses the same [OkHttpClient] as [OpenCodeRepository];
+ * `x-opencode-directory` is added by that client's interceptor when a workspace path is configured.
+ */
 class SSEClient(
     private val okHttpClient: OkHttpClient
 ) {

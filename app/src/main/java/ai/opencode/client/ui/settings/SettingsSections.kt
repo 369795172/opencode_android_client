@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -43,6 +44,7 @@ import ai.opencode.client.util.ThemeMode
 @Composable
 internal fun ServerConnectionSection(
     serverUrl: String,
+    workspaceDirectory: String,
     username: String,
     password: String,
     showPassword: Boolean,
@@ -50,6 +52,7 @@ internal fun ServerConnectionSection(
     state: AppState,
     testResult: TestResult?,
     onServerUrlChange: (String) -> Unit,
+    onWorkspaceDirectoryChange: (String) -> Unit,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onTogglePasswordVisibility: () -> Unit,
@@ -66,6 +69,18 @@ internal fun ServerConnectionSection(
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) }
+    )
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    OutlinedTextField(
+        value = workspaceDirectory,
+        onValueChange = onWorkspaceDirectoryChange,
+        label = { Text("Workspace Directory (optional)") },
+        placeholder = { Text("/path/on/server/workspace") },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) }
     )
 
     Spacer(modifier = Modifier.height(12.dp))

@@ -32,6 +32,7 @@ fun SettingsScreen(
     val savedAIBuilder = remember(viewModel) { viewModel.getAIBuilderSettings() }
 
     var serverUrl by remember { mutableStateOf(saved.serverUrl) }
+    var workspaceDirectory by remember { mutableStateOf(saved.workspaceDirectory) }
     var username by remember { mutableStateOf(saved.username) }
     var password by remember { mutableStateOf(saved.password) }
     var showPassword by remember { mutableStateOf(false) }
@@ -77,6 +78,7 @@ fun SettingsScreen(
         ) {
             ServerConnectionSection(
                 serverUrl = serverUrl,
+                workspaceDirectory = workspaceDirectory,
                 username = username,
                 password = password,
                 showPassword = showPassword,
@@ -85,6 +87,10 @@ fun SettingsScreen(
                 testResult = testResult,
                 onServerUrlChange = {
                     serverUrl = it
+                    testResult = null
+                },
+                onWorkspaceDirectoryChange = {
+                    workspaceDirectory = it
                     testResult = null
                 },
                 onUsernameChange = {
@@ -101,6 +107,7 @@ fun SettingsScreen(
                     testResult = null
                     viewModel.configureServer(
                         url = serverUrl,
+                        workspaceDirectory = workspaceDirectory,
                         username = username.ifBlank { null },
                         password = password.ifBlank { null }
                     )
@@ -109,6 +116,7 @@ fun SettingsScreen(
                 onSave = {
                     viewModel.configureServer(
                         url = serverUrl,
+                        workspaceDirectory = workspaceDirectory,
                         username = username.ifBlank { null },
                         password = password.ifBlank { null }
                     )
