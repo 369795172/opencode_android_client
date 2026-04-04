@@ -1,11 +1,14 @@
 package ai.opencode.client.ui
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ai.opencode.client.data.audio.AudioRecorderManager
 import ai.opencode.client.data.model.*
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.util.FileEncoder
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -61,7 +64,9 @@ data class AppState(
     val speechError: String? = null,
     val aiBuilderConnectionOK: Boolean = false,
     val aiBuilderConnectionError: String? = null,
-    val isTestingAIBuilderConnection: Boolean = false
+    val isTestingAIBuilderConnection: Boolean = false,
+    val pendingAttachments: List<FileAttachment> = emptyList(),
+    val isLoadingAttachments: Boolean = false
 ) {
     data class ModelOption(val displayName: String, val providerId: String, val modelId: String) {
         val shortName: String
@@ -479,7 +484,8 @@ class MainViewModel @Inject constructor(
     fun sendMessage() {
         val sessionId = _state.value.currentSessionId ?: return
         val text = _state.value.inputText.trim()
-        if (text.isEmpty()) return
+        val attachments = _state.value.pendingAttachments
+        if (text.isEmpty() && attachments.isEmpty()) return
 
         val agent = _state.value.selectedAgentName
         val model = buildSelectedModel(_state.value)
@@ -492,8 +498,12 @@ class MainViewModel @Inject constructor(
             text = text,
             agent = agent,
             model = model,
+            attachments = attachments,
             onRefreshMessages = ::loadMessagesWithRetry,
-            onSuccess = { settingsManager.setDraftText(sessionId, "") }
+            onSuccess = { 
+                settingsManager.setDraftText(sessionId, "")
+                clearAttachments()
+            }
         )
     }
 
@@ -510,6 +520,64 @@ class MainViewModel @Inject constructor(
     fun setInputText(text: String) {
         _state.update { it.copy(inputText = text) }
         _state.value.currentSessionId?.let { settingsManager.setDraftText(it, text) }
+    }
+
+    fun addAttachment(attachment: FileAttachment) {
+        if (!attachment.isTextFile) {
+            _state.update { it.copy(error = "Unsupported file type: ${attachment.filename}") }
+            return
+        }
+        val current = _state.value.pendingAttachments
+        if (current.size >= FileAttachment.MAX_FILES_PER_MESSAGE) {
+            _state.update { it.copy(error = "Maximum ${FileAttachment.MAX_FILES_PER_MESSAGE} attachments allowed") }
+            return
+        }
+        if (attachment.sizeBytes > FileAttachment.MAX_FILE_SIZE) {
+            _state.update { it.copy(error = "File too large (max ${FileAttachment.MAX_FILE_SIZE / 1_000_000}MB)") }
+            return
+        }
+        _state.update { 
+            it.copy(
+                pendingAttachments = current + attachment,
+                error = null
+            ) 
+        }
+    }
+
+    fun removeAttachment(attachment: FileAttachment) {
+        _state.update { 
+            it.copy(pendingAttachments = _state.value.pendingAttachments - attachment) 
+        }
+    }
+
+    fun clearAttachments() {
+        _state.update { it.copy(pendingAttachments = emptyList()) }
+    }
+
+    fun loadFiles(uris: List<Uri>, context: Context) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(isLoadingAttachments = true, error = null) }
+            try {
+                for (uri in uris) {
+                    if (_state.value.pendingAttachments.size >= FileAttachment.MAX_FILES_PER_MESSAGE) {
+                        _state.update {
+                            it.copy(error = "Maximum ${FileAttachment.MAX_FILES_PER_MESSAGE} attachments allowed")
+                        }
+                        break
+                    }
+                    FileEncoder.loadAttachment(context, uri)
+                        .onSuccess { attachment -> addAttachment(attachment) }
+                        .onFailure { error ->
+                            _state.update {
+                                it.copy(error = error.message ?: "Failed to read file")
+                            }
+                        }
+                }
+            } finally {
+                _state.update { it.copy(isLoadingAttachments = false) }
+            }
+        }
     }
 
     fun selectAgent(agentName: String) {
@@ -610,6 +678,10 @@ class MainViewModel @Inject constructor(
 
     fun clearError() {
         _state.update { it.copy(error = null) }
+    }
+
+    fun setError(message: String) {
+        _state.update { it.copy(error = message) }
     }
 
     fun showFileInFiles(path: String, originRoute: String? = null) {

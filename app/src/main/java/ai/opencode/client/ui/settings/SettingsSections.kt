@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import ai.opencode.client.BuildConfig
 import ai.opencode.client.ui.AIBuilderSettings
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.util.ThemeMode
@@ -314,13 +315,14 @@ internal fun SpeechRecognitionSection(
 @Composable
 internal fun AboutSection() {
     SectionHeader(title = "About")
+    val appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
     Text(
         "OpenCode Android Client",
         style = MaterialTheme.typography.bodyLarge
     )
     Text(
-        "Version 1.0",
+        "Version $appVersion",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline
     )

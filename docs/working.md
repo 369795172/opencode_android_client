@@ -1,5 +1,12 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-04-04
+
+- 完成本地文件上传能力交付（文本文件选择、附件栏展示、base64 data URL 发送链路）。
+- 构建与单元测试通过：`./gradlew assembleDebug`、`./gradlew testDebugUnitTest`。
+- 更新版本号标准：`versionName` 统一采用 `0.1.YYYYMMDD`（日期制），`versionCode` 保持单调递增。
+- 本次版本更新为 `versionName=0.1.20260404`、`versionCode=5`。
+
 ## 2026-03-30
 
 - 模型预设里的 GLM 选项从 `GLM-5.1` / `glm-5.1` 切换回 `GLM-5-turbo` / `glm-5-turbo`，保持 iOS 与 Android selector 一致。

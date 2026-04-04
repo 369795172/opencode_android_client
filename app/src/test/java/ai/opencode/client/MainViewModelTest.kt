@@ -1,6 +1,7 @@
 package ai.opencode.client
 
 import android.util.Log
+import ai.opencode.client.data.api.PromptRequest
 import ai.opencode.client.data.audio.AudioRecorderManager
 import ai.opencode.client.data.model.Message
 import ai.opencode.client.data.model.MessageWithParts
@@ -175,7 +176,7 @@ class MainViewModelTest {
         coVerify {
             repository.sendMessage(
                 "session-1",
-                "hello world",
+                listOf(PromptRequest.PartInput.text("hello world")),
                 "review",
                 Message.ModelInfo(selected.providerId, selected.modelId)
             )
@@ -220,7 +221,7 @@ class MainViewModelTest {
         coVerify {
             repository.sendMessage(
                 "session-1",
-                "queue this next",
+                listOf(PromptRequest.PartInput.text("queue this next")),
                 any(),
                 any()
             )

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -39,6 +40,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import ai.opencode.client.data.model.FileAttachment
 import ai.opencode.client.data.model.PermissionRequest
 import ai.opencode.client.data.model.PermissionResponse
 
@@ -49,10 +51,13 @@ internal fun ChatInputBar(
     isRecording: Boolean,
     isTranscribing: Boolean,
     isSpeechConfigured: Boolean,
+    attachments: List<FileAttachment> = emptyList(),
+    isLoadingFiles: Boolean = false,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onAbort: () -> Unit,
-    onToggleRecording: () -> Unit
+    onToggleRecording: () -> Unit,
+    onAttachFiles: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     var textFieldHeightPx by remember { mutableIntStateOf(0) }
@@ -89,10 +94,14 @@ internal fun ChatInputBar(
                 isTranscribing = isTranscribing,
                 isSpeechConfigured = isSpeechConfigured,
                 useVerticalActions = useVerticalActions,
-                canSend = text.isNotBlank() && !isTranscribing,
+                canSend = (text.isNotBlank() || attachments.isNotEmpty()) && !isTranscribing,
+                hasAttachments = attachments.isNotEmpty(),
+                attachmentCount = attachments.size,
+                isLoadingFiles = isLoadingFiles,
                 onAbort = onAbort,
                 onToggleRecording = onToggleRecording,
-                onSend = onSend
+                onSend = onSend,
+                onAttachFiles = onAttachFiles
             )
         }
     }
@@ -106,9 +115,13 @@ private fun ChatInputActions(
     isSpeechConfigured: Boolean,
     useVerticalActions: Boolean,
     canSend: Boolean,
+    hasAttachments: Boolean = false,
+    attachmentCount: Int = 0,
+    isLoadingFiles: Boolean = false,
     onAbort: () -> Unit,
     onToggleRecording: () -> Unit,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    onAttachFiles: () -> Unit = {}
 ) {
     if (useVerticalActions) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -118,9 +131,13 @@ private fun ChatInputActions(
                 isTranscribing = isTranscribing,
                 isSpeechConfigured = isSpeechConfigured,
                 canSend = canSend,
+                hasAttachments = hasAttachments,
+                attachmentCount = attachmentCount,
+                isLoadingFiles = isLoadingFiles,
                 onAbort = onAbort,
                 onToggleRecording = onToggleRecording,
-                onSend = onSend
+                onSend = onSend,
+                onAttachFiles = onAttachFiles
             )
         }
     } else {
@@ -131,9 +148,13 @@ private fun ChatInputActions(
                 isTranscribing = isTranscribing,
                 isSpeechConfigured = isSpeechConfigured,
                 canSend = canSend,
+                hasAttachments = hasAttachments,
+                attachmentCount = attachmentCount,
+                isLoadingFiles = isLoadingFiles,
                 onAbort = onAbort,
                 onToggleRecording = onToggleRecording,
-                onSend = onSend
+                onSend = onSend,
+                onAttachFiles = onAttachFiles
             )
         }
     }
@@ -146,15 +167,38 @@ private fun ChatInputActionButton(
     isTranscribing: Boolean,
     isSpeechConfigured: Boolean,
     canSend: Boolean,
+    hasAttachments: Boolean = false,
+    attachmentCount: Int = 0,
+    isLoadingFiles: Boolean = false,
     onAbort: () -> Unit,
     onToggleRecording: () -> Unit,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    onAttachFiles: () -> Unit = {}
 ) {
     if (isBusy) {
         IconButton(onClick = onAbort, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
         }
     }
+    
+    IconButton(
+        onClick = onAttachFiles,
+        enabled = !isBusy && !isLoadingFiles && attachmentCount < FileAttachment.MAX_FILES_PER_MESSAGE
+    ) {
+        if (isLoadingFiles) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else {
+            Icon(
+                Icons.Default.AttachFile,
+                contentDescription = "Attach file",
+                tint = when {
+                    hasAttachments -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+    
     IconButton(onClick = onToggleRecording, enabled = !isTranscribing) {
         if (isTranscribing) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -170,6 +214,7 @@ private fun ChatInputActionButton(
             )
         }
     }
+    
     IconButton(onClick = onSend, enabled = canSend) {
         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
     }

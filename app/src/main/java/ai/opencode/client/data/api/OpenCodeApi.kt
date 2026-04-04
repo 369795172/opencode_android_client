@@ -118,8 +118,21 @@ data class PromptRequest(
     @kotlinx.serialization.Serializable
     data class PartInput(
         val type: String = "text",
-        val text: String
-    )
+        val text: String? = null,
+        val mime: String? = null,
+        val filename: String? = null,
+        val url: String? = null
+    ) {
+        companion object {
+            fun text(content: String) = PartInput(type = "text", text = content)
+            fun file(mime: String, filename: String, url: String) = PartInput(
+                type = "file",
+                mime = mime,
+                filename = filename,
+                url = url
+            )
+        }
+    }
 
     @kotlinx.serialization.Serializable
     data class ModelInput(

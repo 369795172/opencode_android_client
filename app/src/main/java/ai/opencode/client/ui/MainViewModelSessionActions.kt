@@ -1,6 +1,9 @@
 package ai.opencode.client.ui
 
+import ai.opencode.client.data.api.PromptRequest
+import ai.opencode.client.data.model.FileAttachment
 import ai.opencode.client.data.model.Message
+import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.util.SettingsManager
 import kotlinx.coroutines.CoroutineScope
@@ -376,17 +379,20 @@ internal fun launchSendMessage(
     text: String,
     agent: String,
     model: Message.ModelInfo?,
+    attachments: List<FileAttachment> = emptyList(),
     onRefreshMessages: (String, Boolean) -> Unit,
     onSuccess: (() -> Unit)? = null
 ) {
     scope.launch {
-        repository.sendMessage(sessionId, text, agent, model)
+        val parts = buildMessageParts(text, attachments)
+        repository.sendMessage(sessionId, parts, agent, model)
             .onSuccess {
                 state.update {
                     it.copy(
                         inputText = "",
+                        pendingAttachments = emptyList(),
                         error = null,
-                        sessionStatuses = it.sessionStatuses + (sessionId to ai.opencode.client.data.model.SessionStatus(type = "busy"))
+                        sessionStatuses = it.sessionStatuses + (sessionId to SessionStatus(type = "busy"))
                     )
                 }
                 onSuccess?.invoke()
@@ -400,4 +406,26 @@ internal fun launchSendMessage(
                 state.update { it.copy(error = errorMessageOrFallback(error, "Failed to send message")) }
             }
     }
+}
+
+private fun buildMessageParts(
+    text: String,
+    attachments: List<FileAttachment>
+): List<PromptRequest.PartInput> {
+    val parts = mutableListOf<PromptRequest.PartInput>()
+    
+    if (text.isNotBlank()) {
+        parts.add(PromptRequest.PartInput.text(text))
+    }
+    
+    attachments.forEach { attachment ->
+        val base64 = attachment.base64Content ?: return@forEach
+        parts.add(PromptRequest.PartInput.file(
+            mime = attachment.mime,
+            filename = attachment.filename,
+            url = "data:${attachment.mime};base64,$base64"
+        ))
+    }
+    
+    return parts
 }

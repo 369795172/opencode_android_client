@@ -117,12 +117,12 @@ class OpenCodeRepository @Inject constructor() {
 
     suspend fun sendMessage(
         sessionId: String,
-        text: String,
+        parts: List<PromptRequest.PartInput>,
         agent: String = "build",
         model: Message.ModelInfo? = null
     ): Result<Unit> = runCatching {
         val request = PromptRequest(
-            parts = listOf(PromptRequest.PartInput(text = text)),
+            parts = parts,
             agent = agent,
             model = model?.let { PromptRequest.ModelInput(it.providerId, it.modelId) }
         )

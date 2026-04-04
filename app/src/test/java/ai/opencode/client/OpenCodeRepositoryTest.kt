@@ -1,5 +1,6 @@
 package ai.opencode.client
 
+import ai.opencode.client.data.api.PromptRequest
 import ai.opencode.client.data.model.ConfigProvider
 import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.FileDiff
@@ -261,7 +262,7 @@ class OpenCodeRepositoryTest {
 
         val result = repository.sendMessage(
             sessionId = "session-1",
-            text = "hello repo",
+            parts = listOf(PromptRequest.PartInput.text("hello repo")),
             agent = "review",
             model = Message.ModelInfo(providerId = "openai", modelId = "gpt-4")
         )
@@ -285,7 +286,7 @@ class OpenCodeRepositoryTest {
 
         val result = repository.sendMessage(
             sessionId = "session-1",
-            text = "hello without model",
+            parts = listOf(PromptRequest.PartInput.text("hello without model")),
             agent = "build",
             model = null
         )
@@ -305,7 +306,10 @@ class OpenCodeRepositoryTest {
                 .setBody("bad request body")
         )
 
-        val result = repository.sendMessage(sessionId = "session-1", text = "hello")
+        val result = repository.sendMessage(
+            sessionId = "session-1",
+            parts = listOf(PromptRequest.PartInput.text("hello"))
+        )
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()!!.message!!.contains("400"))
