@@ -49,6 +49,7 @@ data class AppState(
     val agents: List<AgentInfo> = emptyList(),
     val selectedAgentName: String = "build",
     val selectedModelIndex: Int = 0,
+    val availableModels: List<ModelOption> = ModelPresets.list,
     val providers: ProvidersResponse? = null,
     val pendingPermissions: List<PermissionRequest> = emptyList(),
     val pendingQuestions: List<QuestionRequest> = emptyList(),
@@ -66,7 +67,9 @@ data class AppState(
     val aiBuilderConnectionError: String? = null,
     val isTestingAIBuilderConnection: Boolean = false,
     val pendingAttachments: List<FileAttachment> = emptyList(),
-    val isLoadingAttachments: Boolean = false
+    val isLoadingAttachments: Boolean = false,
+    val activeRequest: AsyncRequestState? = null,
+    val diagnostics: List<RequestDiagnosticEntry> = emptyList()
 ) {
     data class ModelOption(val displayName: String, val providerId: String, val modelId: String) {
         val shortName: String
@@ -223,10 +226,6 @@ data class AppState(
 
     val visibleAgents: List<AgentInfo>
         get() = agents.filter { it.isVisible }
-
-    /** Curated model list (filtered like iOS), not the full API response. */
-    val availableModels: List<ModelOption>
-        get() = ModelPresets.list
 
     private val providerModelsIndex: Map<String, ProviderModel>
         get() = providers?.providers?.flatMap { provider ->
@@ -460,7 +459,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun loadProviders() {
-        launchLoadProviders(viewModelScope, repository, _state) { message, error ->
+        launchLoadProviders(viewModelScope, repository, _state, settingsManager) { message, error ->
             reportNonFatalIssue(TAG, message, error)
         }
     }
@@ -482,13 +481,16 @@ class MainViewModel @Inject constructor(
     }
 
     fun sendMessage() {
-        val sessionId = _state.value.currentSessionId ?: return
-        val text = _state.value.inputText.trim()
-        val attachments = _state.value.pendingAttachments
+        val snapshot = _state.value
+        val sessionId = snapshot.currentSessionId ?: return
+        val text = snapshot.inputText.trim()
+        val attachments = snapshot.pendingAttachments
         if (text.isEmpty() && attachments.isEmpty()) return
 
-        val agent = _state.value.selectedAgentName
-        val model = buildSelectedModel(_state.value)
+        val agent = snapshot.selectedAgentName
+        val model = buildSelectedModel(snapshot)
+        val sessionDirectory = snapshot.currentSession?.directory
+        val workspaceDirectory = settingsManager.workspaceDirectory
 
         launchSendMessage(
             scope = viewModelScope,
@@ -499,13 +501,40 @@ class MainViewModel @Inject constructor(
             agent = agent,
             model = model,
             attachments = attachments,
+            sessionDirectory = sessionDirectory,
+            workspaceDirectory = workspaceDirectory,
+            providers = snapshot.providers,
+            agents = snapshot.agents,
             onRefreshMessages = ::loadMessagesWithRetry,
             onSuccess = { 
                 settingsManager.setDraftText(sessionId, "")
                 clearAttachments()
+            },
+            onDiagnostic = { entry ->
+                _state.update { s ->
+                    s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
+                }
+            },
+            onRequestState = { request ->
+                _state.update { it.copy(activeRequest = request) }
+            },
+            onError = { message ->
+                setError(message)
             }
         )
     }
+
+    fun retryStalledRequest() {
+        val req = _state.value.activeRequest ?: return
+        if (req.phase != AsyncRequestPhase.STALLED) return
+        sendMessage()
+    }
+
+    fun clearActiveRequest() {
+        _state.update { it.copy(activeRequest = null) }
+    }
+
+    fun exportDiagnosticsReport(): String = toDiagnosticsReport(_state.value.diagnostics)
 
     fun abortSession() {
         val sessionId = _state.value.currentSessionId ?: return
@@ -598,7 +627,9 @@ class MainViewModel @Inject constructor(
     }
 
     fun selectModel(index: Int) {
-        val clamped = index.coerceIn(0, ModelPresets.list.size - 1)
+        val models = _state.value.availableModels
+        val maxIdx = (models.size - 1).coerceAtLeast(0)
+        val clamped = index.coerceIn(0, maxIdx)
         settingsManager.selectedModelIndex = clamped
         _state.update { it.copy(selectedModelIndex = clamped) }
         _state.value.currentSessionId?.let { settingsManager.setModelForSession(it, clamped) }
@@ -709,7 +740,12 @@ class MainViewModel @Inject constructor(
             event = event,
             onRefreshMessages = ::loadMessagesWithRetry,
             onLoadPendingPermissions = ::loadPendingPermissions,
-            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) }
+            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) },
+            onDiagnostic = { entry ->
+                _state.update { s ->
+                    s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
+                }
+            }
         )
     }
 

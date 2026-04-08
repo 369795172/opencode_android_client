@@ -17,6 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.opencode.client.ui.MainViewModel
@@ -28,6 +30,7 @@ fun SettingsScreen(
     onBack: (() -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
     val saved = remember(viewModel) { viewModel.getSavedConnectionSettings() }
     val savedAIBuilder = remember(viewModel) { viewModel.getAIBuilderSettings() }
 
@@ -43,6 +46,7 @@ fun SettingsScreen(
     var aiBuilderCustomPrompt by remember { mutableStateOf(savedAIBuilder.customPrompt) }
     var aiBuilderTerminology by remember { mutableStateOf(savedAIBuilder.terminology) }
     var showAIBuilderToken by remember { mutableStateOf(false) }
+    var diagnosticsCopiedMsg by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.isConnecting) {
         if (!state.isConnecting && isTesting) {
@@ -171,6 +175,17 @@ fun SettingsScreen(
             SettingsSectionDivider()
 
             AboutSection()
+
+            SettingsSectionDivider()
+
+            DiagnosticsSection(
+                onCopyDiagnostics = {
+                    val report = viewModel.exportDiagnosticsReport()
+                    clipboard.setText(AnnotatedString(report))
+                    diagnosticsCopiedMsg = "Diagnostics copied to clipboard"
+                },
+                copiedMessage = diagnosticsCopiedMsg
+            )
         }
     }
 }

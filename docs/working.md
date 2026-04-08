@@ -1,5 +1,10 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-04-06
+
+- 模型选择与服务器 `/config/providers` 对齐：OpenRouter 路由的 Claude/Gemini 预设、`ProviderModel.status` 过滤、`availableModels` 状态与连接后重映射。
+- 版本：`versionName=0.1.20260406`、`versionCode=6`。
+
 ## 2026-04-04
 
 - 完成本地文件上传能力交付（文本文件选择、附件栏展示、base64 data URL 发送链路）。

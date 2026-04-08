@@ -52,7 +52,8 @@ internal fun handleIncomingSseEvent(
     event: SSEEvent,
     onRefreshMessages: (String, Boolean) -> Unit,
     onLoadPendingPermissions: () -> Unit,
-    onNonFatalIssue: (String) -> Unit
+    onNonFatalIssue: (String) -> Unit,
+    onDiagnostic: (RequestDiagnosticEntry) -> Unit
 ) {
     when (event.payload.type) {
         "session.created" -> {
@@ -79,6 +80,22 @@ internal fun handleIncomingSseEvent(
                         sessionStatuses = it.sessionStatuses + (statusEvent.sessionId to statusEvent.status)
                     )
                 }
+                val active = state.value.activeRequest
+                if (active != null && active.sessionId == statusEvent.sessionId && statusEvent.status.isIdle) {
+                    val completed = active.copy(phase = AsyncRequestPhase.COMPLETED, lastProgressAtMs = System.currentTimeMillis())
+                    state.update { it.copy(activeRequest = completed) }
+                    onDiagnostic(
+                        RequestDiagnosticEntry(
+                            sessionId = statusEvent.sessionId,
+                            requestId = active.requestId,
+                            phase = AsyncRequestPhase.COMPLETED,
+                            agent = active.agent,
+                            providerId = active.model?.providerId,
+                            modelId = active.model?.modelId,
+                            message = "Session reported idle after request"
+                        )
+                    )
+                }
                 if (statusEvent.sessionId == state.value.currentSessionId && !statusEvent.status.isBusy) {
                     state.update {
                         it.copy(
@@ -96,6 +113,27 @@ internal fun handleIncomingSseEvent(
             val sessionId = event.payload.getString("sessionID")
             if (sessionId != null && sessionId == state.value.currentSessionId) {
                 onRefreshMessages(sessionId, true)
+            }
+            if (sessionId != null) {
+                val active = state.value.activeRequest
+                if (active != null && active.sessionId == sessionId) {
+                    val progressed = active.copy(
+                        phase = AsyncRequestPhase.FIRST_ASSISTANT_SEEN,
+                        lastProgressAtMs = System.currentTimeMillis()
+                    )
+                    state.update { it.copy(activeRequest = progressed) }
+                    onDiagnostic(
+                        RequestDiagnosticEntry(
+                            sessionId = sessionId,
+                            requestId = active.requestId,
+                            phase = AsyncRequestPhase.FIRST_ASSISTANT_SEEN,
+                            agent = active.agent,
+                            providerId = active.model?.providerId,
+                            modelId = active.model?.modelId,
+                            message = "message.created observed via SSE"
+                        )
+                    )
+                }
             }
         }
         "message.part.updated" -> {

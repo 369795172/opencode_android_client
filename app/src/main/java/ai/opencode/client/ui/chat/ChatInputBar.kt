@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import ai.opencode.client.data.model.FileAttachment
 import ai.opencode.client.data.model.PermissionRequest
 import ai.opencode.client.data.model.PermissionResponse
+import ai.opencode.client.ui.AsyncRequestPhase
+import ai.opencode.client.ui.AsyncRequestState
 
 @Composable
 internal fun ChatInputBar(
@@ -53,11 +55,14 @@ internal fun ChatInputBar(
     isSpeechConfigured: Boolean,
     attachments: List<FileAttachment> = emptyList(),
     isLoadingFiles: Boolean = false,
+    activeRequest: AsyncRequestState? = null,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onAbort: () -> Unit,
     onToggleRecording: () -> Unit,
-    onAttachFiles: () -> Unit = {}
+    onAttachFiles: () -> Unit = {},
+    onRetryRequest: () -> Unit = {},
+    onDismissRequestState: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     var textFieldHeightPx by remember { mutableIntStateOf(0) }
@@ -71,38 +76,90 @@ internal fun ChatInputBar(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth().imePadding(),
-        tonalElevation = 2.dp
+    Column {
+        if (activeRequest != null) {
+            RequestStateBanner(
+                state = activeRequest,
+                onRetry = onRetryRequest,
+                onDismiss = onDismissRequestState
+            )
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth().imePadding(),
+            tonalElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                verticalAlignment = if (useVerticalActions) Alignment.Bottom else Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.weight(1f).onGloballyPositioned { textFieldHeightPx = it.size.height },
+                    placeholder = { Text("Type a message...") },
+                    maxLines = 4,
+                    enabled = true
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                ChatInputActions(
+                    isBusy = isBusy,
+                    isRecording = isRecording,
+                    isTranscribing = isTranscribing,
+                    isSpeechConfigured = isSpeechConfigured,
+                    useVerticalActions = useVerticalActions,
+                    canSend = (text.isNotBlank() || attachments.isNotEmpty()) && !isTranscribing,
+                    hasAttachments = attachments.isNotEmpty(),
+                    attachmentCount = attachments.size,
+                    isLoadingFiles = isLoadingFiles,
+                    onAbort = onAbort,
+                    onToggleRecording = onToggleRecording,
+                    onSend = onSend,
+                    onAttachFiles = onAttachFiles
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RequestStateBanner(
+    state: AsyncRequestState,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val label = when (state.phase) {
+        AsyncRequestPhase.QUEUED -> "Queued"
+        AsyncRequestPhase.ACCEPTED_204 -> "Accepted (204), waiting for progress"
+        AsyncRequestPhase.RUNNING -> "Running"
+        AsyncRequestPhase.FIRST_ASSISTANT_SEEN -> "Assistant responded, finalizing"
+        AsyncRequestPhase.RETRYING -> "Retrying request"
+        AsyncRequestPhase.STALLED -> "Stalled: no progress"
+        AsyncRequestPhase.FAILED -> "Failed"
+        AsyncRequestPhase.COMPLETED -> "Completed"
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when (state.phase) {
+                AsyncRequestPhase.STALLED, AsyncRequestPhase.FAILED -> MaterialTheme.colorScheme.errorContainer
+                AsyncRequestPhase.COMPLETED -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.secondaryContainer
+            }
+        )
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = if (useVerticalActions) Alignment.Bottom else Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = onTextChange,
-                modifier = Modifier.weight(1f).onGloballyPositioned { textFieldHeightPx = it.size.height },
-                placeholder = { Text("Type a message...") },
-                maxLines = 4,
-                enabled = true
+            Text(
+                text = state.errorMessage?.let { "$label: $it" } ?: label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            ChatInputActions(
-                isBusy = isBusy,
-                isRecording = isRecording,
-                isTranscribing = isTranscribing,
-                isSpeechConfigured = isSpeechConfigured,
-                useVerticalActions = useVerticalActions,
-                canSend = (text.isNotBlank() || attachments.isNotEmpty()) && !isTranscribing,
-                hasAttachments = attachments.isNotEmpty(),
-                attachmentCount = attachments.size,
-                isLoadingFiles = isLoadingFiles,
-                onAbort = onAbort,
-                onToggleRecording = onToggleRecording,
-                onSend = onSend,
-                onAttachFiles = onAttachFiles
-            )
+            if (state.phase == AsyncRequestPhase.STALLED) {
+                TextButton(onClick = onRetry) { Text("Retry") }
+            }
+            TextButton(onClick = onDismiss) { Text("Hide") }
         }
     }
 }

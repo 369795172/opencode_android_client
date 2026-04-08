@@ -119,12 +119,14 @@ class OpenCodeRepository @Inject constructor() {
         sessionId: String,
         parts: List<PromptRequest.PartInput>,
         agent: String = "build",
-        model: Message.ModelInfo? = null
+        model: Message.ModelInfo? = null,
+        directory: String? = null
     ): Result<Unit> = runCatching {
         val request = PromptRequest(
             parts = parts,
             agent = agent,
-            model = model?.let { PromptRequest.ModelInput(it.providerId, it.modelId) }
+            model = model?.let { PromptRequest.ModelInput(it.providerId, it.modelId) },
+            directory = directory
         )
         val response = api.promptAsync(sessionId, request)
         if (!response.isSuccessful) {

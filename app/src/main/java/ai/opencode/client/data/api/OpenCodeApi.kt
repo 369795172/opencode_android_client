@@ -113,7 +113,8 @@ data class UpdateSessionRequest(
 data class PromptRequest(
     val parts: List<PartInput>,
     val agent: String = "build",
-    val model: ModelInput? = null
+    val model: ModelInput? = null,
+    val directory: String? = null
 ) {
     @kotlinx.serialization.Serializable
     data class PartInput(

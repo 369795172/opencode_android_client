@@ -658,6 +658,23 @@ class OpenCodeRepositoryTest {
     }
 
     @Test
+    fun `getProviders parses model status field`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setBody(
+                    """{"providers":[{"id":"openrouter","models":{"anthropic/claude-opus-4.6":{"id":"anthropic/claude-opus-4.6","status":"beta"}}}],"default":{}}"""
+                )
+                .setHeader("Content-Type", "application/json")
+        )
+
+        val result = repository.getProviders()
+
+        assertTrue(result.isSuccess)
+        val model = result.getOrThrow().providers.single().models.values.single()
+        assertEquals("beta", model.status)
+    }
+
+    @Test
     fun `configure rebuilds clients for new base url and credentials`() = runBlocking {
         val replacementServer = MockWebServer()
         replacementServer.start()

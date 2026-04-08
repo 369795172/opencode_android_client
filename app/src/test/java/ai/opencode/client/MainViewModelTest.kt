@@ -160,7 +160,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage success clears input and uses selected preset model`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")
@@ -178,7 +178,8 @@ class MainViewModelTest {
                 "session-1",
                 listOf(PromptRequest.PartInput.text("hello world")),
                 "review",
-                Message.ModelInfo(selected.providerId, selected.modelId)
+                Message.ModelInfo(selected.providerId, selected.modelId),
+                any()
             )
         }
         assertEquals("", viewModel.state.value.inputText)
@@ -187,7 +188,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage failure keeps input and exposes error`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.failure(IllegalStateException("send failed"))
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.failure(IllegalStateException("send failed"))
 
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")
@@ -203,7 +204,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage still queues prompt when current session is busy`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")
@@ -223,6 +224,7 @@ class MainViewModelTest {
                 "session-1",
                 listOf(PromptRequest.PartInput.text("queue this next")),
                 any(),
+                any(),
                 any()
             )
         }
@@ -239,7 +241,7 @@ class MainViewModelTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any(), any()) }
         assertEquals("   ", viewModel.state.value.inputText)
     }
 
@@ -251,7 +253,7 @@ class MainViewModelTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any(), any()) }
         assertEquals("hello", viewModel.state.value.inputText)
     }
 
@@ -794,7 +796,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage on success clears draft for current session`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         val viewModel = createViewModel()
         viewModel.selectSession("s1")

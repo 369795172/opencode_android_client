@@ -153,9 +153,12 @@ fun ChatScreen(
                 isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
                 attachments = state.pendingAttachments,
                 isLoadingFiles = state.isLoadingAttachments,
+                activeRequest = state.activeRequest,
                 onTextChange = viewModel::setInputText,
                 onSend = { viewModel.sendMessage() },
                 onAbort = { viewModel.abortSession() },
+                onRetryRequest = { viewModel.retryStalledRequest() },
+                onDismissRequestState = { viewModel.clearActiveRequest() },
                 onToggleRecording = {
                     if (state.isRecording) {
                         viewModel.toggleRecording()

@@ -28,6 +28,7 @@ class AppStateTest {
         assertTrue(state.agents.isEmpty())
         assertEquals("build", state.selectedAgentName)
         assertEquals(0, state.selectedModelIndex)
+        assertEquals(ModelPresets.list, state.availableModels)
         assertNull(state.providers)
         assertTrue(state.pendingPermissions.isEmpty())
         assertEquals("", state.inputText)
@@ -168,11 +169,18 @@ class AppStateTest {
     }
 
     @Test
-    fun `availableModels independent of providers`() {
+    fun `availableModels defaults to presets until explicitly filtered`() {
         val stateWithProviders = AppState(providers = makeProviders(Triple("openai", "gpt-4", "GPT-4")))
         val stateWithoutProviders = AppState(providers = null)
         assertEquals(stateWithProviders.availableModels, stateWithoutProviders.availableModels)
         assertEquals(ModelPresets.list, stateWithProviders.availableModels)
+    }
+
+    @Test
+    fun `availableModels can be set explicitly`() {
+        val custom = listOf(AppState.ModelOption("Custom", "openai", "gpt-4"))
+        val state = AppState(availableModels = custom)
+        assertEquals(custom, state.availableModels)
     }
 
     private fun makeContextUsageState(

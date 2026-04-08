@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Lock
@@ -334,6 +335,37 @@ internal fun AboutSection() {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline
     )
+}
+
+@Composable
+internal fun DiagnosticsSection(
+    onCopyDiagnostics: () -> Unit,
+    copiedMessage: String?
+) {
+    SectionHeader(title = "Diagnostics")
+    Text(
+        "Copy async request diagnostics to clipboard for debugging model/agent/subagent failures.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    OutlinedButton(onClick = onCopyDiagnostics) {
+        Icon(
+            Icons.Default.ContentCopy,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Copy Diagnostics")
+    }
+    copiedMessage?.let {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
 }
 
 @Composable
