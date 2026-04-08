@@ -63,6 +63,10 @@ fun ChatScreen(
     var cachedContextUsage by remember { mutableStateOf(state.contextUsage) }
     state.contextUsage?.let { cachedContextUsage = it }
 
+    val hasActiveQuestion =
+        state.currentSessionId != null &&
+            state.pendingQuestions.any { it.sessionId == state.currentSessionId }
+
     Column(modifier = Modifier.fillMaxSize()) {
         ChatTopBar(
             state = ChatTopBarState(
@@ -140,53 +144,68 @@ fun ChatScreen(
         }
 
         if (state.currentSessionId != null) {
-            ChatAttachmentBar(
-                attachments = state.pendingAttachments,
-                onRemove = viewModel::removeAttachment
-            )
+            if (hasActiveQuestion) {
+                state.pendingQuestions
+                    .filter { it.sessionId == state.currentSessionId }
+                    .firstOrNull()
+                    ?.let { question ->
+                        QuestionCardView(
+                            question = question,
+                            onReply = { answers, onError ->
+                                viewModel.replyQuestion(question.id, answers, onError)
+                            },
+                            onReject = { viewModel.rejectQuestion(question.id) }
+                        )
+                    }
+            } else {
+                ChatAttachmentBar(
+                    attachments = state.pendingAttachments,
+                    onRemove = viewModel::removeAttachment
+                )
 
-            ChatInputBar(
-                text = state.inputText,
-                isBusy = state.isCurrentSessionBusy,
-                isRecording = state.isRecording,
-                isTranscribing = state.isTranscribing,
-                isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
-                attachments = state.pendingAttachments,
-                isLoadingFiles = state.isLoadingAttachments,
-                activeRequest = state.activeRequest,
-                onTextChange = viewModel::setInputText,
-                onSend = { viewModel.sendMessage() },
-                onAbort = { viewModel.abortSession() },
-                onRetryRequest = { viewModel.retryStalledRequest() },
-                onDismissRequestState = { viewModel.clearActiveRequest() },
-                onToggleRecording = {
-                    if (state.isRecording) {
-                        viewModel.toggleRecording()
-                    } else {
-                        val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasRecordAudioPermission) {
+                ChatInputBar(
+                    text = state.inputText,
+                    isBusy = state.isCurrentSessionBusy,
+                    isRecording = state.isRecording,
+                    isTranscribing = state.isTranscribing,
+                    isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
+                    attachments = state.pendingAttachments,
+                    isLoadingFiles = state.isLoadingAttachments,
+                    activeRequest = state.activeRequest,
+                    onTextChange = viewModel::setInputText,
+                    onSend = { viewModel.sendMessage() },
+                    onAbort = { viewModel.abortSession() },
+                    onRetryRequest = { viewModel.retryStalledRequest() },
+                    onDismissRequestState = { viewModel.clearActiveRequest() },
+                    onToggleRecording = {
+                        if (state.isRecording) {
                             viewModel.toggleRecording()
                         } else {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasRecordAudioPermission) {
+                                viewModel.toggleRecording()
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         }
-                    }
-                },
-                onAttachFiles = {
-                    filePickerLauncher.launch(
-                        arrayOf(
-                            "text/*",
-                            "application/json",
-                            "application/xml",
-                            "application/yaml",
-                            "application/x-yaml",
-                            "application/toml"
+                    },
+                    onAttachFiles = {
+                        filePickerLauncher.launch(
+                            arrayOf(
+                                "text/*",
+                                "application/json",
+                                "application/xml",
+                                "application/yaml",
+                                "application/x-yaml",
+                                "application/toml"
+                            )
                         )
-                    )
-                }
-            )
+                    }
+                )
+            }
         }
 
         state.speechError?.let { speechError ->
@@ -211,15 +230,5 @@ fun ChatScreen(
             )
         }
 
-        state.pendingQuestions
-            .filter { it.sessionId == state.currentSessionId }
-            .firstOrNull()
-            ?.let { question ->
-                QuestionCardView(
-                    question = question,
-                    onReply = { answers, onError -> viewModel.replyQuestion(question.id, answers, onError) },
-                    onReject = { viewModel.rejectQuestion(question.id) }
-                )
-            }
     }
 }

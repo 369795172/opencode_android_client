@@ -34,7 +34,6 @@ fun QuestionCardView(
     onReject: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
-    val maxOptionsHeight = (configuration.screenHeightDp * 0.40).dp
 
     val count = question.questions.size
 
@@ -198,12 +197,22 @@ fun QuestionCardView(
             containerColor = accent.copy(alpha = 0.07f)
         )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // Prefer parent constraints when bounded; otherwise fall back to full screen height in dp.
+            val boundedHeight = minOf(maxHeight, configuration.screenHeightDp.dp)
+            // Approximate space for header, progress, question text, hint, button row, and padding.
+            val reservedInsideCard = 220.dp
+            val upperCap = maxOf(80.dp, boundedHeight * 0.5f)
+            val maxOptionsHeight = (boundedHeight - reservedInsideCard)
+                .coerceAtLeast(0.dp)
+                .coerceIn(80.dp, upperCap)
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -346,7 +355,7 @@ fun QuestionCardView(
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                 keyboardActions = KeyboardActions(onDone = { commitCustom() }),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth().imePadding()
                             )
                         }
                     }
@@ -389,6 +398,7 @@ fun QuestionCardView(
                         Text(if (currentTab >= question.questions.size - 1) "Submit" else "Next")
                     }
                 }
+            }
             }
         }
     }
