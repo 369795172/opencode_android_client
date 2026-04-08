@@ -3,6 +3,8 @@ package ai.opencode.client.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import ai.opencode.client.data.model.QuestionOption
@@ -30,6 +33,9 @@ fun QuestionCardView(
     onReply: (List<List<String>>, onError: () -> Unit) -> Unit,
     onReject: () -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val maxOptionsHeight = (configuration.screenHeightDp * 0.40).dp
+
     val count = question.questions.size
 
     // Guard: empty questions list — show dismissible placeholder
@@ -258,9 +264,12 @@ fun QuestionCardView(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Options
+            // Options — cap height and scroll so footer actions stay on screen
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxOptionsHeight)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 currentQuestion.options.forEach { option ->
