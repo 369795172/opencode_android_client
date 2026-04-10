@@ -10,6 +10,13 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@kotlinx.serialization.Serializable
+data class PersistedModelHealth(
+    val healthy: Boolean,
+    val updatedAtMs: Long,
+    val reason: String? = null
+)
+
 @Singleton
 class SettingsManager @Inject constructor(
     @ApplicationContext private val context: Context
@@ -147,6 +154,21 @@ class SettingsManager @Inject constructor(
         encryptedPrefs.edit().putString(KEY_SESSION_AGENTS, Json.encodeToString(map)).apply()
     }
 
+    fun getModelHealthSnapshot(): Map<String, PersistedModelHealth> {
+        val json = encryptedPrefs.getString(KEY_MODEL_HEALTH, null) ?: return emptyMap()
+        return try {
+            Json.decodeFromString<Map<String, PersistedModelHealth>>(json)
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun setModelHealthSnapshot(snapshot: Map<String, PersistedModelHealth>) {
+        encryptedPrefs.edit()
+            .putString(KEY_MODEL_HEALTH, Json.encodeToString(snapshot))
+            .apply()
+    }
+
     companion object {
         const val DEFAULT_SERVER = "http://localhost:4096"
         const val DEFAULT_AI_BUILDER_BASE_URL = "https://space.ai-builders.com/backend"
@@ -169,6 +191,7 @@ class SettingsManager @Inject constructor(
         private const val KEY_SESSION_DRAFTS = "session_drafts"
         private const val KEY_SESSION_MODELS = "session_models"
         private const val KEY_SESSION_AGENTS = "session_agents"
+        private const val KEY_MODEL_HEALTH = "model_health"
     }
 }
 

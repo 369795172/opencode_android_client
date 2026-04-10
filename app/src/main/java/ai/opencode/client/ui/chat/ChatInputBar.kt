@@ -45,6 +45,7 @@ import ai.opencode.client.data.model.PermissionRequest
 import ai.opencode.client.data.model.PermissionResponse
 import ai.opencode.client.ui.AsyncRequestPhase
 import ai.opencode.client.ui.AsyncRequestState
+import ai.opencode.client.ui.classifyFailureCategory
 
 @Composable
 internal fun ChatInputBar(
@@ -127,6 +128,7 @@ private fun RequestStateBanner(
     onRetry: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val category = state.errorMessage?.let { classifyFailureCategory(it) }
     val label = when (state.phase) {
         AsyncRequestPhase.QUEUED -> "Queued"
         AsyncRequestPhase.ACCEPTED_204 -> "Accepted (204), waiting for progress"
@@ -152,7 +154,10 @@ private fun RequestStateBanner(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = state.errorMessage?.let { "$label: $it" } ?: label,
+                text = state.errorMessage?.let {
+                    val prefix = category?.name?.lowercase()?.replace('_', ' ')
+                    if (prefix.isNullOrBlank()) "$label: $it" else "$label [$prefix]: $it"
+                } ?: label,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall
             )

@@ -3,6 +3,7 @@ package ai.opencode.client.ui
 import ai.opencode.client.data.api.PromptRequest
 import ai.opencode.client.data.model.FileAttachment
 import ai.opencode.client.data.model.Message
+import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.ConfigProvider
 import ai.opencode.client.data.model.ProvidersResponse
@@ -177,6 +178,8 @@ internal fun launchLoadMessages(
         repository.getMessages(sessionId, limit)
             .onSuccess { messages ->
                 if (sessionId == state.value.currentSessionId) {
+                    val healthUpdate = extractLatestAssistantHealth(messages)
+                    val mergedHealth = mergeModelHealth(state.value.modelHealth, healthUpdate)
                     val lastAssistant = messages.lastOrNull { it.info.isAssistant }
                     val inferredModelIndex = lastAssistant?.info?.resolvedModel?.let { model ->
                         state.value.availableModels.indexOfFirst {
@@ -189,15 +192,24 @@ internal fun launchLoadMessages(
                     val maxIdx = (models.size - 1).coerceAtLeast(0)
                     val modelIndex = rawModelIndex?.coerceIn(0, maxIdx)
                     val agentName = settingsManager?.getAgentForSession(sessionId) ?: inferredAgentName
+                    val displayModels = resolveAvailableModels(ModelPresets.list, state.value.providers)
+                    val remappedIndex = remapSelectedModelIndex(
+                        previousList = models,
+                        newList = displayModels,
+                        previousIndex = modelIndex ?: state.value.selectedModelIndex
+                    )
                     state.update {
                         it.copy(
                             messages = messages,
                             messageLimit = limit,
                             isLoadingMessages = false,
-                            selectedModelIndex = modelIndex ?: it.selectedModelIndex.coerceIn(0, maxIdx),
-                            selectedAgentName = agentName ?: it.selectedAgentName
+                            selectedModelIndex = remappedIndex.coerceIn(0, (displayModels.size - 1).coerceAtLeast(0)),
+                            selectedAgentName = agentName ?: it.selectedAgentName,
+                            modelHealth = mergedHealth,
+                            availableModels = displayModels
                         )
                     }
+                    settingsManager?.let { persistModelHealth(it, mergedHealth) }
                 } else {
                     state.update { it.copy(isLoadingMessages = false) }
                 }
@@ -456,6 +468,7 @@ internal fun launchSendMessage(
                     providerId = model?.providerId,
                     modelId = model?.modelId,
                     code = failure.code,
+                            category = classifyFailureCategory(failure.message),
                     message = failure.message
                 )
             )
@@ -553,6 +566,7 @@ internal fun launchSendMessage(
                                                 providerId = model?.providerId,
                                                 modelId = model?.modelId,
                                                 code = RequestErrorCode.SESSION_STUCK,
+                                                category = classifyFailureCategory(msg),
                                                 message = "Retry failed: $msg"
                                             )
                                         )
@@ -581,6 +595,7 @@ internal fun launchSendMessage(
                         providerId = model?.providerId,
                         modelId = model?.modelId,
                         code = RequestErrorCode.SESSION_STUCK,
+                        category = classifyFailureCategory(msg),
                         message = msg
                     )
                 )
@@ -672,6 +687,41 @@ internal fun runSendPreflight(
     return SendPreflightResult(ok = true)
 }
 
+private fun mergeModelHealth(
+    current: Map<String, ModelHealth>,
+    update: ModelHealthUpdate?
+): Map<String, ModelHealth> {
+    if (update == null) return current
+    return current + (update.key to update.health)
+}
+
+private data class ModelHealthUpdate(
+    val key: String,
+    val health: ModelHealth
+)
+
+private fun extractLatestAssistantHealth(messages: List<MessageWithParts>): ModelHealthUpdate? {
+    val assistant = messages.lastOrNull { it.info.isAssistant } ?: return null
+    val model = assistant.info.resolvedModel ?: return null
+    val key = "${model.providerId}/${model.modelId}"
+    val error = assistant.info.error?.message?.toString()
+    val text = assistant.parts.firstOrNull { it.isText }?.text?.trim().orEmpty()
+    val health = when {
+        !error.isNullOrBlank() -> ModelHealth(
+            healthy = false,
+            updatedAtMs = System.currentTimeMillis(),
+            reason = error
+        )
+        text.isNotBlank() -> ModelHealth(
+            healthy = true,
+            updatedAtMs = System.currentTimeMillis(),
+            reason = null
+        )
+        else -> return null
+    }
+    return ModelHealthUpdate(key = key, health = health)
+}
+
 private suspend fun trackAsyncCompletion(
     repository: OpenCodeRepository,
     sessionId: String,
@@ -700,6 +750,32 @@ private suspend fun trackAsyncCompletion(
         delay(MainViewModelTimings.requestTrackPollMs)
         val messages = repository.getMessages(sessionId).getOrDefault(emptyList())
         val assistantCount = messages.count { it.info.isAssistant }
+        val latestAssistant = messages.lastOrNull { it.info.isAssistant }
+        val assistantError = latestAssistant?.info?.error?.message
+        if (!assistantError.isNullOrBlank()) {
+            onRequestState(
+                current.copy(
+                    phase = AsyncRequestPhase.FAILED,
+                    errorCode = RequestErrorCode.SESSION_STUCK,
+                    errorMessage = assistantError
+                )
+            )
+            onDiagnostic(
+                RequestDiagnosticEntry(
+                    sessionId = sessionId,
+                    requestId = request.requestId,
+                    phase = AsyncRequestPhase.FAILED,
+                    agent = request.agent,
+                    providerId = request.model?.providerId,
+                    modelId = request.model?.modelId,
+                    code = RequestErrorCode.SESSION_STUCK,
+                    category = classifyFailureCategory(assistantError),
+                    message = assistantError
+                )
+            )
+            onError(assistantError)
+            return
+        }
         val hasAssistantProgress = assistantCount > baselineAssistantCount
         if (hasAssistantProgress && current.phase != AsyncRequestPhase.FIRST_ASSISTANT_SEEN) {
             current = current.copy(
@@ -772,6 +848,7 @@ private suspend fun trackAsyncCompletion(
             providerId = request.model?.providerId,
             modelId = request.model?.modelId,
             code = RequestErrorCode.ASYNC_ACCEPTED_NO_PROGRESS,
+            category = RequestFailureCategory.TIMEOUT,
             message = stalledMsg
         )
     )

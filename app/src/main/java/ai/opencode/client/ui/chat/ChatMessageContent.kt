@@ -71,6 +71,7 @@ internal fun ChatMessageList(
     messages: List<MessageWithParts>,
     streamingPartTexts: Map<String, String>,
     streamingReasoningPart: Part?,
+    stalledToolPartKeys: Set<String>,
     isLoading: Boolean,
     messageLimit: Int,
     repository: OpenCodeRepository,
@@ -147,7 +148,8 @@ internal fun ChatMessageList(
                 repository = repository,
                 workspaceDirectory = workspaceDirectory,
                 onFileClick = onFileClick,
-                onForkFromMessage = onForkFromMessage
+                onForkFromMessage = onForkFromMessage,
+                stalledToolPartKeys = stalledToolPartKeys
             )
         }
         if (isLoading && messages.size >= messageLimit) {
@@ -184,7 +186,8 @@ private fun MessageRow(
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
     onFileClick: (String) -> Unit,
-    onForkFromMessage: (String) -> Unit
+    onForkFromMessage: (String) -> Unit,
+    stalledToolPartKeys: Set<String>
 ) {
     val isUser = message.info.isUser
 
@@ -217,6 +220,7 @@ private fun MessageRow(
                                 repository = repository,
                                 workspaceDirectory = workspaceDirectory,
                                 onFileClick = onFileClick,
+                                isStalled = stalledToolPartKeys.contains("${message.info.id}:${p.id}"),
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -232,6 +236,7 @@ private fun MessageRow(
                     repository = repository,
                     workspaceDirectory = workspaceDirectory,
                     onFileClick = onFileClick,
+                    isStalled = stalledToolPartKeys.contains("${message.info.id}:${part.id}"),
                     modifier = Modifier.fillMaxWidth()
                 )
                 i += 1
@@ -295,6 +300,7 @@ private fun PartView(
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
     onFileClick: (String) -> Unit,
+    isStalled: Boolean,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     when {
@@ -306,7 +312,16 @@ private fun PartView(
             workspaceDirectory = workspaceDirectory
         )
         part.isReasoning -> ReasoningCard(streamingTextOverride ?: part.text ?: "", part.toolReason, false, modifier)
-        part.isTool -> ToolCard(part.tool ?: "", part.stateDisplay, part.toolReason, part.filePathsForNavigationFiltered, part.toolTodos, onFileClick, modifier)
+        part.isTool -> ToolCard(
+            toolName = part.tool ?: "",
+            status = part.stateDisplay,
+            reason = part.toolReason,
+            filePaths = part.filePathsForNavigationFiltered,
+            todos = part.toolTodos,
+            onFileClick = onFileClick,
+            isStalled = isStalled,
+            modifier = modifier
+        )
         part.isPatch && part.filePathsForNavigationFiltered.isNotEmpty() -> PatchCard(part.filePathsForNavigationFiltered, onFileClick, modifier)
     }
 }
@@ -450,10 +465,11 @@ private fun ToolCard(
     filePaths: List<String>,
     todos: List<TodoItem> = emptyList(),
     onFileClick: (String) -> Unit,
+    isStalled: Boolean = false,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
-    val isRunning = status == "running"
-    var expanded by remember { mutableStateOf(isRunning) }
+    val isRunning = status == "running" && !isStalled
+    var expanded by remember { mutableStateOf(isRunning || isStalled) }
     val firstFile = filePaths.firstOrNull()
     val isWriteOrPatch = toolName == "write" || toolName == "patch" || toolName.contains("write")
     val isDark = isSystemInDarkTheme()
@@ -466,6 +482,13 @@ private fun ToolCard(
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (isRunning) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else if (isStalled) {
+                        Icon(
+                            Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
                     } else {
                         Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -484,6 +507,19 @@ private fun ToolCard(
                             modifier = Modifier.size(20.dp)
                         )
                     }
+                }
+                if (isStalled) {
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        text = "Tool appears stalled (no updates for 120s).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Text(
+                        text = "Hint: use the input bar actions to abort/retry when needed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 if (expanded && todos.isNotEmpty()) {

@@ -54,7 +54,7 @@ class ModelAvailabilityTest {
     }
 
     @Test
-    fun `resolveAvailableModels appends discovered selectable models`() {
+    fun `resolveAvailableModels does not append discovered selectable models`() {
         val presets = listOf(
             AppState.ModelOption("Preset", "openai", "gpt-5.4")
         )
@@ -70,9 +70,9 @@ class ModelAvailabilityTest {
             )
         )
         val out = resolveAvailableModels(presets, providers)
-        assertEquals(2, out.size)
+        assertEquals(1, out.size)
         assertEquals("gpt-5.4", out[0].modelId)
-        assertTrue(out.any { it.modelId == "gpt-5.3-codex" })
+        assertFalse(out.any { it.modelId == "gpt-5.3-codex" })
     }
 
     @Test
@@ -134,4 +134,5 @@ class ModelAvailabilityTest {
         assertTrue(isProviderModelSelectable(ProviderModel(status = "active")))
         assertFalse(isProviderModelSelectable(ProviderModel(status = "beta")))
     }
+
 }

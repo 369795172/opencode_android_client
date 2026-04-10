@@ -160,12 +160,12 @@ class AppStateTest {
 
         assertEquals(ModelPresets.list.size, models.size)
         assertEquals(ModelPresets.list, models)
-        assertEquals("GPT-5.3", models[0].displayName)
-        assertEquals("openai", models[0].providerId)
-        assertEquals("gpt-5.3-codex", models[0].modelId)
-        assertEquals("GPT-5.4", models[1].displayName)
-        assertEquals("openai", models[1].providerId)
-        assertEquals("gpt-5.4", models[1].modelId)
+        assertEquals("Opus", models[0].displayName)
+        assertEquals("claude-cli", models[0].providerId)
+        assertEquals("claude-opus-4.6", models[0].modelId)
+        assertEquals("GPT-5.4", models[3].displayName)
+        assertEquals("openai", models[3].providerId)
+        assertEquals("gpt-5.4", models[3].modelId)
     }
 
     @Test

@@ -31,6 +31,12 @@ data class AIBuilderSettings(
     val terminology: String
 )
 
+data class ModelHealth(
+    val healthy: Boolean,
+    val updatedAtMs: Long,
+    val reason: String? = null
+)
+
 data class AppState(
     val isConnected: Boolean = false,
     val isConnecting: Boolean = false,
@@ -50,6 +56,7 @@ data class AppState(
     val selectedAgentName: String = "build",
     val selectedModelIndex: Int = 0,
     val availableModels: List<ModelOption> = ModelPresets.list,
+    val modelHealth: Map<String, ModelHealth> = emptyMap(),
     val providers: ProvidersResponse? = null,
     val pendingPermissions: List<PermissionRequest> = emptyList(),
     val pendingQuestions: List<QuestionRequest> = emptyList(),
@@ -60,6 +67,8 @@ data class AppState(
     val filePreviewOriginRoute: String? = null,
     val streamingPartTexts: Map<String, String> = emptyMap(),
     val streamingReasoningPart: Part? = null,
+    val toolPartLastUpdated: Map<String, Long> = emptyMap(),
+    val stalledToolPartKeys: Set<String> = emptySet(),
     val isRecording: Boolean = false,
     val isTranscribing: Boolean = false,
     val speechError: String? = null,
@@ -264,6 +273,7 @@ class MainViewModel @Inject constructor(
 
     private var sseJob: Job? = null
     private var pollJob: Job? = null
+    private var toolPartStallJob: Job? = null
     private var lastHealthCheckTime = 0L
 
     init {
@@ -527,7 +537,54 @@ class MainViewModel @Inject constructor(
     fun retryStalledRequest() {
         val req = _state.value.activeRequest ?: return
         if (req.phase != AsyncRequestPhase.STALLED) return
-        sendMessage()
+        val snapshot = _state.value
+        val sessionId = snapshot.currentSessionId ?: return
+        if (req.sessionId != sessionId) return
+        val lastUserMessage = snapshot.messages
+            .lastOrNull { it.info.isUser }
+        val retryText = lastUserMessage
+            ?.parts
+            ?.firstOrNull { it.isText }
+            ?.text
+            ?.trim()
+            .orEmpty()
+        val hasFilePart = lastUserMessage
+            ?.parts
+            ?.any { it.type == "file" }
+            ?: false
+        if (retryText.isEmpty() && !hasFilePart) {
+            setError("No previous user message to retry. Please resend manually.")
+            return
+        }
+        val effectiveRetryText = if (retryText.isNotEmpty()) retryText else "Please continue."
+
+        abortSession()
+        launchSendMessage(
+            scope = viewModelScope,
+            repository = repository,
+            state = _state,
+            sessionId = sessionId,
+            text = effectiveRetryText,
+            agent = req.agent,
+            model = req.model,
+            attachments = emptyList(),
+            sessionDirectory = snapshot.currentSession?.directory,
+            workspaceDirectory = settingsManager.workspaceDirectory,
+            providers = snapshot.providers,
+            agents = snapshot.agents,
+            onRefreshMessages = ::loadMessagesWithRetry,
+            onDiagnostic = { entry ->
+                _state.update { s ->
+                    s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
+                }
+            },
+            onRequestState = { request ->
+                _state.update { it.copy(activeRequest = request) }
+            },
+            onError = { message ->
+                setError(message)
+            }
+        )
     }
 
     fun clearActiveRequest() {
@@ -731,7 +788,9 @@ class MainViewModel @Inject constructor(
 
     private fun startSSE() {
         sseJob?.cancel()
+        toolPartStallJob?.cancel()
         sseJob = launchSseCollection(viewModelScope, repository, _state, ::handleSSEEvent)
+        toolPartStallJob = launchToolPartStallMonitor(viewModelScope, _state)
     }
 
     private fun handleSSEEvent(event: SSEEvent) {
@@ -753,6 +812,7 @@ class MainViewModel @Inject constructor(
         super.onCleared()
         sseJob?.cancel()
         pollJob?.cancel()
+        toolPartStallJob?.cancel()
     }
 
     private companion object {

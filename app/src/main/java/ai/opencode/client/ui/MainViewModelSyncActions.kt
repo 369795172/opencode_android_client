@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val TOOL_PART_STALL_CHECK_INTERVAL_MS = 30_000L
+private const val TOOL_PART_STALL_TIMEOUT_MS = 120_000L
+
 internal fun launchBusyPolling(
     scope: CoroutineScope,
     state: MutableStateFlow<AppState>,
@@ -44,6 +47,45 @@ internal fun launchSseCollection(
                         state.update { it.copy(error = "SSE Error: ${error.message}") }
                     }
             }
+    }
+}
+
+internal fun launchToolPartStallMonitor(
+    scope: CoroutineScope,
+    state: MutableStateFlow<AppState>
+): Job {
+    return scope.launch {
+        while (true) {
+            delay(TOOL_PART_STALL_CHECK_INTERVAL_MS)
+            val now = System.currentTimeMillis()
+            state.update { current ->
+                val runningKeys = current.messages.asSequence()
+                    .flatMap { msg ->
+                        msg.parts.asSequence()
+                            .filter { it.isTool && it.stateDisplay == "running" }
+                            .map { part -> "${msg.info.id}:${part.id}" }
+                    }
+                    .toSet()
+
+                if (runningKeys.isEmpty()) {
+                    current.copy(toolPartLastUpdated = emptyMap(), stalledToolPartKeys = emptySet())
+                } else {
+                    val nextLastUpdated = current.toolPartLastUpdated
+                        .filterKeys { it in runningKeys }
+                        .toMutableMap()
+                    runningKeys.forEach { key ->
+                        if (nextLastUpdated[key] == null) nextLastUpdated[key] = now
+                    }
+                    val stalled = runningKeys.filterTo(mutableSetOf()) { key ->
+                        now - (nextLastUpdated[key] ?: now) >= TOOL_PART_STALL_TIMEOUT_MS
+                    }
+                    current.copy(
+                        toolPartLastUpdated = nextLastUpdated,
+                        stalledToolPartKeys = stalled
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -138,6 +180,20 @@ internal fun handleIncomingSseEvent(
         }
         "message.part.updated" -> {
             val deltaEvent = parseMessagePartDeltaEvent(event) ?: return
+            if (
+                deltaEvent.partType == "tool" &&
+                deltaEvent.messageId != null &&
+                deltaEvent.partId != null
+            ) {
+                val key = "${deltaEvent.messageId}:${deltaEvent.partId}"
+                val now = System.currentTimeMillis()
+                state.update {
+                    it.copy(
+                        toolPartLastUpdated = it.toolPartLastUpdated + (key to now),
+                        stalledToolPartKeys = it.stalledToolPartKeys - key
+                    )
+                }
+            }
             if (deltaEvent.sessionId == state.value.currentSessionId) {
                 if (
                     deltaEvent.messageId != null &&

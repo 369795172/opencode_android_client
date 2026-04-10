@@ -90,6 +90,7 @@ class RequestDiagnosticsTest {
                     agent = "build",
                     providerId = "openai",
                     modelId = "gpt-5.4",
+                    category = RequestFailureCategory.UNKNOWN,
                     message = "tick-$idx"
                 )
             )
@@ -99,4 +100,5 @@ class RequestDiagnosticsTest {
         assertTrue(report.contains("OpenCode Android Diagnostics"))
         assertTrue(report.contains("tick-149"))
     }
+
 }

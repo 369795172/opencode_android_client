@@ -17,6 +17,7 @@ import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.ui.ModelPresets
+import ai.opencode.client.util.PersistedModelHealth
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.ThemeMode
 import io.mockk.coEvery
@@ -103,6 +104,8 @@ class MainViewModelTest {
         every { settingsManager.setModelForSession(any(), any()) } just runs
         every { settingsManager.getAgentForSession(any()) } returns null
         every { settingsManager.setAgentForSession(any(), any()) } just runs
+        every { settingsManager.getModelHealthSnapshot() } returns emptyMap<String, PersistedModelHealth>()
+        every { settingsManager.setModelHealthSnapshot(any()) } just runs
 
         every { repository.connectSSE() } returns emptyFlow()
         coEvery { repository.getSessionStatus() } returns Result.success(emptyMap())

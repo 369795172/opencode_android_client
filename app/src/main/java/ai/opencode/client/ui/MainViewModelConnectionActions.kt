@@ -2,6 +2,7 @@ package ai.opencode.client.ui
 
 import ai.opencode.client.data.audio.AIBuildersAudioClient
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.util.PersistedModelHealth
 import ai.opencode.client.util.SettingsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +33,14 @@ internal fun applySavedSettings(
             currentSessionId = settingsManager.currentSessionId,
             selectedModelIndex = clampedModelIndex,
             selectedAgentName = settingsManager.selectedAgentName ?: "build",
-            themeMode = settingsManager.themeMode
+            themeMode = settingsManager.themeMode,
+            modelHealth = settingsManager.getModelHealthSnapshot().mapValues { (_, entry) ->
+                ModelHealth(
+                    healthy = entry.healthy,
+                    updatedAtMs = entry.updatedAtMs,
+                    reason = entry.reason
+                )
+            }
         )
     }
 
@@ -77,6 +85,20 @@ internal fun launchConnectionTest(
                 }
             }
     }
+}
+
+internal fun persistModelHealth(
+    settingsManager: SettingsManager,
+    health: Map<String, ModelHealth>
+) {
+    val persisted = health.mapValues { (_, value) ->
+        PersistedModelHealth(
+            healthy = value.healthy,
+            updatedAtMs = value.updatedAtMs,
+            reason = value.reason
+        )
+    }
+    settingsManager.setModelHealthSnapshot(persisted)
 }
 
 internal fun launchAIBuilderConnectionTest(

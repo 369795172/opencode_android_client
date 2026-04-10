@@ -11,6 +11,14 @@ enum class RequestErrorCode {
     SESSION_STUCK
 }
 
+enum class RequestFailureCategory {
+    POLICY_BLOCKED,
+    CERT_ERROR,
+    NETWORK_UNREACHABLE,
+    TIMEOUT,
+    UNKNOWN
+}
+
 enum class AsyncRequestPhase {
     QUEUED,
     ACCEPTED_204,
@@ -45,6 +53,7 @@ data class RequestDiagnosticEntry(
     val providerId: String?,
     val modelId: String?,
     val code: RequestErrorCode? = null,
+    val category: RequestFailureCategory? = null,
     val message: String
 )
 
@@ -75,6 +84,7 @@ internal fun toDiagnosticsReport(entries: List<RequestDiagnosticEntry>): String 
     val body = entries.joinToString(separator = "\n") { e ->
         val model = listOfNotNull(e.providerId, e.modelId).joinToString("/")
         val code = e.code?.name ?: "-"
+        val category = e.category?.name ?: "-"
         val requestId = e.requestId ?: "-"
         buildString {
             append("ts=${e.timestampMs} ")
@@ -84,8 +94,24 @@ internal fun toDiagnosticsReport(entries: List<RequestDiagnosticEntry>): String 
             append("agent=${e.agent} ")
             append("model=${if (model.isBlank()) "-" else model} ")
             append("code=$code ")
+            append("category=$category ")
             append("msg=${e.message}")
         }
     }
     return "$header\n$body"
+}
+
+internal fun classifyFailureCategory(message: String?): RequestFailureCategory {
+    val text = message.orEmpty().lowercase()
+    return when {
+        "terms of service" in text || "prohibited" in text || "403" in text ->
+            RequestFailureCategory.POLICY_BLOCKED
+        "certificate" in text || "ssl" in text || "hostname mismatch" in text ->
+            RequestFailureCategory.CERT_ERROR
+        "timeout" in text || "timed out" in text ->
+            RequestFailureCategory.TIMEOUT
+        "network" in text || "unreachable" in text || "reconnecting" in text || "handshake" in text ->
+            RequestFailureCategory.NETWORK_UNREACHABLE
+        else -> RequestFailureCategory.UNKNOWN
+    }
 }

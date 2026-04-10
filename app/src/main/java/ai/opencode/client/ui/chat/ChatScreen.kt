@@ -115,6 +115,7 @@ fun ChatScreen(
                     messages = state.messages,
                     streamingPartTexts = state.streamingPartTexts,
                     streamingReasoningPart = state.streamingReasoningPart,
+                    stalledToolPartKeys = state.stalledToolPartKeys,
                     isLoading = state.isLoadingMessages,
                     messageLimit = state.messageLimit,
                     repository = viewModel.repository,
