@@ -521,58 +521,7 @@ internal fun launchSendMessage(
                             baselineAssistantCount = baselineAssistantCount,
                             onDiagnostic = onDiagnostic,
                             onRequestState = onRequestState,
-                            onError = onError,
-                            onRetry = { nextAttempt ->
-                                val retryRequest = request.copy(retryCount = nextAttempt)
-                                repository.sendMessage(sessionId, parts, agent, model, effectiveDirectory)
-                                    .onSuccess {
-                                        onDiagnostic(
-                                            RequestDiagnosticEntry(
-                                                sessionId = sessionId,
-                                                requestId = request.requestId,
-                                                phase = AsyncRequestPhase.ACCEPTED_204,
-                                                agent = agent,
-                                                providerId = model?.providerId,
-                                                modelId = model?.modelId,
-                                                message = "Retry accepted (attempt=${nextAttempt + 1})"
-                                            )
-                                        )
-                                        trackAsyncCompletion(
-                                            repository = repository,
-                                            sessionId = sessionId,
-                                            request = retryRequest,
-                                            baselineAssistantCount = baselineAssistantCount,
-                                            onDiagnostic = onDiagnostic,
-                                            onRequestState = onRequestState,
-                                            onError = onError,
-                                            onRetry = { /* bounded retries handled by outer loop */ }
-                                        )
-                                    }
-                                    .onFailure { retryError ->
-                                        val msg = errorMessageOrFallback(retryError, "Retry failed")
-                                        onRequestState(
-                                            retryRequest.copy(
-                                                phase = AsyncRequestPhase.FAILED,
-                                                errorCode = RequestErrorCode.SESSION_STUCK,
-                                                errorMessage = msg
-                                            )
-                                        )
-                                        onDiagnostic(
-                                            RequestDiagnosticEntry(
-                                                sessionId = sessionId,
-                                                requestId = request.requestId,
-                                                phase = AsyncRequestPhase.FAILED,
-                                                agent = agent,
-                                                providerId = model?.providerId,
-                                                modelId = model?.modelId,
-                                                code = RequestErrorCode.SESSION_STUCK,
-                                                category = classifyFailureCategory(msg),
-                                                message = "Retry failed: $msg"
-                                            )
-                                        )
-                                        onError(msg)
-                                    }
-                            }
+                            onError = onError
                         )
                     }
                 }
@@ -729,8 +678,7 @@ private suspend fun trackAsyncCompletion(
     baselineAssistantCount: Int,
     onDiagnostic: (RequestDiagnosticEntry) -> Unit,
     onRequestState: (AsyncRequestState?) -> Unit,
-    onError: (String) -> Unit,
-    onRetry: suspend (Int) -> Unit
+    onError: (String) -> Unit
 ) {
     var current = request.copy(phase = AsyncRequestPhase.RUNNING, lastProgressAtMs = System.currentTimeMillis())
     onRequestState(current)
@@ -815,23 +763,6 @@ private suspend fun trackAsyncCompletion(
         }
     }
     val stalledMsg = "Request accepted but no assistant progress within timeout window."
-    if (request.retryCount < request.maxRetries) {
-        val next = request.retryCount + 1
-        onRequestState(current.copy(phase = AsyncRequestPhase.RETRYING, retryCount = next))
-        onDiagnostic(
-            RequestDiagnosticEntry(
-                sessionId = sessionId,
-                requestId = request.requestId,
-                phase = AsyncRequestPhase.RETRYING,
-                agent = request.agent,
-                providerId = request.model?.providerId,
-                modelId = request.model?.modelId,
-                message = "Retrying stalled request (attempt=${next + 1})"
-            )
-        )
-        onRetry(next)
-        return
-    }
     onRequestState(
         current.copy(
             phase = AsyncRequestPhase.STALLED,

@@ -18,7 +18,7 @@ internal object MainViewModelTimings {
     const val messageRefreshDelayMs = 1200L
     const val busyPollingIntervalMs = 2000L
     const val requestTrackPollMs = 2000L
-    const val requestMaxTrackMs = 60_000L
+    const val requestMaxTrackMs = 180_000L
 }
 
 internal data class SessionCreatedEvent(
