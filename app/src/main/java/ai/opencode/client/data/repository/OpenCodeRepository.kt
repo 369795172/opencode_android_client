@@ -48,6 +48,7 @@ class OpenCodeRepository @Inject constructor() {
                             val encoded = Base64.getEncoder().encodeToString(credential.toByteArray())
                             header("Authorization", "Basic $encoded")
                         }
+                        header("x-opencode-client", OPENCODE_CLIENT_APP)
                         val dir = workspaceDirectory
                         if (!dir.isNullOrBlank()) {
                             header("x-opencode-directory", dir)
@@ -207,5 +208,6 @@ class OpenCodeRepository @Inject constructor() {
 
     companion object {
         const val DEFAULT_SERVER = "http://localhost:4096"
+        private const val OPENCODE_CLIENT_APP = "app"
     }
 }

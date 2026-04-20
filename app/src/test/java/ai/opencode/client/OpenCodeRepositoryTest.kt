@@ -272,6 +272,7 @@ class OpenCodeRepositoryTest {
         assertEquals("POST", request.method)
         assertEquals("/session/session-1/prompt_async", request.path)
         assertEquals("Basic YWxpY2U6c2VjcmV0", request.getHeader("Authorization"))
+        assertEquals("app", request.getHeader("x-opencode-client"))
         val body = request.body.readUtf8()
         assertTrue(body.contains("\"agent\":\"review\""))
         assertTrue(body.contains("\"type\":\"text\""))
