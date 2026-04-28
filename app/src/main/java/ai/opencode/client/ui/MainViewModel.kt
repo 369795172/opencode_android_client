@@ -127,7 +127,7 @@ data class AppState(
             get() = currentSessionId?.let { sessionStatuses[it] }
 
         val isCurrentSessionBusy: Boolean
-            get() = currentSessionStatus?.isBusy == true
+            get() = currentSessionStatus?.let { it.isBusy || it.isRetry } == true
 
         val canLoadMoreSessions: Boolean
             get() = hasMoreSessions && !isLoadingMoreSessions
@@ -234,7 +234,7 @@ data class AppState(
         get() = currentSessionId?.let { sessionStatuses[it] }
 
     val isCurrentSessionBusy: Boolean
-        get() = currentSessionStatus?.isBusy == true
+        get() = currentSessionStatus?.let { it.isBusy || it.isRetry } == true
 
     val canLoadMoreSessions: Boolean
         get() = hasMoreSessions && !isLoadingMoreSessions

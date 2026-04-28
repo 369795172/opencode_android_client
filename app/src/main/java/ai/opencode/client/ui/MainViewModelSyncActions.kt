@@ -122,6 +122,10 @@ internal fun handleIncomingSseEvent(
                         sessionStatuses = it.sessionStatuses + (statusEvent.sessionId to statusEvent.status)
                     )
                 }
+                if (statusEvent.status.isRetry && !statusEvent.status.message.isNullOrBlank()) {
+                    val retryMsg = "Retry #${statusEvent.status.attempt ?: "?"}: ${statusEvent.status.message}"
+                    state.update { it.copy(error = retryMsg) }
+                }
                 val active = state.value.activeRequest
                 if (active != null && active.sessionId == statusEvent.sessionId && statusEvent.status.isIdle) {
                     val completed = active.copy(phase = AsyncRequestPhase.COMPLETED, lastProgressAtMs = System.currentTimeMillis())
