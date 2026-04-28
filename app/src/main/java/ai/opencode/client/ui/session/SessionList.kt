@@ -30,12 +30,40 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import android.text.format.DateUtils
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.roundToInt
 
 private enum class SwipeAnchor { Start, End }
+
+@Composable
+private fun formatRelativeTime(updatedMs: Long): String {
+    return DateUtils.getRelativeTimeSpanString(
+        updatedMs,
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS,
+        DateUtils.FORMAT_ABBREV_RELATIVE
+    ).toString()
+}
+
+@Composable
+private fun sessionStatusLabel(status: SessionStatus?): String? = when {
+    status == null -> null
+    status.isBusy -> "Running"
+    status.isRetry -> "Retrying"
+    status.isIdle -> "Idle"
+    else -> null
+}
+
+@Composable
+private fun sessionStatusColor(status: SessionStatus?): Color = when {
+    status?.isBusy == true -> MaterialTheme.colorScheme.primary
+    status?.isRetry == true -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -47,6 +75,8 @@ private fun SwipeRevealRow(
     isSelected: Boolean,
     isBusy: Boolean,
     displayName: String,
+    updatedTime: Long? = null,
+    status: SessionStatus? = null,
     onSelect: () -> Unit,
     depth: Int = 0,
     hasChildren: Boolean = false,
@@ -114,12 +144,40 @@ private fun SwipeRevealRow(
             } else if (hasChildren) {
                 Spacer(modifier = Modifier.size(24.dp))
             }
-            Text(
-                text = displayName,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                color = titleColor,
+            Column(
                 modifier = Modifier.weight(1f, fill = false)
-            )
+            ) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = titleColor
+                )
+                if (updatedTime != null || status != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (updatedTime != null) {
+                            Text(
+                                text = formatRelativeTime(updatedTime),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (status != null && updatedTime != null) {
+                            Text(
+                                text = "  ",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (status != null) {
+                            Text(
+                                text = sessionStatusLabel(status) ?: "",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                color = sessionStatusColor(status)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -228,6 +286,8 @@ fun SessionList(
                         isSelected = isSelected,
                         isBusy = sessionStatuses[session.id]?.isBusy == true,
                         displayName = session.displayName,
+                        updatedTime = session.time?.updated,
+                        status = sessionStatuses[session.id],
                         onSelect = { onSelectSession(session.id) },
                         depth = depth,
                         hasChildren = hasChildren,

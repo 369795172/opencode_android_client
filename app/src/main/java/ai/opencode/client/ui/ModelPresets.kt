@@ -21,6 +21,7 @@ object ModelPresets {
         AppState.ModelOption("Haiku", "claude-cli", "claude-haiku-4.5"),
         AppState.ModelOption("GPT-5.4", "openai", "gpt-5.4"),
         AppState.ModelOption("GLM5", "zai", "glm-5"),
+        AppState.ModelOption("DeepSeek", "deepseek", "deepseek-v4-pro"),
         AppState.ModelOption("Gemini Pro", "google", "gemini-3.1-pro-preview"),
         AppState.ModelOption("Gemini Flash", "google", "gemini-3-flash-preview"),
     )

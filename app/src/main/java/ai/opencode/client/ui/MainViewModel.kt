@@ -86,6 +86,7 @@ data class AppState(
                 "Opus" in displayName -> "Opus"
                 "Sonnet" in displayName -> "Sonnet"
                 "Haiku" in displayName -> "Haiku"
+                "DeepSeek" in displayName -> "DeepSeek"
                 "Gemini" in displayName -> "Gemini"
                 "GPT" in displayName -> "GPT"
                 "Grok" in displayName -> "Grok"
