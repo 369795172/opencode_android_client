@@ -106,6 +106,90 @@ class ModelAvailabilityTest {
     }
 
     @Test
+    fun `prefix fallback picks latest model when exact match missing`() {
+        val presets = listOf(
+            AppState.ModelOption("GLM", "zai", "glm-5", modelIdPrefix = "glm-")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "zai",
+                    models = mapOf(
+                        "glm-5.1" to ProviderModel(id = "glm-5.1", status = "active"),
+                        "glm-4" to ProviderModel(id = "glm-4", status = "active")
+                    )
+                )
+            )
+        )
+        val out = resolveAvailableModels(presets, providers)
+        assertEquals(1, out.size)
+        assertEquals("GLM", out[0].displayName)
+        assertEquals("glm-5.1", out[0].modelId)
+    }
+
+    @Test
+    fun `prefix fallback prefers exact match when available`() {
+        val presets = listOf(
+            AppState.ModelOption("GLM", "zai", "glm-5", modelIdPrefix = "glm-")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "zai",
+                    models = mapOf(
+                        "glm-5" to ProviderModel(id = "glm-5", status = "active"),
+                        "glm-5.1" to ProviderModel(id = "glm-5.1", status = "active")
+                    )
+                )
+            )
+        )
+        val out = resolveAvailableModels(presets, providers)
+        assertEquals(1, out.size)
+        assertEquals("glm-5", out[0].modelId)
+    }
+
+    @Test
+    fun `prefix fallback skips non-selectable models`() {
+        val presets = listOf(
+            AppState.ModelOption("GLM", "zai", "glm-5", modelIdPrefix = "glm-")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "zai",
+                    models = mapOf(
+                        "glm-5.1" to ProviderModel(id = "glm-5.1", status = "beta"),
+                        "glm-4" to ProviderModel(id = "glm-4", status = "active")
+                    )
+                )
+            )
+        )
+        val out = resolveAvailableModels(presets, providers)
+        assertEquals(1, out.size)
+        assertEquals("glm-4", out[0].modelId)
+    }
+
+    @Test
+    fun `preset without prefix drops when exact match missing`() {
+        val presets = listOf(
+            AppState.ModelOption("GPT", "openai", "gpt-5.4")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "openai",
+                    models = mapOf(
+                        "gpt-5.5" to ProviderModel(id = "gpt-5.5", status = "active")
+                    )
+                )
+            )
+        )
+        val out = resolveAvailableModels(presets, providers)
+        // Falls back to full presets since filter is empty
+        assertEquals(presets, out)
+    }
+
+    @Test
     fun `remapSelectedModelIndex preserves selection when still present`() {
         val old = listOf(
             AppState.ModelOption("A", "p", "1"),

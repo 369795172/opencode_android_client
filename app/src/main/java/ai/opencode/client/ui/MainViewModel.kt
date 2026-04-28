@@ -80,7 +80,12 @@ data class AppState(
     val activeRequest: AsyncRequestState? = null,
     val diagnostics: List<RequestDiagnosticEntry> = emptyList()
 ) {
-    data class ModelOption(val displayName: String, val providerId: String, val modelId: String) {
+    data class ModelOption(
+        val displayName: String,
+        val providerId: String,
+        val modelId: String,
+        val modelIdPrefix: String? = null
+    ) {
         val shortName: String
             get() = when {
                 "Opus" in displayName -> "Opus"
