@@ -6,6 +6,7 @@ import com.yage.opencode_client.data.audio.AudioResampler
 import com.yage.opencode_client.data.audio.AudioTranscriptionConfig
 import com.yage.opencode_client.ui.AppState
 import com.yage.opencode_client.ui.mergedSpeechInput
+import com.yage.opencode_client.ui.speechFailureInput
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -160,6 +161,17 @@ class SpeechRecognitionTest {
     @Test
     fun `mergedSpeechInput whitespace-only transcript returns prefix`() {
         assertEquals("Hello", mergedSpeechInput("Hello", "   "))
+    }
+
+    @Test
+    fun `speechFailureInput preserves visible partial transcript`() {
+        assertEquals("Hello partial result", speechFailureInput("Hello", "Hello partial result"))
+        assertEquals("partial result", speechFailureInput("", "partial result"))
+    }
+
+    @Test
+    fun `speechFailureInput falls back to existing input without partial transcript`() {
+        assertEquals("Hello", speechFailureInput("Hello", "   "))
     }
 
     // ─── AppState speech defaults ────────────────────────────────────
