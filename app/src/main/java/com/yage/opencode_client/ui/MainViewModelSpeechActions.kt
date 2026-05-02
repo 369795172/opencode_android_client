@@ -65,7 +65,10 @@ internal fun launchSpeechTranscription(
                 Log.e(tag, "Transcription failed", error)
                 state.update {
                     it.copy(
-                        inputText = existingInput,
+                        inputText = speechFailureInput(
+                            existingInput = existingInput,
+                            currentInput = it.inputText
+                        ),
                         isTranscribing = false,
                         speechError = errorMessageOrFallback(error, "Transcription failed")
                     )
@@ -75,7 +78,10 @@ internal fun launchSpeechTranscription(
             Log.e(tag, "Speech processing failed", error)
             state.update {
                 it.copy(
-                    inputText = existingInput,
+                    inputText = speechFailureInput(
+                        existingInput = existingInput,
+                        currentInput = it.inputText
+                    ),
                     isTranscribing = false,
                     speechError = errorMessageOrFallback(error, "Transcription failed")
                 )
