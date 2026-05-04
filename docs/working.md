@@ -1,5 +1,9 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-05-03
+
+- 模型预设里的 GLM 选项从 `GLM-5-turbo` / `glm-5-turbo` 更新为 `GLM-5.1` / `glm-5.1`，对齐 iOS 客户端。
+
 ## 2026-05-02
 
 - 修复 speech recognition 失败时丢失 partial transcript：`launchSpeechTranscription()` 原来在 WebSocket 转写失败或异常时把 `inputText` 回滚到录音前的 `existingInput`，用户已经看到的流式识别文本会被覆盖掉，空草稿场景表现为输入框被清空。现在失败路径通过 `speechFailureInput()` 优先保留当前输入框里的 partial transcript，只有没有 partial 时才回退到原始输入。
