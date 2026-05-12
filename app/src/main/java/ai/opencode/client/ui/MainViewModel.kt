@@ -88,8 +88,8 @@ data class AppState(
     ) {
         val shortName: String
             get() = when {
-                "Opus" in displayName -> "Opus"
-                "Sonnet" in displayName -> "Sonnet"
+                displayName == "DeepSeek V4 Flash" -> "DS-Flash"
+                displayName == "DeepSeek V4 Pro" -> "DS-Pro"
                 "Haiku" in displayName -> "Haiku"
                 "DeepSeek" in displayName -> "DeepSeek"
                 "Gemini" in displayName -> "Gemini"
@@ -158,7 +158,7 @@ data class AppState(
     data class SettingsState(
         val error: String? = null,
         val themeMode: ThemeMode = ThemeMode.SYSTEM,
-        val selectedModelIndex: Int = 0,
+        val selectedModelIndex: Int = 2,
         val selectedAgentName: String = "build",
         val availableModels: List<ModelOption> = ModelPresets.list,
         val contextUsage: ContextUsage? = null,

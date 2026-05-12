@@ -11,6 +11,29 @@
 - 构建与单元测试通过：`./gradlew assembleDebug`、`./gradlew testDebugUnitTest`。
 - 更新版本号标准：`versionName` 统一采用 `0.1.YYYYMMDD`（日期制），`versionCode` 保持单调递增。
 - 本次版本更新为 `versionName=0.1.20260404`、`versionCode=5`。
+## 2026-05-03
+
+- 模型预设里的 GLM 选项从 `GLM-5-turbo` / `glm-5-turbo` 更新为 `GLM-5.1` / `glm-5.1`，对齐 iOS 客户端。
+- 修复 Markdown 图片后紧跟 caption 时的渲染问题：`MarkdownImageResolver.normalizeStandaloneImageBlocks()` 会在渲染前把单独一行图片与下一行非空文本分开，避免 renderer 把图片当成 paragraph 内 inline image，导致图片尺寸异常。File Preview、Chat 消息和 Reasoning 卡片渲染前统一应用该 normalizer，并新增 3 个单元测试覆盖 caption、已有空行和真正 inline image 三种情况。验证：`./gradlew testDebugUnitTest` 通过。
+
+## 2026-05-02
+
+- 修复 speech recognition 失败时丢失 partial transcript：`launchSpeechTranscription()` 原来在 WebSocket 转写失败或异常时把 `inputText` 回滚到录音前的 `existingInput`，用户已经看到的流式识别文本会被覆盖掉，空草稿场景表现为输入框被清空。现在失败路径通过 `speechFailureInput()` 优先保留当前输入框里的 partial transcript，只有没有 partial 时才回退到原始输入。
+- 新增 `SpeechRecognitionTest` 覆盖失败恢复逻辑：有 partial 时保留 partial，没有 partial 时保留原草稿。验证命令：`./gradlew testDebugUnitTest` 与 `./gradlew koverHtmlReport`。
+
+## 2026-04-28
+
+- 默认模型切换到 GPT：将运行时默认模型索引从 DeepSeek fallback 改为 GPT 预设，新安装和未保存过模型选择的 session 默认发送 `openai/gpt-5.5`。
+- GPT 预设升级：`ModelPresets.list` 中的 `GPT-5.4` / `gpt-5.4` 更新为 `GPT-5.5` / `gpt-5.5`，并同步更新 AppState 测试。
+
+## 2026-04-23
+
+- Model 列表更新：删除 Opus 4.6 和 Sonnet 4.6，添加 DeepSeek (`deepseek/deepseek-v4-pro`)。`ModelPresets.list`、`ModelOption.shortName`、对应测试同步更新。对齐 iOS 客户端改动。
+
+## 2026-04-16
+
+- Session list 增加副标题：在标题下方显示相对时间（如 "5 min ago"）和 session 状态标签（Running/Retrying/Idle），对齐 iOS 客户端行为。使用 `DateUtils.getRelativeTimeSpanString` 做本地化相对时间格式化。数据复用已有的 `session.time.updated` 和 `sessionStatuses`，无需额外 API 请求。
+- 新增 3 个 `SessionListInstrumentedTest`：验证有 `time.updated` 的 session 显示相对时间副标题，有 busy/idle 状态的 session 显示对应状态标签。
 
 ## 2026-03-30
 

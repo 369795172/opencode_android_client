@@ -239,13 +239,8 @@ class ModelTests {
     }
 
     @Test
-    fun `ModelOption shortName returns Opus for Opus models`() {
-        assertEquals("Opus", modelOption("Claude Opus 4").shortName)
-    }
-
-    @Test
-    fun `ModelOption shortName returns Sonnet for Sonnet models`() {
-        assertEquals("Sonnet", modelOption("Claude 3.5 Sonnet").shortName)
+    fun `ModelOption shortName returns DeepSeek for DeepSeek models`() {
+        assertEquals("DeepSeek", modelOption("DeepSeek V3").shortName)
     }
 
     @Test

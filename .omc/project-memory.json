@@ -1,0 +1,165 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1777356230555,
+  "projectRoot": "/Users/marvi/CursorWorks/jennyai/projects/opencode-android",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Kotlin",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "build.gradle.kts"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "gradle",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app",
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 4,
+      "lastAccessed": 1777356230517,
+      "keyFiles": [
+        "build.gradle.kts",
+        "proguard-rules.pro"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 3,
+      "lastAccessed": 1777356230517,
+      "keyFiles": [
+        "PRD.md",
+        "RFC.md",
+        "working.md"
+      ]
+    },
+    "gradle": {
+      "path": "gradle",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1777356230518,
+      "keyFiles": [
+        "libs.versions.toml"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1777356230518,
+      "keyFiles": [
+        "resize_icon.py"
+      ]
+    },
+    "app/build": {
+      "path": "app/build",
+      "purpose": "Build output",
+      "fileCount": 1,
+      "lastAccessed": 1777356230519,
+      "keyFiles": []
+    },
+    "app/src": {
+      "path": "app/src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1777356230519,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "app/src/main/java/ai/opencode/client/ui/MainViewModel.kt",
+      "accessCount": 4,
+      "lastAccessed": 1777366177052,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/ui/MainViewModelSessionActions.kt",
+      "accessCount": 2,
+      "lastAccessed": 1777361645662,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/data/api/OpenCodeApi.kt",
+      "accessCount": 2,
+      "lastAccessed": 1777363678110,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/ui/MainViewModelSyncActions.kt",
+      "accessCount": 2,
+      "lastAccessed": 1777366186697,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/ui/ModelPresets.kt",
+      "accessCount": 1,
+      "lastAccessed": 1777359362875,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/data/model/SSE.kt",
+      "accessCount": 1,
+      "lastAccessed": 1777361613433,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/data/api/SSEClient.kt",
+      "accessCount": 1,
+      "lastAccessed": 1777361613486,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/ui/chat/ChatMessageContent.kt",
+      "accessCount": 1,
+      "lastAccessed": 1777361620524,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/data/model/Message.kt",
+      "accessCount": 1,
+      "lastAccessed": 1777361656845,
+      "type": "file"
+    },
+    {
+      "path": "app/src/main/java/ai/opencode/client/data/model/Session.kt",
+      "accessCount": 1,
+      "lastAccessed": 1777366138310,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

@@ -162,6 +162,17 @@ class SpeechRecognitionTest {
         assertEquals("Hello", mergedSpeechInput("Hello", "   "))
     }
 
+    @Test
+    fun `speechFailureInput preserves visible partial transcript`() {
+        assertEquals("Hello partial result", speechFailureInput("Hello", "Hello partial result"))
+        assertEquals("partial result", speechFailureInput("", "partial result"))
+    }
+
+    @Test
+    fun `speechFailureInput falls back to existing input without partial transcript`() {
+        assertEquals("Hello", speechFailureInput("Hello", "   "))
+    }
+
     // ─── AppState speech defaults ────────────────────────────────────
 
     @Test

@@ -129,3 +129,7 @@ internal fun mergedSpeechInput(prefix: String, transcript: String): String {
     if (prefix.isEmpty()) return cleaned
     return "$prefix $cleaned"
 }
+
+internal fun speechFailureInput(existingInput: String, currentInput: String): String {
+    return currentInput.ifBlank { existingInput }
+}
