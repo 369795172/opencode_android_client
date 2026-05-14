@@ -32,10 +32,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import android.text.format.DateUtils
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
-import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.roundToInt
 
