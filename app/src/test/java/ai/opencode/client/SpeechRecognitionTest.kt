@@ -6,6 +6,7 @@ import ai.opencode.client.data.audio.AudioResampler
 import ai.opencode.client.data.audio.AudioTranscriptionConfig
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.mergedSpeechInput
+import ai.opencode.client.ui.speechFailureInput
 import org.junit.Assert.*
 import org.junit.Test
 
