@@ -1,14 +1,13 @@
 package ai.opencode.client
 
 import android.util.Log
-import ai.opencode.client.data.api.PromptRequest
-import ai.opencode.client.data.audio.AudioRecorderManager
 import ai.opencode.client.data.model.Message
 import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.Part
 import ai.opencode.client.data.model.PermissionRequest
 import ai.opencode.client.data.model.PermissionResponse
 import ai.opencode.client.data.model.QuestionRequest
+import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.model.SSEEvent
 import ai.opencode.client.data.model.SSEPayload
@@ -17,11 +16,14 @@ import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.ui.ModelPresets
-import ai.opencode.client.util.PersistedModelHealth
+import ai.opencode.client.ui.session.buildSessionTree
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.ThemeMode
+import com.yage.voiceflowkit.VoiceFlowClient
+import com.yage.voiceflowkit.VoiceFlowMicrophone
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -55,7 +57,8 @@ class MainViewModelTest {
 
     private lateinit var repository: OpenCodeRepository
     private lateinit var settingsManager: SettingsManager
-    private lateinit var audioRecorderManager: AudioRecorderManager
+    private lateinit var voiceFlowClient: VoiceFlowClient
+    private lateinit var microphone: VoiceFlowMicrophone
 
     @Before
     fun setUp() {
@@ -67,10 +70,10 @@ class MainViewModelTest {
 
         repository = mockk(relaxed = true)
         settingsManager = mockk(relaxed = true)
-        audioRecorderManager = mockk(relaxed = true)
+        voiceFlowClient = mockk(relaxed = true)
+        microphone = mockk(relaxed = true)
 
         every { settingsManager.serverUrl } returns "http://server.test"
-        every { settingsManager.workspaceDirectory } returns ""
         every { settingsManager.username } returns null
         every { settingsManager.password } returns null
         every { settingsManager.currentSessionId } returns null
@@ -104,17 +107,16 @@ class MainViewModelTest {
         every { settingsManager.setModelForSession(any(), any()) } just runs
         every { settingsManager.getAgentForSession(any()) } returns null
         every { settingsManager.setAgentForSession(any(), any()) } just runs
-        every { settingsManager.getModelHealthSnapshot() } returns emptyMap<String, PersistedModelHealth>()
-        every { settingsManager.setModelHealthSnapshot(any()) } just runs
 
         every { repository.connectSSE() } returns emptyFlow()
+        coEvery { repository.getSessions(any()) } returns Result.success(emptyList())
         coEvery { repository.getSessionStatus() } returns Result.success(emptyMap())
         coEvery { repository.getMessages(any(), any()) } returns Result.success(emptyList())
         coEvery { repository.getPendingPermissions() } returns Result.success(emptyList())
     }
 
     private fun createViewModel(): MainViewModel {
-        return MainViewModel(repository, settingsManager, audioRecorderManager)
+        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone)
     }
 
     private fun updateState(viewModel: MainViewModel, transform: (AppState) -> AppState) {
@@ -145,7 +147,7 @@ class MainViewModelTest {
 
         assertEquals(ModelPresets.list.lastIndex, viewModel.state.value.selectedModelIndex)
         verify { settingsManager.selectedModelIndex = ModelPresets.list.lastIndex }
-        verify { repository.configure("http://server.test", null, null, null) }
+        verify { repository.configure("http://server.test", null, null) }
     }
 
     @Test
@@ -164,6 +166,9 @@ class MainViewModelTest {
     @Test
     fun `sendMessage success clears input and uses selected preset model`() = runTest {
         coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getSessions(100) } returns Result.success(
+            listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
+        )
 
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")
@@ -179,7 +184,7 @@ class MainViewModelTest {
         coVerify {
             repository.sendMessage(
                 "session-1",
-                listOf(PromptRequest.PartInput.text("hello world")),
+                any(),
                 "review",
                 Message.ModelInfo(selected.providerId, selected.modelId),
                 any()
@@ -187,6 +192,57 @@ class MainViewModelTest {
         }
         assertEquals("", viewModel.state.value.inputText)
         assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `sendMessage success refreshes sessions`() = runTest {
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getSessions(100) } returns Result.success(
+            listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project", title = "Updated"))
+        )
+
+        val viewModel = createViewModel()
+        viewModel.selectSession("session-1")
+        advanceUntilIdle()
+        viewModel.setInputText("hello")
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { repository.getSessions(100) }
+        assertEquals("Updated", viewModel.state.value.sessions.single().title)
+    }
+
+    @Test
+    fun `sendMessage bumps current session above stale refreshed ordering`() = runTest {
+        val current = ai.opencode.client.data.model.Session(
+            id = "session-1",
+            directory = "/tmp/project",
+            title = "Current",
+            time = ai.opencode.client.data.model.Session.TimeInfo(updated = 1_000)
+        )
+        val previousTop = ai.opencode.client.data.model.Session(
+            id = "session-2",
+            directory = "/tmp/project",
+            title = "Previous Top",
+            time = ai.opencode.client.data.model.Session.TimeInfo(updated = 2_000)
+        )
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getSessions(100) } returns Result.success(listOf(previousTop, current))
+
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                sessions = listOf(previousTop, current),
+                inputText = "hello"
+            )
+        }
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals("session-1", buildSessionTree(viewModel.state.value.sessions).first().session.id)
     }
 
     @Test
@@ -225,7 +281,7 @@ class MainViewModelTest {
         coVerify {
             repository.sendMessage(
                 "session-1",
-                listOf(PromptRequest.PartInput.text("queue this next")),
+                any(),
                 any(),
                 any(),
                 any()
@@ -297,6 +353,181 @@ class MainViewModelTest {
         assertEquals(1, sessions.size)
         assertEquals("session-1", sessions.single().id)
         assertEquals("Server Title", sessions.single().title)
+    }
+
+    @Test
+    fun `session updated SSE refreshes session list from server`() = runTest {
+        val updatedSessions = listOf(
+            ai.opencode.client.data.model.Session(
+                id = "session-1",
+                directory = "/tmp/project",
+                title = "Server Refreshed"
+            )
+        )
+        coEvery { repository.getSessions(100) } returns Result.success(updatedSessions)
+
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                sessions = listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project", title = "Old"))
+            )
+        }
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "session.updated",
+                    properties = buildJsonObject {
+                        put(
+                            "session",
+                            buildJsonObject {
+                                put("id", JsonPrimitive("session-1"))
+                                put("directory", JsonPrimitive("/tmp/project"))
+                                put("title", JsonPrimitive("SSE Only"))
+                            }
+                        )
+                    }
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify { repository.getSessions(100) }
+        assertEquals("Server Refreshed", viewModel.state.value.sessions.single().title)
+    }
+
+    @Test
+    fun `session updated SSE title survives a stale concurrent refresh`() = runTest {
+        // The server's session.updated event carries the generated title with a fresh timestamp,
+        // but the full refresh it triggers returns a stale snapshot (placeholder title, older
+        // timestamp). The freshly received title must remain visible (Chat header reads it from
+        // state.sessions) rather than being clobbered by the stale refresh.
+        coEvery { repository.getSessions(100) } returns Result.success(
+            listOf(
+                ai.opencode.client.data.model.Session(
+                    id = "session-1",
+                    directory = "/tmp/project",
+                    title = "New session - 1700000000",
+                    time = ai.opencode.client.data.model.Session.TimeInfo(updated = 1_000)
+                )
+            )
+        )
+
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                sessions = listOf(
+                    ai.opencode.client.data.model.Session(
+                        id = "session-1",
+                        directory = "/tmp/project",
+                        title = "New session - 1700000000",
+                        time = ai.opencode.client.data.model.Session.TimeInfo(updated = 1_000)
+                    )
+                )
+            )
+        }
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "session.updated",
+                    properties = buildJsonObject {
+                        put(
+                            "info",
+                            buildJsonObject {
+                                put("id", JsonPrimitive("session-1"))
+                                put("directory", JsonPrimitive("/tmp/project"))
+                                put("title", JsonPrimitive("Pythagorean theorem: history, proof, engineering"))
+                                put(
+                                    "time",
+                                    buildJsonObject { put("updated", JsonPrimitive(2_000)) }
+                                )
+                            }
+                        )
+                    }
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify { repository.getSessions(100) }
+        assertEquals(
+            "Pythagorean theorem: history, proof, engineering",
+            viewModel.state.value.sessions.single { it.id == "session-1" }.title
+        )
+    }
+
+    @Test
+    fun `message created SSE refreshes session list for incoming assistant activity`() = runTest {
+        val refreshedSessions = listOf(
+            ai.opencode.client.data.model.Session(
+                id = "session-2",
+                directory = "/tmp/project",
+                title = "New Activity",
+                time = ai.opencode.client.data.model.Session.TimeInfo(updated = 2_000)
+            ),
+            ai.opencode.client.data.model.Session(
+                id = "session-1",
+                directory = "/tmp/project",
+                title = "Current",
+                time = ai.opencode.client.data.model.Session.TimeInfo(updated = 1_000)
+            )
+        )
+        coEvery { repository.getSessions(100) } returns Result.success(refreshedSessions)
+
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                sessions = listOf(refreshedSessions[1], refreshedSessions[0])
+            )
+        }
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "message.created",
+                    properties = buildJsonObject {
+                        put("sessionID", JsonPrimitive("session-2"))
+                    }
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify { repository.getSessions(100) }
+        assertEquals("session-2", viewModel.state.value.sessions.first().id)
+    }
+
+    @Test
+    fun `message updated SSE refreshes current messages and sessions`() = runTest {
+        coEvery { repository.getSessions(100) } returns Result.success(
+            listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
+        )
+
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(currentSessionId = "session-1") }
+
+        handleSse(
+            viewModel,
+            SSEEvent(
+                payload = SSEPayload(
+                    type = "message.updated",
+                    properties = buildJsonObject {
+                        put("sessionID", JsonPrimitive("session-1"))
+                    }
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify { repository.getSessions(100) }
+        coVerify { repository.getMessages("session-1", 30) }
     }
 
     @Test
@@ -436,6 +667,63 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `archiveSession archives subtree children before parent`() = runTest {
+        val parent = Session(id = "parent", directory = "/tmp/project")
+        val child = Session(id = "child", directory = "/tmp/project", parentId = "parent")
+        coEvery { repository.updateSessionArchived("child", any()) } returns Result.success(
+            child.copy(time = Session.TimeInfo(archived = 1_000))
+        )
+        coEvery { repository.updateSessionArchived("parent", any()) } returns Result.success(
+            parent.copy(time = Session.TimeInfo(archived = 1_000))
+        )
+
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(sessions = listOf(parent, child)) }
+
+        viewModel.archiveSession("parent")
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            repository.updateSessionArchived("child", any())
+            repository.updateSessionArchived("parent", any())
+        }
+        assertTrue(viewModel.state.value.sessions.all { it.isArchived })
+    }
+
+    @Test
+    fun `restoreSession restores subtree parent before children`() = runTest {
+        val parent = Session(
+            id = "parent",
+            directory = "/tmp/project",
+            time = Session.TimeInfo(archived = 1_000)
+        )
+        val child = Session(
+            id = "child",
+            directory = "/tmp/project",
+            parentId = "parent",
+            time = Session.TimeInfo(archived = 1_000)
+        )
+        coEvery { repository.updateSessionArchived("parent", -1L) } returns Result.success(
+            parent.copy(time = Session.TimeInfo(archived = -1))
+        )
+        coEvery { repository.updateSessionArchived("child", -1L) } returns Result.success(
+            child.copy(time = Session.TimeInfo(archived = -1))
+        )
+
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(sessions = listOf(parent, child)) }
+
+        viewModel.restoreSession("parent")
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            repository.updateSessionArchived("parent", -1L)
+            repository.updateSessionArchived("child", -1L)
+        }
+        assertFalse(viewModel.state.value.sessions.any { it.isArchived })
+    }
+
+    @Test
     fun `loadMessages updates selected agent and preset model from last assistant`() = runTest {
         val preset = ModelPresets.list[2]
         val messages = listOf(
@@ -490,9 +778,8 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `toggleRecording handles missing file when stopping recording`() = runTest {
+    fun `toggleRecording handles missing realtime session when stopping recording`() = runTest {
         every { settingsManager.aiBuilderToken } returns "token"
-        every { audioRecorderManager.stop() } returns null
         val viewModel = createViewModel()
         updateState(viewModel) { it.copy(isRecording = true, aiBuilderConnectionOK = true, inputText = "draft") }
 
@@ -500,7 +787,7 @@ class MainViewModelTest {
 
         assertFalse(viewModel.state.value.isRecording)
         assertFalse(viewModel.state.value.isTranscribing)
-        assertEquals("Recording failed: no file", viewModel.state.value.speechError)
+        assertEquals("Recording failed: realtime session missing", viewModel.state.value.speechError)
         assertEquals("draft", viewModel.state.value.inputText)
     }
 
@@ -691,6 +978,9 @@ class MainViewModelTest {
     fun `handleSSEEvent idle status clears streaming state and refreshes messages`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "a1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
+        coEvery { repository.getSessions(100) } returns Result.success(
+            listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
+        )
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
@@ -1014,6 +1304,9 @@ class MainViewModelTest {
     fun `handleSSEEvent message created refreshes messages for current session`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "m1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
+        coEvery { repository.getSessions(100) } returns Result.success(
+            listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
+        )
 
         val viewModel = createViewModel()
         updateState(viewModel) { it.copy(currentSessionId = "session-1") }

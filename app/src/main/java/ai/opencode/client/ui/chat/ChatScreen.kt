@@ -4,31 +4,31 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ai.opencode.client.data.audio.AIBuildersAudioClient
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import ai.opencode.client.data.model.MessageWithParts
+import ai.opencode.client.data.model.Part
+import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.ui.MainViewModel
+import ai.opencode.client.ui.sanitizeBearerToken
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,8 +42,8 @@ fun ChatScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val aiBuilderToken = AIBuildersAudioClient.sanitizeBearerToken(viewModel.getAIBuilderSettings().token)
-
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val aiBuilderToken = sanitizeBearerToken(viewModel.getAIBuilderSettings().token)
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -54,18 +54,37 @@ fun ChatScreen(
         }
     }
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        uris?.let { viewModel.loadFiles(it, context) }
-    }
-
+    // Cache last non-null contextUsage so the ring stays visible during streaming
     var cachedContextUsage by remember { mutableStateOf(state.contextUsage) }
     state.contextUsage?.let { cachedContextUsage = it }
+    val currentSessionIsRunning = state.currentSessionStatus?.let { it.isBusy || it.isRetry } == true
+    val currentActivity = remember(
+        state.currentSessionId,
+        state.currentSessionStatus,
+        state.messages,
+        state.streamingReasoningPart,
+        state.streamingPartTexts,
+    ) {
+        currentSessionActivity(
+            sessionId = state.currentSessionId,
+            status = state.currentSessionStatus,
+            messages = state.messages,
+            streamingReasoningPart = state.streamingReasoningPart,
+            streamingPartTexts = state.streamingPartTexts,
+        )
+    }
 
-    val hasActiveQuestion =
-        state.currentSessionId != null &&
-            state.pendingQuestions.any { it.sessionId == state.currentSessionId }
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.stopSpeechForBackground()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         ChatTopBar(
@@ -77,11 +96,10 @@ fun ChatScreen(
                 isLoadingMoreSessions = state.isLoadingMoreSessions,
                 isRefreshingSessions = state.isRefreshingSessions,
                 expandedSessionIds = state.expandedSessionIds,
-                agents = state.visibleAgents,
-                selectedAgent = state.selectedAgentName,
                 availableModels = state.availableModels,
                 selectedModelIndex = state.selectedModelIndex,
                 contextUsage = cachedContextUsage,
+                sessionTodos = state.sessionTodos[state.currentSessionId ?: ""] ?: emptyList(),
                 showSettingsButton = showSettingsButton,
                 showNewSessionInTopBar = showNewSessionInTopBar,
                 showSessionListInTopBar = showSessionListInTopBar
@@ -90,10 +108,11 @@ fun ChatScreen(
                 onSelectSession = viewModel::selectSession,
                 onCreateSession = viewModel::createSession,
                 onDeleteSession = viewModel::deleteSession,
+                onArchiveSession = viewModel::archiveSession,
+                onRestoreSession = viewModel::restoreSession,
                 onLoadMoreSessions = viewModel::loadMoreSessions,
                 onRefreshSessions = viewModel::loadSessions,
                 onToggleSessionExpanded = viewModel::toggleSessionExpanded,
-                onSelectAgent = viewModel::selectAgent,
                 onSelectModel = viewModel::selectModel,
                 onNavigateToSettings = onNavigateToSettings,
                 onRenameSession = { title ->
@@ -115,7 +134,6 @@ fun ChatScreen(
                     messages = state.messages,
                     streamingPartTexts = state.streamingPartTexts,
                     streamingReasoningPart = state.streamingReasoningPart,
-                    stalledToolPartKeys = state.stalledToolPartKeys,
                     isLoading = state.isLoadingMessages,
                     messageLimit = state.messageLimit,
                     repository = viewModel.repository,
@@ -145,68 +163,39 @@ fun ChatScreen(
         }
 
         if (state.currentSessionId != null) {
-            if (hasActiveQuestion) {
-                state.pendingQuestions
-                    .filter { it.sessionId == state.currentSessionId }
-                    .firstOrNull()
-                    ?.let { question ->
-                        QuestionCardView(
-                            question = question,
-                            onReply = { answers, onError ->
-                                viewModel.replyQuestion(question.id, answers, onError)
-                            },
-                            onReject = { viewModel.rejectQuestion(question.id) }
-                        )
-                    }
-            } else {
-                ChatAttachmentBar(
-                    attachments = state.pendingAttachments,
-                    onRemove = viewModel::removeAttachment
-                )
-
-                ChatInputBar(
-                    text = state.inputText,
-                    isBusy = state.isCurrentSessionBusy,
-                    isRecording = state.isRecording,
-                    isTranscribing = state.isTranscribing,
-                    isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
-                    attachments = state.pendingAttachments,
-                    isLoadingFiles = state.isLoadingAttachments,
-                    activeRequest = state.activeRequest,
-                    onTextChange = viewModel::setInputText,
-                    onSend = { viewModel.sendMessage() },
-                    onAbort = { viewModel.abortSession() },
-                    onRetryRequest = { viewModel.retryStalledRequest() },
-                    onDismissRequestState = { viewModel.clearActiveRequest() },
-                    onToggleRecording = {
-                        if (state.isRecording) {
+            ChatInputBar(
+                text = state.inputText,
+                isBusy = currentSessionIsRunning,
+                isRecording = state.isRecording,
+                isTranscribing = state.isTranscribing,
+                hasPreservedSpeechAudio = state.hasPreservedSpeechAudio,
+                isRetryingSpeech = state.isRetryingSpeech,
+                speechAudioLevel = state.speechAudioLevel,
+                isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
+                agentActivityText = currentActivity?.text,
+                agentStartedAtMillis = currentActivity?.startedAtMillis,
+                onTextChange = viewModel::setInputText,
+                onSend = { viewModel.sendMessage() },
+                onAbort = { viewModel.abortSession() },
+                onAbortSpeech = { viewModel.abortSpeechRecognition() },
+                onRetrySpeech = { viewModel.retryPreservedSpeechAudio() },
+                onDiscardSpeech = { viewModel.discardPreservedSpeechAudio() },
+                onToggleRecording = {
+                    if (state.isRecording) {
+                        viewModel.toggleRecording()
+                    } else {
+                        val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasRecordAudioPermission) {
                             viewModel.toggleRecording()
                         } else {
-                            val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasRecordAudioPermission) {
-                                viewModel.toggleRecording()
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
-                    },
-                    onAttachFiles = {
-                        filePickerLauncher.launch(
-                            arrayOf(
-                                "text/*",
-                                "application/json",
-                                "application/xml",
-                                "application/yaml",
-                                "application/x-yaml",
-                                "application/toml"
-                            )
-                        )
                     }
-                )
-            }
+                }
+            )
         }
 
         state.speechError?.let { speechError ->
@@ -231,5 +220,93 @@ fun ChatScreen(
             )
         }
 
+        state.pendingQuestions
+            .filter { it.sessionId == state.currentSessionId }
+            .firstOrNull()
+            ?.let { question ->
+                QuestionCardView(
+                    question = question,
+                    onReply = { answers, onError -> viewModel.replyQuestion(question.id, answers, onError) },
+                    onReject = { viewModel.rejectQuestion(question.id) }
+                )
+            }
     }
+}
+
+private data class CurrentSessionActivity(
+    val text: String,
+    val startedAtMillis: Long?,
+)
+
+private fun currentSessionActivity(
+    sessionId: String?,
+    status: SessionStatus?,
+    messages: List<MessageWithParts>,
+    streamingReasoningPart: Part?,
+    streamingPartTexts: Map<String, String>,
+): CurrentSessionActivity? {
+    val sid = sessionId ?: return null
+    val startedAt = messages.lastOrNull { it.info.sessionId == sid && it.info.isUser }?.info?.time?.created
+    val text = bestSessionActivityText(sid, status, messages, streamingReasoningPart, streamingPartTexts)
+    return CurrentSessionActivity(text = text, startedAtMillis = startedAt)
+}
+
+private fun bestSessionActivityText(
+    sessionId: String,
+    status: SessionStatus?,
+    messages: List<MessageWithParts>,
+    streamingReasoningPart: Part?,
+    streamingPartTexts: Map<String, String>,
+): String {
+    status?.message?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+
+    messages.asReversed().forEach { message ->
+        if (message.info.sessionId != sessionId) return@forEach
+        message.parts.asReversed().firstOrNull { it.isTool && it.stateDisplay == "running" }
+            ?.let { part -> formatStatusFromPart(part)?.let { return it } }
+    }
+
+    if (streamingReasoningPart?.sessionId == sessionId) {
+        val key = "${streamingReasoningPart.messageId}:${streamingReasoningPart.id}"
+        return formatThinkingFromReasoningText(streamingPartTexts[key].orEmpty())
+    }
+
+    messages.asReversed().forEach { message ->
+        if (message.info.sessionId != sessionId) return@forEach
+        message.parts.asReversed().firstOrNull()?.let { part ->
+            formatStatusFromPart(part)?.let { return it }
+        }
+    }
+
+    return status?.takeIf { it.isRetry }?.let { "Retrying" } ?: "Thinking"
+}
+
+private fun formatStatusFromPart(part: Part): String? {
+    if (part.isTool) {
+        val base = when (part.tool) {
+            "task" -> "Delegating"
+            "todowrite", "todoread" -> "Planning"
+            "read" -> "Gathering context"
+            "list", "grep", "glob" -> "Searching codebase"
+            "webfetch" -> "Searching web"
+            "edit", "write" -> "Making edits"
+            "bash" -> "Running commands"
+            else -> null
+        }
+        val topic = (part.toolReason ?: part.toolInputSummary)?.trim()?.takeIf { it.isNotEmpty() }
+        return when {
+            base != null && topic != null -> "$base - $topic"
+            base != null -> base
+            else -> null
+        }
+    }
+
+    if (part.isReasoning) return formatThinkingFromReasoningText(part.text.orEmpty())
+    if (part.isText) return "Gathering thoughts"
+    return null
+}
+
+private fun formatThinkingFromReasoningText(text: String): String {
+    val topic = Regex("^\\*\\*([^*]+)\\*\\*").find(text.trim())?.groupValues?.getOrNull(1)?.trim()
+    return if (!topic.isNullOrEmpty()) "Thinking - $topic" else "Thinking"
 }

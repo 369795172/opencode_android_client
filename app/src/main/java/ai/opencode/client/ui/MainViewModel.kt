@@ -5,16 +5,22 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import ai.opencode.client.data.audio.AudioRecorderManager
 import ai.opencode.client.data.model.*
 import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.util.FileEncoder
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.ThemeMode
+import com.yage.voiceflowkit.VoiceFlowClient
+import com.yage.voiceflowkit.VoiceFlowConfig
+import com.yage.voiceflowkit.VoiceFlowMicrophone
+import com.yage.voiceflowkit.VoiceFlowPreservedAudio
+import com.yage.voiceflowkit.VoiceFlowSession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 data class ConnectionFormSettings(
@@ -71,6 +77,9 @@ data class AppState(
     val stalledToolPartKeys: Set<String> = emptySet(),
     val isRecording: Boolean = false,
     val isTranscribing: Boolean = false,
+    val hasPreservedSpeechAudio: Boolean = false,
+    val isRetryingSpeech: Boolean = false,
+    val speechAudioLevel: Float = 0f,
     val speechError: String? = null,
     val aiBuilderConnectionOK: Boolean = false,
     val aiBuilderConnectionError: String? = null,
@@ -78,7 +87,8 @@ data class AppState(
     val pendingAttachments: List<FileAttachment> = emptyList(),
     val isLoadingAttachments: Boolean = false,
     val activeRequest: AsyncRequestState? = null,
-    val diagnostics: List<RequestDiagnosticEntry> = emptyList()
+    val diagnostics: List<RequestDiagnosticEntry> = emptyList(),
+    val sessionTodos: Map<String, List<TodoItem>> = emptyMap()
 ) {
     data class ModelOption(
         val displayName: String,
@@ -99,7 +109,19 @@ data class AppState(
             }
     }
 
-    data class ContextUsage(val percentage: Float, val totalTokens: Int, val contextLimit: Int)
+    data class ContextUsage(
+        val percentage: Float,
+        val totalTokens: Int,
+        val contextLimit: Int,
+        val providerId: String? = null,
+        val modelId: String? = null,
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
+        val reasoningTokens: Int? = null,
+        val cachedReadTokens: Int? = null,
+        val cachedWriteTokens: Int? = null,
+        val cost: Double? = null
+    )
 
     data class ConnectionState(
         val isConnected: Boolean = false,
@@ -244,34 +266,67 @@ data class AppState(
 
     private val providerModelsIndex: Map<String, ProviderModel>
         get() = providers?.providers?.flatMap { provider ->
-            provider.models.map { (_, model) ->
-                "${provider.id}/${model.id}" to model
+            provider.models.flatMap { (modelKey, model) ->
+                listOfNotNull(
+                    "${provider.id}/$modelKey" to model,
+                    model.id.takeIf { it.isNotEmpty() }?.let { "${provider.id}/$it" to model },
+                    model.resolvedProviderId?.let { resolvedProvider ->
+                        model.id.takeIf { it.isNotEmpty() }?.let { modelId -> "$resolvedProvider/$modelId" to model }
+                    }
+                )
             }
         }?.toMap() ?: emptyMap()
 
     val contextUsage: ContextUsage?
         get() {
-            val lastAssistant = messages.lastOrNull { it.info.isAssistant && it.info.tokens != null }
+            val lastAssistant = messages.lastOrNull { it.info.isAssistant && tokenTotal(it.info.tokens) != null }
                 ?: return null
             val tokens = lastAssistant.info.tokens ?: return null
-            val total = tokens.total ?: return null
+            val total = tokenTotal(tokens) ?: return null
             val model = lastAssistant.info.resolvedModel ?: return null
             val key = "${model.providerId}/${model.modelId}"
-            val limit = providerModelsIndex[key]?.limit?.context ?: return null
+            val index = providerModelsIndex
+            val providerModel = index[key] ?: index.entries
+                .filter { it.key.substringAfter('/') == model.modelId }
+                .takeIf { it.size == 1 }
+                ?.first()
+                ?.value
+            val limit = providerModel?.limit?.context ?: return null
             if (limit <= 0) return null
             return ContextUsage(
                 percentage = (total.toFloat() / limit.toFloat()).coerceIn(0f, 1f),
                 totalTokens = total,
-                contextLimit = limit
+                contextLimit = limit,
+                providerId = model.providerId,
+                modelId = model.modelId,
+                inputTokens = tokens.input,
+                outputTokens = tokens.output,
+                reasoningTokens = tokens.reasoning,
+                cachedReadTokens = tokens.cache?.read,
+                cachedWriteTokens = tokens.cache?.write,
+                cost = lastAssistant.info.cost
             )
         }
+
+    private fun tokenTotal(tokens: Message.TokenInfo?): Int? {
+        if (tokens == null) return null
+        tokens.total?.takeIf { it > 0 }?.let { return it }
+        return listOfNotNull(
+            tokens.input,
+            tokens.output,
+            tokens.reasoning,
+            tokens.cache?.read,
+            tokens.cache?.write
+        ).sum().takeIf { it > 0 }
+    }
 }
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
     internal val repository: OpenCodeRepository,
     private val settingsManager: SettingsManager,
-    private val audioRecorderManager: AudioRecorderManager
+    private val voiceFlowClient: VoiceFlowClient,
+    private val microphone: VoiceFlowMicrophone
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppState())
@@ -280,6 +335,12 @@ class MainViewModel @Inject constructor(
     private var sseJob: Job? = null
     private var pollJob: Job? = null
     private var toolPartStallJob: Job? = null
+    private var speechHeartbeatJob: Job? = null
+    private var speechAudioLevelJob: Job? = null
+    private var speechSession: VoiceFlowSession? = null
+    private var speechExistingInput: String = ""
+    private var preservedSpeechAudio: VoiceFlowPreservedAudio? = null
+    private var preservedSpeechExistingInput: String = ""
     private var lastHealthCheckTime = 0L
 
     init {
@@ -332,7 +393,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun testAIBuilderConnection() {
-        launchAIBuilderConnectionTest(viewModelScope, settingsManager, _state)
+        launchAIBuilderConnectionTest(viewModelScope, settingsManager, voiceFlowClient, _state)
     }
 
     fun toggleRecording() {
@@ -350,22 +411,28 @@ class MainViewModel @Inject constructor(
             return
         }
         if (currentState.isRecording) {
-            val file = audioRecorderManager.stop()
+            val session = speechSession
+            viewModelScope.launch { microphone.stop() }
+            stopSpeechAudioLevelConsumer()
+            speechHeartbeatJob?.cancel()
+            speechHeartbeatJob = null
             _state.update { it.copy(isRecording = false, isTranscribing = true) }
-            if (file == null) {
-                Log.e(TAG, "Recording stop returned null file")
-                _state.update { it.copy(isTranscribing = false, speechError = "Recording failed: no file") }
+            if (session == null) {
+                Log.e(TAG, "Realtime speech session is missing on stop")
+                _state.update { it.copy(isTranscribing = false, speechError = "Recording failed: realtime session missing") }
                 return
             }
-            launchSpeechTranscription(
+            launchRealtimeSpeechStop(
                 scope = viewModelScope,
                 state = _state,
-                audioRecorderManager = audioRecorderManager,
-                config = speechConfig,
-                recordingFile = file,
-                existingInput = currentState.inputText,
-                tag = TAG
-            )
+                session = session,
+                existingInput = speechExistingInput,
+                tag = TAG,
+                shouldApply = { speechSession === session },
+                terminateSession = ::terminateSpeechSession,
+            ) {
+                speechSession = null
+            }
         } else {
             if (speechConfig.token.isEmpty()) {
                 Log.w(TAG, "Speech start blocked: missing AI Builder token")
@@ -381,19 +448,159 @@ class MainViewModel @Inject constructor(
                 }
                 return
             }
-            try {
-                audioRecorderManager.start()
-                Log.d(TAG, "Recording started")
-                _state.update { it.copy(isRecording = true) }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start recording", e)
-                _state.update { it.copy(speechError = "Failed to start recording: ${errorMessageOrFallback(e, "unknown error")}") }
+            speechExistingInput = currentState.inputText
+            viewModelScope.launch {
+                try {
+                    voiceFlowClient.updateConfig(
+                        VoiceFlowConfig(
+                            endpoint = speechConfig.baseURL.ifEmpty { VoiceFlowConfig.DEFAULT_ENDPOINT },
+                            tokenProvider = { speechConfig.token },
+                            prompt = speechConfig.prompt.ifEmpty { null },
+                            terms = speechConfig.terms,
+                        )
+                    )
+                    clearPreservedSpeechAudio()
+                    val session = voiceFlowClient.startSession()
+                    speechSession = session
+                    startSpeechAudioLevelConsumer()
+                    microphone.start { chunk ->
+                        viewModelScope.launch { session.sendAudioChunk(chunk) }
+                    }
+                    speechHeartbeatJob?.cancel()
+                    speechHeartbeatJob = viewModelScope.launch {
+                        while (true) {
+                            delay(SPEECH_HEARTBEAT_INTERVAL_SECONDS * 1000L)
+                            session.ping()
+                        }
+                    }
+                    Log.d(TAG, "Realtime recording started")
+                    _state.update { it.copy(isRecording = true) }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start recording", e)
+                    runCatching { microphone.stop() }
+                    stopSpeechAudioLevelConsumer()
+                    speechSession?.let { session ->
+                        runCatching { terminateSpeechSession(session) }
+                    }
+                    speechSession = null
+                    speechHeartbeatJob?.cancel()
+                    speechHeartbeatJob = null
+                    _state.update {
+                        it.copy(
+                            isRecording = false,
+                            speechError = "Failed to start recording: ${errorMessageOrFallback(e, "unknown error")}"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun terminateSpeechSession(session: VoiceFlowSession) {
+        try {
+            session.abortPreservingAudio()?.let { voiceFlowClient.discardPreservedAudio(it) }
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to terminate speech session", error)
+        }
+    }
+
+    fun stopSpeechForBackground() {
+        val session = speechSession
+        speechHeartbeatJob?.cancel()
+        speechHeartbeatJob = null
+        stopSpeechAudioLevelConsumer()
+        speechSession = null
+        _state.update { it.copy(isRecording = false, isTranscribing = false, speechAudioLevel = 0f) }
+        viewModelScope.launch {
+            runCatching { microphone.stop() }
+            if (session != null) {
+                terminateSpeechSession(session)
             }
         }
     }
 
     fun clearSpeechError() {
         _state.update { it.copy(speechError = null) }
+    }
+
+    fun abortSpeechRecognition() {
+        val session = speechSession ?: return
+        val prefix = speechExistingInput
+        speechHeartbeatJob?.cancel()
+        speechHeartbeatJob = null
+        stopSpeechAudioLevelConsumer()
+        speechSession = null
+        _state.update { it.copy(isRecording = false, isTranscribing = false, speechAudioLevel = 0f) }
+        viewModelScope.launch {
+            runCatching { microphone.stop() }
+            try {
+                val preserved = session.abortPreservingAudio()
+                clearPreservedSpeechAudio()
+                if (preserved != null) {
+                    preservedSpeechAudio = preserved
+                    preservedSpeechExistingInput = prefix
+                    _state.update { it.copy(hasPreservedSpeechAudio = true) }
+                }
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to abort speech recognition", error)
+                _state.update { it.copy(speechError = errorMessageOrFallback(error, "Failed to abort speech recognition")) }
+            }
+        }
+    }
+
+    fun retryPreservedSpeechAudio() {
+        val preserved = preservedSpeechAudio ?: return
+        val prefix = preservedSpeechExistingInput
+        _state.update { it.copy(isRetryingSpeech = true) }
+        viewModelScope.launch {
+            try {
+                val result = voiceFlowClient.transcribe(preserved) { partial ->
+                    _state.update { it.copy(inputText = mergedSpeechInput(prefix, partial)) }
+                }
+                _state.update {
+                    it.copy(
+                        inputText = mergedSpeechInput(prefix, result.text),
+                        isRetryingSpeech = false,
+                    )
+                }
+                clearPreservedSpeechAudio()
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to retry preserved speech audio", error)
+                _state.update {
+                    it.copy(
+                        isRetryingSpeech = false,
+                        speechError = errorMessageOrFallback(error, "Transcription failed"),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun clearPreservedSpeechAudio() {
+        preservedSpeechAudio?.let { voiceFlowClient.discardPreservedAudio(it) }
+        preservedSpeechAudio = null
+        preservedSpeechExistingInput = ""
+        _state.update { it.copy(hasPreservedSpeechAudio = false) }
+    }
+
+    fun discardPreservedSpeechAudio() {
+        clearPreservedSpeechAudio()
+    }
+
+    private fun startSpeechAudioLevelConsumer() {
+        speechAudioLevelJob?.cancel()
+        _state.update { it.copy(speechAudioLevel = 0f) }
+        speechAudioLevelJob = viewModelScope.launch {
+            microphone.audioLevel.collect { level ->
+                _state.update { it.copy(speechAudioLevel = level.coerceIn(0f, 1f)) }
+            }
+        }
+    }
+
+    private fun stopSpeechAudioLevelConsumer() {
+        speechAudioLevelJob?.cancel()
+        speechAudioLevelJob = null
+        _state.update { it.copy(speechAudioLevel = 0f) }
     }
 
     fun setSpeechError(message: String) {
@@ -492,6 +699,14 @@ class MainViewModel @Inject constructor(
         launchUpdateSessionTitle(viewModelScope, repository, _state, sessionId, title)
     }
 
+    fun archiveSession(sessionId: String) {
+        launchSetSessionArchived(viewModelScope, repository, _state, sessionId, archived = true)
+    }
+
+    fun restoreSession(sessionId: String) {
+        launchSetSessionArchived(viewModelScope, repository, _state, sessionId, archived = false)
+    }
+
     fun deleteSession(sessionId: String) {
         launchDeleteSession(viewModelScope, repository, _state, sessionId, ::selectSession)
     }
@@ -507,37 +722,59 @@ class MainViewModel @Inject constructor(
         val model = buildSelectedModel(snapshot)
         val sessionDirectory = snapshot.currentSession?.directory
         val workspaceDirectory = settingsManager.workspaceDirectory
+        val currentSession = snapshot.currentSession
 
-        launchSendMessage(
-            scope = viewModelScope,
-            repository = repository,
-            state = _state,
-            sessionId = sessionId,
-            text = text,
-            agent = agent,
-            model = model,
-            attachments = attachments,
-            sessionDirectory = sessionDirectory,
-            workspaceDirectory = workspaceDirectory,
-            providers = snapshot.providers,
-            agents = snapshot.agents,
-            onRefreshMessages = ::loadMessagesWithRetry,
-            onSuccess = { 
-                settingsManager.setDraftText(sessionId, "")
-                clearAttachments()
-            },
-            onDiagnostic = { entry ->
-                _state.update { s ->
-                    s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
+        fun dispatchSend() {
+            launchSendMessage(
+                scope = viewModelScope,
+                repository = repository,
+                state = _state,
+                sessionId = sessionId,
+                text = text,
+                agent = agent,
+                model = model,
+                attachments = attachments,
+                sessionDirectory = sessionDirectory,
+                workspaceDirectory = workspaceDirectory,
+                providers = snapshot.providers,
+                agents = snapshot.agents,
+                onRefreshMessages = ::loadMessagesWithRetry,
+                onRefreshSessions = ::loadSessions,
+                onSuccess = {
+                    settingsManager.setDraftText(sessionId, "")
+                    clearAttachments()
+                },
+                onDiagnostic = { entry ->
+                    _state.update { s ->
+                        s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
+                    }
+                },
+                onRequestState = { request ->
+                    _state.update { it.copy(activeRequest = request) }
+                },
+                onError = { message ->
+                    setError(message)
                 }
-            },
-            onRequestState = { request ->
-                _state.update { it.copy(activeRequest = request) }
-            },
-            onError = { message ->
-                setError(message)
+            )
+        }
+
+        if (currentSession?.isArchived == true) {
+            viewModelScope.launch {
+                repository.updateSessionArchived(sessionId, -1L)
+                    .onSuccess { updated ->
+                        _state.update { state ->
+                            state.copy(sessions = state.sessions.map { session -> if (session.id == sessionId) updated else session })
+                        }
+                        dispatchSend()
+                    }
+                    .onFailure { error ->
+                        _state.update { it.copy(error = "Failed to restore session: ${errorMessageOrFallback(error, "unknown error")}") }
+                    }
             }
-        )
+            return
+        }
+
+        dispatchSend()
     }
 
     fun retryStalledRequest() {
@@ -579,6 +816,7 @@ class MainViewModel @Inject constructor(
             providers = snapshot.providers,
             agents = snapshot.agents,
             onRefreshMessages = ::loadMessagesWithRetry,
+            onRefreshSessions = ::loadSessions,
             onDiagnostic = { entry ->
                 _state.update { s ->
                     s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
@@ -804,24 +1042,27 @@ class MainViewModel @Inject constructor(
             state = _state,
             event = event,
             onRefreshMessages = ::loadMessagesWithRetry,
+            onRefreshSessions = ::loadSessions,
             onLoadPendingPermissions = ::loadPendingPermissions,
-            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) },
-            onDiagnostic = { entry ->
-                _state.update { s ->
-                    s.copy(diagnostics = appendDiagnostic(s.diagnostics, entry))
-                }
-            }
+            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) }
         )
     }
 
     override fun onCleared() {
-        super.onCleared()
         sseJob?.cancel()
         pollJob?.cancel()
         toolPartStallJob?.cancel()
+        speechHeartbeatJob?.cancel()
+        microphone.discard()
+        runBlocking { speechSession?.let { terminateSpeechSession(it) } }
+        speechSession = null
+        super.onCleared()
     }
 
     private companion object {
         private const val TAG = "MainViewModel"
+
+        /** Mirrors VoiceFlowKit's internal heartbeat cadence (12s ping). */
+        private const val SPEECH_HEARTBEAT_INTERVAL_SECONDS = 12L
     }
 }

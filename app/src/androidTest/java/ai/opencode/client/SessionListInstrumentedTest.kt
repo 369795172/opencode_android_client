@@ -6,6 +6,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.ui.session.SessionList
@@ -46,7 +47,7 @@ class SessionListInstrumentedTest {
     }
 
     @Test
-    fun sessionListRequestsMoreWhenScrolledNearBottom() {
+    fun sessionListRequestsMoreFromGlobalLoadOlderAction() {
         val sessions = (1..40).map { index ->
             Session(
                 id = "session-$index",
@@ -70,10 +71,40 @@ class SessionListInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithTag("session_list")
-            .performScrollToNode(hasText("Session 40"))
-
+        composeRule.onNodeWithText("Load older").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { loadMoreCalls.get() > 0 }
+    }
+
+    @Test
+    fun sessionListSplitsActiveAndArchivedSections() {
+        val active = Session(
+            id = "active-session",
+            directory = "/tmp/project",
+            title = "Active Session"
+        )
+        val archived = Session(
+            id = "archived-session",
+            directory = "/tmp/project",
+            title = "Archived Session",
+            time = Session.TimeInfo(archived = 1_000)
+        )
+
+        composeRule.setContent {
+            MaterialTheme {
+                SessionList(
+                    sessions = listOf(active, archived),
+                    currentSessionId = "active-session",
+                    onSelectSession = {},
+                    onCreateSession = {},
+                    onDeleteSession = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Active").assertIsDisplayed()
+        composeRule.onNodeWithText("Active Session").assertIsDisplayed()
+        composeRule.onNodeWithText("Archived").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Archived Session").assertIsDisplayed()
     }
 
     @Test
@@ -101,7 +132,12 @@ class SessionListInstrumentedTest {
         }
 
         composeRule.onNodeWithText("My Session").assertIsDisplayed()
-        composeRule.onNodeWithText("minutes ago").assertIsDisplayed()
+        // SessionList renders the relative time via DateUtils with
+        // FORMAT_ABBREV_RELATIVE, which produces an abbreviated form like
+        // "5 min. ago" — not the spelled-out "minutes ago". Match the
+        // abbreviated token (substring) so the assertion reflects what the
+        // component actually renders.
+        composeRule.onNode(hasText("min", substring = true)).assertIsDisplayed()
     }
 
     @Test

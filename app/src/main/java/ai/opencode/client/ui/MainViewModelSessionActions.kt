@@ -7,6 +7,7 @@ import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.ConfigProvider
 import ai.opencode.client.data.model.ProvidersResponse
+import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.util.SettingsManager
@@ -37,9 +38,10 @@ internal fun launchLoadSessions(
         repository.getSessions(limit)
             .onSuccess { sessions ->
                 state.update {
+                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(sessions, it.sessions)
                     it.copy(
-                        sessions = sessions,
-                        hasMoreSessions = sessions.size >= limit,
+                        sessions = mergedSessions,
+                        hasMoreSessions = mergedSessions.size >= limit,
                         isLoadingMoreSessions = false,
                         isRefreshingSessions = false
                     )
@@ -98,10 +100,11 @@ internal fun launchLoadMoreSessions(
                     return@onSuccess
                 }
                 state.update {
+                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(sessions, it.sessions)
                     it.copy(
-                        sessions = sessions,
+                        sessions = mergedSessions,
                         loadedSessionLimit = nextLimit,
-                        hasMoreSessions = sessions.size >= nextLimit,
+                        hasMoreSessions = mergedSessions.size >= nextLimit,
                         isLoadingMoreSessions = false
                     )
                 }
@@ -226,6 +229,14 @@ internal fun launchLoadMessages(
                     state.update { it.copy(isLoadingMessages = false) }
                 }
             }
+
+        // Best-effort: load session todos after messages (matches iOS behavior).
+        try {
+            repository.getSessionTodos(sessionId)
+                .onSuccess { todos ->
+                    state.update { it.copy(sessionTodos = it.sessionTodos + (sessionId to todos)) }
+                }
+        } catch (_: Exception) {}
     }
 }
 
@@ -368,6 +379,42 @@ internal fun launchUpdateSessionTitle(
     }
 }
 
+internal fun launchSetSessionArchived(
+    scope: CoroutineScope,
+    repository: OpenCodeRepository,
+    state: MutableStateFlow<AppState>,
+    sessionId: String,
+    archived: Boolean
+) {
+    scope.launch {
+        val archivedValue = if (archived) System.currentTimeMillis() else -1L
+        val ids = sessionSubtreeIds(state.value.sessions, sessionId, parentFirst = !archived)
+        for (id in ids) {
+            repository.updateSessionArchived(id, archivedValue)
+                .onSuccess { updated ->
+                    state.update { current ->
+                        current.copy(sessions = current.sessions.map { session -> if (session.id == id) updated else session })
+                    }
+                }
+                .onFailure { error ->
+                    state.update {
+                        it.copy(error = "Failed to ${if (archived) "archive" else "restore"} session: ${errorMessageOrFallback(error, "unknown error")}")
+                    }
+                    return@launch
+                }
+        }
+    }
+}
+
+private fun sessionSubtreeIds(sessions: List<Session>, rootId: String, parentFirst: Boolean): List<String> {
+    val childrenByParent = sessions.groupBy { it.parentId }
+    fun collect(id: String): List<String> {
+        val children = childrenByParent[id].orEmpty().flatMap { collect(it.id) }
+        return if (parentFirst) listOf(id) + children else children + id
+    }
+    return collect(rootId)
+}
+
 internal fun launchDeleteSession(
     scope: CoroutineScope,
     repository: OpenCodeRepository,
@@ -418,6 +465,7 @@ internal fun launchSendMessage(
     providers: ProvidersResponse? = null,
     agents: List<AgentInfo> = emptyList(),
     onRefreshMessages: (String, Boolean) -> Unit,
+    onRefreshSessions: () -> Unit = {},
     onSuccess: (() -> Unit)? = null,
     onDiagnostic: (RequestDiagnosticEntry) -> Unit,
     onRequestState: (AsyncRequestState?) -> Unit,
@@ -484,6 +532,7 @@ internal fun launchSendMessage(
                         inputText = "",
                         pendingAttachments = emptyList(),
                         error = null,
+                        sessions = bumpSessionUpdated(it.sessions, sessionId, System.currentTimeMillis()),
                         sessionStatuses = it.sessionStatuses + (sessionId to SessionStatus(type = "busy"))
                     )
                 }
@@ -505,9 +554,11 @@ internal fun launchSendMessage(
                     )
                 )
                 onSuccess?.invoke()
+                onRefreshSessions()
                 onRefreshMessages(sessionId, true)
                 launch {
                     delay(MainViewModelTimings.messageRefreshDelayMs)
+                    onRefreshSessions()
                     onRefreshMessages(sessionId, false)
                 }
                 if (!enableAsyncTracking) {

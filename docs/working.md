@@ -1,16 +1,57 @@
 # OpenCode Android 客户端工作日志
 
-## 2026-04-06
+## 2026-06-10
 
-- 模型选择与服务器 `/config/providers` 对齐：OpenRouter 路由的 Claude/Gemini 预设、`ProviderModel.status` 过滤、`availableModels` 状态与连接后重映射。
-- 版本：`versionName=0.1.20260406`、`versionCode=6`。
+- 从 `grapeot/opencode_android_client` upstream/master 合并至 `path-b-grapeot`（ba15faa 及之前约 30 commits：F3 voice rail、session archive、todo panel、tool card 重做、VoiceFlowKit 0.3.1 等）。
+- 保留本地 `ai.opencode.client` 包名、`ModelPresets` 预设列表、应用 icon、`settings.gradle.kts` 项目名。
+- 版本：`versionName=0.1.20260610.1`、`versionCode=12`。
 
-## 2026-04-04
+## 2026-06-08
 
-- 完成本地文件上传能力交付（文本文件选择、附件栏展示、base64 data URL 发送链路）。
-- 构建与单元测试通过：`./gradlew assembleDebug`、`./gradlew testDebugUnitTest`。
-- 更新版本号标准：`versionName` 统一采用 `0.1.YYYYMMDD`（日期制），`versionCode` 保持单调递增。
-- 本次版本更新为 `versionName=0.1.20260404`、`versionCode=5`。
+- 对齐 iOS PR #84/#86/#87，实现 F3 voice rail composer：`ChatInputBar` 从旧单 pill 横排改为上方 voice rail + 下方 text review field。Voice rail 包含 transport、真实 `VoiceFlowMicrophone.audioLevel` waveform、转写等待 `Stop transcription wait`、preserved-audio `Retry this segment` 和 `Discard audio`。
+- Agent running 从右侧红色 stop 主按钮降为 composer 附近 quiet status row；`Interrupt agent` 放入 overflow menu，和语音 stop-wait / retry 语义分离。send 固定在 text review field 右侧，busy 时仍可发送排队，transcribing/retrying 时禁用。
+- `MainViewModel` 新增 `speechAudioLevel` state 并在录音生命周期内收集 microphone audio level；preserved audio discard 暴露为明确 action。
+- 更新 `ChatInputBarInstrumentedTest` 覆盖 busy quiet status、transcribing + agent running、preserved-audio retry/discard 三个关键状态。
+- 对齐 iOS PR #85，实现 Session Archive workflow：`SessionList` 分 Active / Archived 两个分区，Archived 默认折叠；Active leading swipe 为 Archive，Archived leading swipe 为 Restore，trailing swipe 保持 Delete。
+- `PATCH /session/{id}` request body 扩展为可写 `time.archived`；Archive 写当前毫秒时间戳，Restore 写 `-1`。Archive subtree 按 children-first，Restore subtree 按 parent-first，避免父子 session 在分区间短暂游离。
+- Session 分页从滚到底自动触发改为顶部全局 `Load older` action，避免 Archived 默认折叠时为不可见历史连续分页，也避免把加载更多误读成 Archived 专属动作。直接打开 archived session 并发送消息时会先 restore 当前 session，再发送。
+- 补充 `OpenCodeRepositoryTest`、`MainViewModelTest`、`SessionListInstrumentedTest` 覆盖 archived PATCH body、递归顺序、Active/Archived 分区和全局 load-older。
+
+## 2026-06-03
+
+- 模型预设对齐 iOS，新增三个：`Ollama DeepSeek V4 Pro`（ollama-cloud/deepseek-v4-pro，shortName ODS-Pro）、`MiniMax M3`（ollama-cloud/minimax-m3）、`DeepSeek Local`（ds4/deepseek-v4-flash，shortName DS-L）。
+- Task/Todo 列表支持：
+  - `AppState` 新增 `sessionTodos: Map<String, List<TodoItem>>`，SSE `todo.updated` 事件实时更新。
+  - session 切换时在 `launchLoadMessages` 内 fire-and-forget 加载 `GET /session/{id}/todo`（对齐 iOS）。
+  - Toolbar 右侧新增 Checklist 图标按钮，始终可见；无 todo 时仅显示图标，有 todo 时显示完成数。
+  - 点击弹出 `AlertDialog` → `TodoListPanel` composable（进度条 + checkbox 列表 + 完成划线 + 空态）。
+  - `ChatMessageContent` 中 `todowrite` ToolCard 改为紧凑徽章 `"Todo updated · X/Y"`，替代之前的行内 TodoListInline。
+- 新增文件 `ui/chat/TodoListPanel.kt`。
+- 修改文件：`MainViewModel.kt`、`ModelPresets.kt`、`MainViewModelSyncActions.kt`、`MainViewModelSessionActions.kt`、`ChatTopBar.kt`、`ChatScreen.kt`、`ChatMessageContent.kt`。
+- 验证：`./gradlew testDebugUnitTest` - 214 tests pass。
+
+## 2026-05-30
+
+- VoiceFlowKit dependency 更新到 merged revision `cc49c8fa272846852970f8df938766af6e7576ea`，使用 preserved audio retry facade。Chat input 左侧新增语音辅助按钮：录音/转写中显示 stop，调用 `abortPreservingAudio()` 立即释放 UI；保留音频后显示 retry，调用 `transcribe(preservedAudio)` 重识别上一段 PCM。`cancel()` 语义保持不变，只有显式 abort 路径保留音频。
+- 工具卡渲染重做，同步 iOS 最新工具卡/对话/文件夹/todo 设计。全部落在 `ui/chat/ChatMessageContent.kt`，分类逻辑已先期抽到 `ui/chat/ToolCardClassifier.kt`（纯逻辑、可单测，对应 iOS `ToolCardClassifier.swift`）。
+- 说话区分：assistant 回复顶部加 "OpenCode" 文字标题（`primary` 电蓝 + SemiBold，`testTag("assistant.header")`）；用户蓝左竖条、assistant 末尾模型小字保持不动。
+- 工具卡两形态：`MessageRow` 攒连续 tool/patch run 后用 `ToolCardClassifier.split(run)` 拆成 fileParts + otherParts。fileParts 渲染成新 `FileCard`（doc 图标 + monospace basename + chevron），用 `chunked(2)+Row` 手动两列网格（Android 不能在 LazyColumn 嵌 LazyVGrid）；otherParts 合并成 `ToolCallsRow`（"N tool calls" 可展开行，展开复用 `ToolCard` 主体）。
+- 文件夹卡：`FileCard` 在 `isDirectoryRead` 时切 folder 图标，点击弹 `ModalBottomSheet` 列出 `parseDirectoryEntries(toolOutput)` 的 entries（子目录排前），不调 API。
+- todo 抽离：新增 `TodoListInline` composable（对齐 iOS `TodoListInlineView`）；`todowrite` 展开时只显示 todo、隐藏 input/output。
+- testTag 覆盖关键元素：`assistant.header`、`toolcard.file.<basename>`、`toolcard.folder.<basename>`、`toolcard.folder.sheet.<basename>`、`toolcard.folder.entry.<name>`、`toolcard.toolcalls`。本仓库暂无 iOS 那套 UITEST fixture 机制，UI 靠 testTag + 代码审查，分类逻辑由块 A 的 `ToolCardClassifierTest` 单测覆盖。
+- 文档：`docs/design.md` 增补「工具卡渲染重做（已实现 — 对齐 iOS）」一节（说话区分、2 列文件卡、N tool calls 合并行、文件夹卡、todo 抽离四类改动）。
+- 验证：`./gradlew :app:assembleDebug` 与 `:app:testDebugUnitTest` 均通过（仅余既有 `OpenInNew` AutoMirrored 弃用 warning，非本次引入）。未做 git，未上真机。
+
+## 2026-05-25
+
+- 对齐 iOS 最终 realtime speech 方案：Android 语音输入从停止后 M4A 解码上传，改为点击麦克风后立即使用 `AudioRecord` 采集 PCM16 mono 24kHz chunk。
+- 新增 `RealtimeSpeechAudioCache`，每个 chunk 先写入临时 `.pcm` cache；新增 `RealtimeSpeechStreamer`，负责首次 session attach replay、heartbeat、send/commit 失败恢复，以及 stop 前等待 recovery 完成。
+- `AIBuildersAudioClient` 新增 live realtime session path：创建 session 后连接 WebSocket、等待 `session_ready`、发送 binary PCM、commit/stop 收 transcript；WebSocket ticket query string 在日志中 redacted。
+- `MainViewModel` 的录音流程改为立即开始本地 PCM capture，后台异步创建 AI Builder session 并从 cache offset 0 replay；停止录音时停止 capture 和 heartbeat，再 commit/stop 更新输入框。
+- 测试补充 PCM cache append/read/remove、realtime 常量、WebSocket URL redaction。
+- 验证：先修复本轮开始前已有的 `DataUriImageTransformer.kt` 注解拼写错误（`@Composableg` → `@Composable`），随后 `./gradlew testDebugUnitTest` 与 `./gradlew koverHtmlReport` 均通过。覆盖率报告位于 `app/build/reports/kover/html/index.html`。
+- Android 真机验证通过后合并 PR #36，并准备 GitHub Release `v0.1.20260526`：`versionCode` 升至 8，`versionName` 升至 `0.1.20260526`。
+
 ## 2026-05-03
 
 - 模型预设里的 GLM 选项从 `GLM-5-turbo` / `glm-5-turbo` 更新为 `GLM-5.1` / `glm-5.1`，对齐 iOS 客户端。
@@ -359,3 +400,34 @@ iOS/Android feature parity 调研完成，确认以下体验层差异需要对�
 - 平板模式 Rename 按钮恢复显示（去掉 `showSessionListInTopBar || showNewSessionInTopBar` 条件）
 - 平板模式 Context ring 恢复显示：右侧 Row 改用 `spacedBy(4.dp)` + Capsule Box 加 `weight(1f, fill = false)` 防溢出
 - Context ring streaming 期间保持可见：ChatScreen 缓存最后非 null contextUsage，避免 streaming 时新 assistant 消息无 tokens 导致 ring 消失
+
+---
+
+## Quiet Tech 视觉设计语言落地（2026-05-29）
+
+把 iOS client 已落地并验证的 "Quiet Tech 冷静科技感" 设计语言移植到 Android，与 iOS 视觉严格对齐（详见新建的 `docs/design.md`）。
+
+**地基（theme）**
+- `ui/theme/Color.kt`：新增 Quiet Tech token——电蓝 `BrandPrimary #3B82F6`、`BrandPrimaryLight #2563EB`、`BrandGold #D9A621`（仅"AI 工作中"）、近黑 `BgDark #0B0C0E` / `SurfaceDark #1A1D21` / `ComposerDark #141619` 及对应浅色 token、中性文字/分隔线。保留 diff/git 状态色。
+- `ui/theme/Theme.kt`：**关闭 Material You 动态取色**（移除 `dynamicColor`），改用写死的电蓝 light/dark `ColorScheme`，并把 `surfaceVariant`/`surfaceContainer*`/`primary`/`tertiary`/`outline` 等槽位映射到 Quiet Tech token——品牌色在所有设备固定为电蓝，不跟壁纸，和 iOS 决策一致。
+
+**UI（5 个组件，与 iOS 一一对应）**
+- `ChatInputBar.kt`：composer 收成单圆角 pill（`surfaceContainerLow` 底、无描边文本框）；mic 框内左（灰/录音红/转写转圈）；send 实底电蓝圆角方块**始终在**（`!canSend` 时 alpha 0.35），stop 仅 busy 时**堆叠在 send 下方**的实底红方块（不替换 send）。`ChatPermissionCard` 改中性 surface + 3dp 电蓝左色条 + 纯文字按钮。
+- `ChatMessageContent.kt`：用户消息 3dp 电蓝左色条 + muted 蓝底；工具卡/patch 卡/reasoning 卡中性 `surfaceVariant` 底，但**可交互元素（图标/工具名/文件路径/chevron/OpenInNew）电蓝**作可点暗示（不把整卡灰掉）；去掉 write/patch 特殊蓝底和橙色；保留 `run.chunked(2)` 两列网格。
+- `SessionList.kt`：选中行 3dp 电蓝左色条 baked 进 12dp 圆角选中底（`primary` @8% alpha）并 clip 在圆角内，不戳出、不与展开 chevron/缩进冲突；去掉交替条纹。
+- `ChatTopBar.kt`：model 选择器从实底蓝胶囊改描边 chip（透明底 + 电蓝边 + 电蓝字）；toolbar 图标中性灰、新建动作电蓝；context ring 进度电蓝。
+- `SettingsSections.kt`：Theme 改分段控件（`SingleChoiceSegmentedButtonRow`），选中段电蓝。
+
+**验证**
+- `./gradlew compileDebugKotlin`、`testDebugUnitTest` 通过。
+- 3 个 UI instrumented test 类（`ChatInputBarInstrumentedTest` / `SessionListInstrumentedTest` / `SettingsSectionsInstrumentedTest`，共 9 个 test）在真机上通过——确认 restyle 没破坏 send/stop/speech contentDescription、session 行文字/状态、settings 文字/enabled 逻辑。
+- 模拟器深色截图确认：电蓝品牌色生效（无 Material You 紫）、toolbar 描边 model chip、底部 tab 电蓝选中、Settings 分段 Theme 控件、实底电蓝按钮。
+- 注：真机连 `127.0.0.1` 连不到跑在宿主机的 OpenCode server；模拟器走 `10.0.2.2:4096` 映射宿主 localhost。有内容的 Chat（消息/卡片）截图未强验，靠 instrumented test 对 composer 的覆盖 + 编译 + 代码审查。
+
+**视觉走查后的迭代修正（同日，模拟器逐项验收）**
+- **品牌蓝定版**：低饱和实验（`#5E8BCC`/`#4574B5`）显得 send 按钮太低调，最终回到鲜艳电蓝 `#3B82F6`，**浅色深色用同一个值**（与 iOS 一致，按钮不退到背景里）。`Color.kt` 的 `BrandPrimary` 与 `BrandPrimaryLight` 都为 `#3B82F6`。
+- **composer 布局对齐 iOS**：曾误改成"文本框在上、图标行在下"的上下两段式，反而割裂。改回与 iOS `ChatTabView` 完全相同的**单行横排**：`Row(verticalAlignment = Bottom)` → mic（左）| 文本框（`weight 1f`，无独立背景，共享 pill 底）| send/stop 列（右），整体一个圆角 pill。图标与文字同在 pill 内、底部对齐——iOS 本就如此，不是 bug。
+- **文本框约三行高**：`heightIn(min = 66.dp, max = 132.dp)`（≈3 行起、≈6 行封顶后内部滚动），Box `TopStart` 对齐让多行从顶部起排。
+- **send/stop 顺序**：send 始终在**上**、stop 仅 busy 时叠在**下**（修掉了曾经 busy 时渲染两个 stop 的 bug）。send 始终可发——无需先终止再发送。
+- **stop 红定版**：Material 默认 error 红 `#B3261E` 又深又闷，改 `StopRed #E5484D`（提亮、纯度略降，近 iOS 系统红），录音态 mic 也用此红。
+- **测试环境**：API 36 模拟器上 espresso `3.6.1` 触发 `InputManager.getInstance` `NoSuchMethodException`（旧版 espresso 与 Android 16 注入不兼容）。升级 `espressoCore 3.6.1 → 3.7.0` 修复。**全部 15 个 instrumented test 在 emulator-5554 通过**（`am instrument` 限定设备，不装真机以免破坏 credential）；单元测试 + `assembleDebug` 通过。

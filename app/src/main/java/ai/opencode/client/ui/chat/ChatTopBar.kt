@@ -1,23 +1,27 @@
 package ai.opencode.client.ui.chat
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -46,11 +50,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
+import ai.opencode.client.data.model.TodoItem
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.session.SessionList
+import ai.opencode.client.ui.theme.BrandGold
+import java.util.Locale
 
 internal data class ChatTopBarState(
     val sessions: List<Session>,
@@ -60,11 +66,10 @@ internal data class ChatTopBarState(
     val isLoadingMoreSessions: Boolean,
     val isRefreshingSessions: Boolean = false,
     val expandedSessionIds: Set<String> = emptySet(),
-    val agents: List<AgentInfo>,
-    val selectedAgent: String,
     val availableModels: List<AppState.ModelOption>,
     val selectedModelIndex: Int,
     val contextUsage: AppState.ContextUsage?,
+    val sessionTodos: List<TodoItem> = emptyList(),
     val showSettingsButton: Boolean = true,
     val showNewSessionInTopBar: Boolean = true,
     val showSessionListInTopBar: Boolean = true
@@ -74,10 +79,11 @@ internal data class ChatTopBarActions(
     val onSelectSession: (String) -> Unit,
     val onCreateSession: () -> Unit,
     val onDeleteSession: (String) -> Unit,
+    val onArchiveSession: (String) -> Unit = {},
+    val onRestoreSession: (String) -> Unit = {},
     val onLoadMoreSessions: () -> Unit,
     val onRefreshSessions: () -> Unit = {},
     val onToggleSessionExpanded: (String) -> Unit = {},
-    val onSelectAgent: (String) -> Unit,
     val onSelectModel: (Int) -> Unit,
     val onNavigateToSettings: () -> Unit = {},
     val onRenameSession: (String) -> Unit = {}
@@ -92,9 +98,10 @@ internal fun ChatTopBar(
 ) {
     val currentSession = state.sessions.find { it.id == state.currentSessionId }
     var showSessionSheet by remember { mutableStateOf(false) }
-    var showAgentMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showTodoDialog by remember { mutableStateOf(false) }
+    var showContextDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(showSessionSheet) {
         if (showSessionSheet) actions.onRefreshSessions()
@@ -135,9 +142,10 @@ internal fun ChatTopBar(
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
-                                Icons.Default.List,
+                                Icons.AutoMirrored.Filled.List,
                                 contentDescription = "Sessions",
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
@@ -150,7 +158,8 @@ internal fun ChatTopBar(
                         Icon(
                             Icons.Default.Edit,
                             contentDescription = "Rename session",
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -163,10 +172,12 @@ internal fun ChatTopBar(
                             Icon(
                                 Icons.Default.Add,
                                 contentDescription = "New session",
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
+
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -179,7 +190,11 @@ internal fun ChatTopBar(
                         Surface(
                             onClick = { showModelMenu = true },
                             shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primary
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            )
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -189,14 +204,14 @@ internal fun ChatTopBar(
                                     text = state.availableModels.getOrNull(state.selectedModelIndex)?.shortName ?: "Model",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    color = MaterialTheme.colorScheme.primary,
                                     maxLines = 1
                                 )
                                 Icon(
                                     Icons.Default.KeyboardArrowDown,
                                     contentDescription = "Switch LLM model",
                                     modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimary
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -235,68 +250,42 @@ internal fun ChatTopBar(
                         }
                     }
 
-                    Box(modifier = Modifier.weight(1f, fill = false)) {
-                        Surface(
-                            onClick = { showAgentMenu = true },
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                    val todoList = state.sessionTodos
+                    val todoBadge = if (todoList.isNotEmpty()) {
+                        "${todoList.count { it.isCompleted }}/${todoList.size}"
+                    } else ""
+                    Surface(
+                        onClick = { showTodoDialog = true },
+                        shape = RoundedCornerShape(50),
+                        color = Color.Transparent
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
+                            Icon(
+                                Icons.Default.Checklist,
+                                contentDescription = if (todoBadge.isEmpty()) "Todo" else "Todo $todoBadge",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (todoBadge.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = state.selectedAgent,
+                                    todoBadge,
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                                Icon(
-                                    Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Switch agent",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = showAgentMenu,
-                            onDismissRequest = { showAgentMenu = false }
-                        ) {
-                            if (state.agents.isEmpty()) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            "No agents",
-                                            color = MaterialTheme.colorScheme.outline
-                                        )
-                                    },
-                                    onClick = { }
-                                )
-                            }
-                            state.agents.forEach { agent ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            agent.name,
-                                            color = if (agent.name == state.selectedAgent)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        actions.onSelectAgent(agent.name)
-                                        showAgentMenu = false
-                                    }
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
                     }
 
-                    state.contextUsage?.let { usage ->
-                        ContextUsageRing(usage = usage)
+                    Surface(
+                        onClick = { showContextDialog = true },
+                        shape = RoundedCornerShape(50),
+                        color = Color.Transparent
+                    ) {
+                        ContextUsageRing(usage = state.contextUsage)
                     }
 
                     if (state.showSettingsButton) {
@@ -307,7 +296,8 @@ internal fun ChatTopBar(
                             Icon(
                                 Icons.Default.Settings,
                                 contentDescription = "Settings",
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -345,6 +335,8 @@ internal fun ChatTopBar(
                         actions.onDeleteSession(it)
                         showSessionSheet = false
                     },
+                    onArchiveSession = actions.onArchiveSession,
+                    onRestoreSession = actions.onRestoreSession,
                     onLoadMoreSessions = actions.onLoadMoreSessions,
                     onRefreshSessions = actions.onRefreshSessions,
                     onToggleSessionExpanded = actions.onToggleSessionExpanded,
@@ -392,15 +384,129 @@ internal fun ChatTopBar(
             }
         )
     }
+
+    if (showTodoDialog) {
+        AlertDialog(
+            onDismissRequest = { showTodoDialog = false },
+            title = { Text("Todo") },
+            text = {
+                TodoListPanel(
+                    todos = state.sessionTodos,
+                    modifier = Modifier.heightIn(max = 400.dp)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showTodoDialog = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
+    if (showContextDialog) {
+        ContextUsageDialog(
+            usage = state.contextUsage,
+            onDismiss = { showContextDialog = false }
+        )
+    }
 }
 
 @Composable
-internal fun ContextUsageRing(usage: AppState.ContextUsage) {
+private fun ContextUsageDialog(
+    usage: AppState.ContextUsage?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Context") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (usage == null) {
+                    Text(
+                        "No usage data",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    ContextUsageSection("Model") {
+                        ContextUsageRow("Provider", usage.providerId ?: "Unknown")
+                        ContextUsageRow("Model", usage.modelId ?: "Unknown")
+                        ContextUsageRow("Context limit", formatCount(usage.contextLimit))
+                    }
+                    ContextUsageSection("Tokens") {
+                        ContextUsageRow("Total", formatCount(usage.totalTokens))
+                        ContextUsageRow("Input", formatOptionalCount(usage.inputTokens))
+                        ContextUsageRow("Output", formatOptionalCount(usage.outputTokens))
+                        ContextUsageRow("Reasoning", formatOptionalCount(usage.reasoningTokens))
+                        ContextUsageRow("Cached read", formatOptionalCount(usage.cachedReadTokens))
+                        ContextUsageRow("Cached write", formatOptionalCount(usage.cachedWriteTokens))
+                    }
+                    ContextUsageSection("Cost") {
+                        ContextUsageRow("Cost", usage.cost?.let { "$" + String.format(Locale.US, "%.4f", it) } ?: "No cost data")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ContextUsageSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        content()
+    }
+}
+
+@Composable
+private fun ContextUsageRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(start = 16.dp)
+        )
+    }
+}
+
+private fun formatCount(value: Int): String = String.format(Locale.US, "%,d", value)
+
+private fun formatOptionalCount(value: Int?): String = value?.let(::formatCount) ?: "-"
+
+@Composable
+internal fun ContextUsageRing(usage: AppState.ContextUsage?) {
     val ringColor = when {
+        usage == null -> MaterialTheme.colorScheme.onSurfaceVariant
         usage.percentage >= 0.9f -> MaterialTheme.colorScheme.error
-        usage.percentage >= 0.7f -> Color(0xFFFFA726)
+        usage.percentage >= 0.7f -> BrandGold
         else -> MaterialTheme.colorScheme.primary
     }
+    val trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+        alpha = if (usage == null) 0.55f else 0.25f
+    )
 
     Box(
         modifier = Modifier.size(ChatUiTuning.contextRingOuterSize),
@@ -409,15 +515,17 @@ internal fun ContextUsageRing(usage: AppState.ContextUsage) {
         CircularProgressIndicator(
             progress = { 1f },
             modifier = Modifier.size(ChatUiTuning.contextRingInnerSize),
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+            color = trackColor,
             strokeWidth = 3.dp
         )
-        CircularProgressIndicator(
-            progress = { usage.percentage },
-            modifier = Modifier.size(ChatUiTuning.contextRingInnerSize),
-            color = ringColor,
-            strokeWidth = 3.dp
-        )
+        if (usage != null) {
+            CircularProgressIndicator(
+                progress = { usage.percentage },
+                modifier = Modifier.size(ChatUiTuning.contextRingInnerSize),
+                color = ringColor,
+                strokeWidth = 3.dp
+            )
+        }
     }
 }
 
@@ -429,7 +537,7 @@ internal fun ChatEmptyState(
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
-                Icons.Default.Chat,
+                Icons.AutoMirrored.Filled.Chat,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.outline

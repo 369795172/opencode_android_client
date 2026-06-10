@@ -38,6 +38,21 @@ internal data class MessagePartDeltaEvent(
     val delta: String?
 )
 
+/**
+ * Strip surrounding/hidden whitespace (including zero-width and BOM) from a bearer
+ * token. Previously lived on `AIBuildersAudioClient`; kept here as a UI-layer helper
+ * after the audio pipeline moved into the VoiceFlowKit library.
+ */
+internal fun sanitizeBearerToken(rawToken: String): String {
+    return rawToken
+        .trim()
+        .filterNot { ch ->
+            ch.isWhitespace() ||
+                Character.getType(ch) == Character.FORMAT.toInt() ||
+                ch == '﻿'
+        }
+}
+
 internal fun aiBuilderSignature(baseURL: String, token: String): String {
     val input = "$baseURL|$token"
     return MessageDigest.getInstance("SHA-256")
@@ -68,6 +83,48 @@ internal fun parseSessionUpdatedEvent(event: SSEEvent): Session? {
 
 internal fun upsertSession(sessions: List<Session>, session: Session): List<Session> {
     return listOf(session) + sessions.filter { it.id != session.id }
+}
+
+internal fun bumpSessionUpdated(sessions: List<Session>, sessionId: String, updated: Long): List<Session> {
+    return sessions.map { session ->
+        if (session.id == sessionId) {
+            session.copy(time = session.time.withUpdatedAtLeast(updated))
+        } else {
+            session
+        }
+    }
+}
+
+internal fun mergeRefreshedSessionsPreservingLocalActivity(
+    refreshed: List<Session>,
+    local: List<Session>
+): List<Session> {
+    val localById = local.associateBy { it.id }
+    return refreshed.map { remote ->
+        val localSession = localById[remote.id]
+        val localUpdated = localSession?.time?.updated
+        val remoteUpdated = remote.time?.updated
+        if (localUpdated != null && (remoteUpdated == null || localUpdated > remoteUpdated)) {
+            // The local copy is strictly newer than this refresh response (e.g. it was just
+            // upserted from a session.updated SSE event that carries the server-authoritative
+            // title). A concurrently-issued full refresh can return a stale snapshot that
+            // predates the title generation, so prefer the local title here to avoid clobbering
+            // it. The full refresh remains authoritative whenever it is at least as fresh.
+            remote.copy(
+                title = localSession.title ?: remote.title,
+                time = remote.time.withUpdatedAtLeast(localUpdated)
+            )
+        } else {
+            remote
+        }
+    }
+}
+
+private fun Session.TimeInfo?.withUpdatedAtLeast(updated: Long): Session.TimeInfo {
+    val currentUpdated = this?.updated
+    return (this ?: Session.TimeInfo()).copy(
+        updated = if (currentUpdated == null || updated > currentUpdated) updated else currentUpdated
+    )
 }
 
 internal fun nextSessionFetchLimit(current: Int, pageSize: Int = MainViewModelTimings.sessionPageSize): Int {

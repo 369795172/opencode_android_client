@@ -24,6 +24,13 @@ class SSEClient(
         private const val INITIAL_RETRY_DELAY_MS = 1000L
         private const val MAX_RETRY_DELAY_MS = 30000L
         private const val RETRY_MULTIPLIER = 2.0
+
+        // Reuse a single Json instance instead of allocating one per event.
+        private val json = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
     }
 
     fun connect(
@@ -67,11 +74,7 @@ class SSEClient(
             ) {
                 if (data.isNotBlank() && data != "[DONE]") {
                     try {
-                        val event = kotlinx.serialization.json.Json {
-                            ignoreUnknownKeys = true
-                            isLenient = true
-                            coerceInputValues = true
-                        }.decodeFromString<SSEEvent>(data)
+                        val event = json.decodeFromString<SSEEvent>(data)
                         trySend(Result.success(event))
                     } catch (_: Exception) {
                         // Skip malformed events silently

@@ -1,9 +1,10 @@
 package ai.opencode.client.ui
 
-import ai.opencode.client.data.audio.AIBuildersAudioClient
 import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.util.PersistedModelHealth
 import ai.opencode.client.util.SettingsManager
+import com.yage.voiceflowkit.VoiceFlowClient
+import com.yage.voiceflowkit.VoiceFlowConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -17,13 +18,11 @@ internal fun applySavedSettings(
     repository.configure(
         baseUrl = settingsManager.serverUrl,
         username = settingsManager.username,
-        password = settingsManager.password,
-        workspaceDirectory = settingsManager.workspaceDirectory.ifBlank { null }
+        password = settingsManager.password
     )
 
     val savedModelIndex = settingsManager.selectedModelIndex
-    val maxModelIdx = (state.value.availableModels.size - 1).coerceAtLeast(0)
-    val clampedModelIndex = savedModelIndex.coerceIn(0, maxModelIdx)
+    val clampedModelIndex = savedModelIndex.coerceIn(0, ModelPresets.list.size - 1)
     if (clampedModelIndex != savedModelIndex) {
         settingsManager.selectedModelIndex = clampedModelIndex
     }
@@ -33,21 +32,14 @@ internal fun applySavedSettings(
             currentSessionId = settingsManager.currentSessionId,
             selectedModelIndex = clampedModelIndex,
             selectedAgentName = settingsManager.selectedAgentName ?: "build",
-            themeMode = settingsManager.themeMode,
-            modelHealth = settingsManager.getModelHealthSnapshot().mapValues { (_, entry) ->
-                ModelHealth(
-                    healthy = entry.healthy,
-                    updatedAtMs = entry.updatedAtMs,
-                    reason = entry.reason
-                )
-            }
+            themeMode = settingsManager.themeMode
         )
     }
 
     val savedSignature = settingsManager.aiBuilderLastOKSignature
     val currentSignature = aiBuilderSignature(
         settingsManager.aiBuilderBaseURL.trim(),
-        AIBuildersAudioClient.sanitizeBearerToken(settingsManager.aiBuilderToken)
+        sanitizeBearerToken(settingsManager.aiBuilderToken)
     )
     if (savedSignature != null && savedSignature == currentSignature) {
         state.update { it.copy(aiBuilderConnectionOK = true) }
@@ -104,11 +96,12 @@ internal fun persistModelHealth(
 internal fun launchAIBuilderConnectionTest(
     scope: CoroutineScope,
     settingsManager: SettingsManager,
+    voiceFlowClient: VoiceFlowClient,
     state: MutableStateFlow<AppState>
 ) {
     scope.launch {
         state.update { it.copy(isTestingAIBuilderConnection = true, aiBuilderConnectionError = null) }
-        val token = AIBuildersAudioClient.sanitizeBearerToken(settingsManager.aiBuilderToken)
+        val token = sanitizeBearerToken(settingsManager.aiBuilderToken)
         if (token.isEmpty()) {
             state.update {
                 it.copy(
@@ -121,7 +114,15 @@ internal fun launchAIBuilderConnectionTest(
         }
 
         val baseURL = settingsManager.aiBuilderBaseURL.trim()
-        AIBuildersAudioClient.testConnection(baseURL, token)
+        // Refresh the library config with the current endpoint before probing so the
+        // reachability check hits the same backend the realtime session will use.
+        voiceFlowClient.updateConfig(
+            VoiceFlowConfig(
+                endpoint = baseURL.ifEmpty { VoiceFlowConfig.DEFAULT_ENDPOINT },
+                tokenProvider = { token },
+            )
+        )
+        runCatching { voiceFlowClient.testConnection() }
             .onSuccess {
                 val signature = aiBuilderSignature(baseURL, token)
                 settingsManager.aiBuilderLastOKSignature = signature

@@ -1,6 +1,7 @@
 package ai.opencode.client.ui
 
 import ai.opencode.client.data.model.SSEEvent
+import ai.opencode.client.data.model.TodoItem
 import ai.opencode.client.data.repository.OpenCodeRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.*
 
 private const val TOOL_PART_STALL_CHECK_INTERVAL_MS = 30_000L
 private const val TOOL_PART_STALL_TIMEOUT_MS = 120_000L
@@ -93,15 +95,16 @@ internal fun handleIncomingSseEvent(
     state: MutableStateFlow<AppState>,
     event: SSEEvent,
     onRefreshMessages: (String, Boolean) -> Unit,
+    onRefreshSessions: () -> Unit,
     onLoadPendingPermissions: () -> Unit,
-    onNonFatalIssue: (String) -> Unit,
-    onDiagnostic: (RequestDiagnosticEntry) -> Unit
+    onNonFatalIssue: (String) -> Unit
 ) {
     when (event.payload.type) {
         "session.created" -> {
             val created = parseSessionCreatedEvent(event)
             if (created != null) {
                 state.update { it.copy(sessions = upsertSession(it.sessions, created.session)) }
+                onRefreshSessions()
             } else {
                 onNonFatalIssue("Ignoring invalid session.created payload")
             }
@@ -110,6 +113,7 @@ internal fun handleIncomingSseEvent(
             val updated = parseSessionUpdatedEvent(event)
             if (updated != null) {
                 state.update { it.copy(sessions = upsertSession(it.sessions, updated)) }
+                onRefreshSessions()
             } else {
                 onNonFatalIssue("Ignoring invalid session.updated payload")
             }
@@ -122,26 +126,6 @@ internal fun handleIncomingSseEvent(
                         sessionStatuses = it.sessionStatuses + (statusEvent.sessionId to statusEvent.status)
                     )
                 }
-                if (statusEvent.status.isRetry && !statusEvent.status.message.isNullOrBlank()) {
-                    val retryMsg = "Retry #${statusEvent.status.attempt ?: "?"}: ${statusEvent.status.message}"
-                    state.update { it.copy(error = retryMsg) }
-                }
-                val active = state.value.activeRequest
-                if (active != null && active.sessionId == statusEvent.sessionId && statusEvent.status.isIdle) {
-                    val completed = active.copy(phase = AsyncRequestPhase.COMPLETED, lastProgressAtMs = System.currentTimeMillis())
-                    state.update { it.copy(activeRequest = completed) }
-                    onDiagnostic(
-                        RequestDiagnosticEntry(
-                            sessionId = statusEvent.sessionId,
-                            requestId = active.requestId,
-                            phase = AsyncRequestPhase.COMPLETED,
-                            agent = active.agent,
-                            providerId = active.model?.providerId,
-                            modelId = active.model?.modelId,
-                            message = "Session reported idle after request"
-                        )
-                    )
-                }
                 if (statusEvent.sessionId == state.value.currentSessionId && !statusEvent.status.isBusy) {
                     state.update {
                         it.copy(
@@ -149,6 +133,7 @@ internal fun handleIncomingSseEvent(
                             streamingReasoningPart = null
                         )
                     }
+                    onRefreshSessions()
                     onRefreshMessages(statusEvent.sessionId, false)
                 }
             } else {
@@ -157,47 +142,24 @@ internal fun handleIncomingSseEvent(
         }
         "message.created" -> {
             val sessionId = event.payload.getString("sessionID")
-            if (sessionId != null && sessionId == state.value.currentSessionId) {
-                onRefreshMessages(sessionId, true)
-            }
             if (sessionId != null) {
-                val active = state.value.activeRequest
-                if (active != null && active.sessionId == sessionId) {
-                    val progressed = active.copy(
-                        phase = AsyncRequestPhase.FIRST_ASSISTANT_SEEN,
-                        lastProgressAtMs = System.currentTimeMillis()
-                    )
-                    state.update { it.copy(activeRequest = progressed) }
-                    onDiagnostic(
-                        RequestDiagnosticEntry(
-                            sessionId = sessionId,
-                            requestId = active.requestId,
-                            phase = AsyncRequestPhase.FIRST_ASSISTANT_SEEN,
-                            agent = active.agent,
-                            providerId = active.model?.providerId,
-                            modelId = active.model?.modelId,
-                            message = "message.created observed via SSE"
-                        )
-                    )
+                onRefreshSessions()
+                if (sessionId == state.value.currentSessionId) {
+                    onRefreshMessages(sessionId, true)
+                }
+            }
+        }
+        "message.updated" -> {
+            val sessionId = event.payload.getString("sessionID")
+            if (sessionId != null) {
+                onRefreshSessions()
+                if (sessionId == state.value.currentSessionId) {
+                    onRefreshMessages(sessionId, false)
                 }
             }
         }
         "message.part.updated" -> {
             val deltaEvent = parseMessagePartDeltaEvent(event) ?: return
-            if (
-                deltaEvent.partType == "tool" &&
-                deltaEvent.messageId != null &&
-                deltaEvent.partId != null
-            ) {
-                val key = "${deltaEvent.messageId}:${deltaEvent.partId}"
-                val now = System.currentTimeMillis()
-                state.update {
-                    it.copy(
-                        toolPartLastUpdated = it.toolPartLastUpdated + (key to now),
-                        stalledToolPartKeys = it.stalledToolPartKeys - key
-                    )
-                }
-            }
             if (deltaEvent.sessionId == state.value.currentSessionId) {
                 if (
                     deltaEvent.messageId != null &&
@@ -253,6 +215,16 @@ internal fun handleIncomingSseEvent(
                     )
                 }
             }
+        }
+        "todo.updated" -> {
+            val sessionId = event.payload.getString("sessionID") ?: return
+            val todosArray = event.payload.properties?.get("todos") as? kotlinx.serialization.json.JsonArray ?: return
+            val todos = try {
+                Json.decodeFromJsonElement<List<TodoItem>>(todosArray)
+            } catch (_: Exception) {
+                return
+            }
+            state.update { it.copy(sessionTodos = it.sessionTodos + (sessionId to todos)) }
         }
     }
 }
