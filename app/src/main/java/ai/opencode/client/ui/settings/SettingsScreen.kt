@@ -46,6 +46,7 @@ fun SettingsScreen(
     var aiBuilderCustomPrompt by remember { mutableStateOf(savedAIBuilder.customPrompt) }
     var aiBuilderTerminology by remember { mutableStateOf(savedAIBuilder.terminology) }
     var showAIBuilderToken by remember { mutableStateOf(false) }
+    var autoReadAloud by remember { mutableStateOf(viewModel.getAutoReadAloud()) }
     var diagnosticsCopiedMsg by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.isConnecting) {
@@ -169,6 +170,16 @@ fun SettingsScreen(
                             terminology = aiBuilderTerminology
                         )
                     )
+                }
+            )
+
+            SettingsSectionDivider()
+
+            TtsPlaybackSection(
+                autoReadAloud = autoReadAloud,
+                onAutoReadAloudChange = { enabled ->
+                    autoReadAloud = enabled
+                    viewModel.setAutoReadAloud(enabled)
                 }
             )
 

@@ -3,6 +3,8 @@ package ai.opencode.client
 import android.util.Log
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.tts.TtsController
+import ai.opencode.client.tts.TtsPlaybackState
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.util.SettingsManager
@@ -41,6 +43,7 @@ class ForkSessionTest {
     private lateinit var settingsManager: SettingsManager
     private lateinit var voiceFlowClient: VoiceFlowClient
     private lateinit var microphone: VoiceFlowMicrophone
+    private lateinit var ttsController: TtsController
 
     @Before
     fun setUp() {
@@ -54,6 +57,9 @@ class ForkSessionTest {
         settingsManager = mockk(relaxed = true)
         voiceFlowClient = mockk(relaxed = true)
         microphone = mockk(relaxed = true)
+        ttsController = mockk(relaxed = true)
+
+        every { ttsController.playbackState } returns MutableStateFlow(TtsPlaybackState())
 
         every { settingsManager.serverUrl } returns "http://server.test"
         every { settingsManager.username } returns null
@@ -102,7 +108,7 @@ class ForkSessionTest {
     }
 
     private fun createViewModel(): MainViewModel {
-        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone)
+        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone, ttsController)
     }
 
     @Test

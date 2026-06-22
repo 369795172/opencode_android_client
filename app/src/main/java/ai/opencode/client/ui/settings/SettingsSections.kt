@@ -34,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -328,6 +329,36 @@ internal fun SpeechRecognitionSection(
                     state.aiBuilderConnectionError ?: "Connection failed"
                 }
             )
+        )
+    }
+}
+
+@Composable
+internal fun TtsPlaybackSection(
+    autoReadAloud: Boolean,
+    onAutoReadAloudChange: (Boolean) -> Unit
+) {
+    SectionHeader(title = "Text-to-Speech")
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Auto-read AI replies",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                "Automatically read assistant messages aloud when a reply completes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        Switch(
+            checked = autoReadAloud,
+            onCheckedChange = onAutoReadAloudChange
         )
     }
 }
