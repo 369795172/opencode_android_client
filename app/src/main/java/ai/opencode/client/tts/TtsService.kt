@@ -53,6 +53,10 @@ class TtsService : Service() {
                     pendingText = null
                     pendingMessageId = null
                 }
+            } else {
+                pendingText = null
+                pendingMessageId = null
+                stopPlayback(removeNotification = true)
             }
         }
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -80,23 +84,32 @@ class TtsService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_SPEAK -> {
-                val text = intent.getStringExtra(EXTRA_TEXT) ?: return START_NOT_STICKY
-                val messageId = intent.getStringExtra(EXTRA_MESSAGE_ID)
-                isPaused = false
-                tts?.stop()
-                currentText = text
-                currentMessageId = messageId
-                if (isTtsReady) {
-                    speakInternal(text, messageId)
-                } else {
-                    pendingText = text
-                    pendingMessageId = messageId
+            ACTION_STOP -> stopPlayback(removeNotification = true)
+            else -> {
+                ensureForeground(isPlaying = false)
+                when (intent?.action) {
+                    ACTION_SPEAK -> {
+                        val text = intent.getStringExtra(EXTRA_TEXT)
+                        if (text == null) {
+                            stopPlayback(removeNotification = true)
+                            return START_NOT_STICKY
+                        }
+                        val messageId = intent.getStringExtra(EXTRA_MESSAGE_ID)
+                        isPaused = false
+                        tts?.stop()
+                        currentText = text
+                        currentMessageId = messageId
+                        if (isTtsReady) {
+                            speakInternal(text, messageId)
+                        } else {
+                            pendingText = text
+                            pendingMessageId = messageId
+                        }
+                    }
+                    ACTION_PAUSE -> pausePlayback()
+                    ACTION_RESUME -> resumePlayback()
                 }
             }
-            ACTION_PAUSE -> pausePlayback()
-            ACTION_STOP -> stopPlayback(removeNotification = true)
-            ACTION_RESUME -> resumePlayback()
         }
         return START_NOT_STICKY
     }
@@ -112,10 +125,8 @@ class TtsService : Service() {
         super.onDestroy()
     }
 
-    private fun speakInternal(text: String, messageId: String?) {
-        currentText = text
-        currentMessageId = messageId
-        val notification = buildNotification(isPlaying = true)
+    private fun ensureForeground(isPlaying: Boolean) {
+        val notification = buildNotification(isPlaying)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -125,6 +136,12 @@ class TtsService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun speakInternal(text: String, messageId: String?) {
+        currentText = text
+        currentMessageId = messageId
+        ensureForeground(isPlaying = true)
         val params = Bundle().apply {
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, UTTERANCE_ID)
         }
