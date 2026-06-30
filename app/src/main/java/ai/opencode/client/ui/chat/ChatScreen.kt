@@ -169,13 +169,9 @@ fun ChatScreen(
         if (state.currentSessionId != null) {
             if (state.ttsReadingMessageId != null) {
                 TtsPlaybackBar(
-                    isPlaying = state.isTtsPlaying,
+                    messageId = state.ttsReadingMessageId,
                     isPaused = state.ttsIsPaused,
-                    progress = state.ttsProgress,
-                    currentChunk = state.ttsCurrentChunk,
-                    totalChunks = state.ttsTotalChunks,
                     speechRate = state.ttsSpeechRate,
-                    onSeek = viewModel::seekTts,
                     onPause = viewModel::pauseTts,
                     onResume = viewModel::resumeTts,
                     onStop = viewModel::stopTts,
