@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -40,9 +41,23 @@ class TtsService : Service() {
     private var currentMessageId: String? = null
     private var selectedEngine: String? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var utteranceChunks: List<String> = emptyList()
     private var activeChunkIndex: Int = 0
+    private var isPlaybackActive: Boolean = false
+
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                if (!isPaused && isPlaybackActive) pausePlayback()
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (isPaused && utteranceChunks.isNotEmpty()) resumePlayback()
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -99,8 +114,14 @@ class TtsService : Service() {
 
             override fun onDone(utteranceId: String?) {
                 val chunkIndex = parseChunkIndex(utteranceId)
-                if (chunkIndex == null || chunkIndex >= utteranceChunks.lastIndex) {
+                if (chunkIndex == null) {
                     finishPlayback()
+                    return
+                }
+                if (chunkIndex >= utteranceChunks.lastIndex) {
+                    finishPlayback()
+                } else {
+                    speakChunkAt(chunkIndex + 1)
                 }
             }
 
@@ -118,7 +139,7 @@ class TtsService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        ensureForeground(isPlaying = false)
+        ensureForeground(isPlaying = isPlaybackActive)
         when (intent?.action) {
             ACTION_STOP -> stopPlayback(removeNotification = true)
             ACTION_SPEAK -> {
@@ -148,12 +169,13 @@ class TtsService : Service() {
             ACTION_PAUSE -> pausePlayback()
             ACTION_RESUME -> resumePlayback()
         }
-        return START_NOT_STICKY
+        return if (isPlaybackActive) START_STICKY else START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        releasePlaybackWakeLock()
         abandonAudioFocus()
         mediaSession?.release()
         mediaSession = null
@@ -189,25 +211,45 @@ class TtsService : Service() {
         }
     }
 
+    private fun acquirePlaybackWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$TAG::playback"
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releasePlaybackWakeLock() {
+        wakeLock?.let { lock ->
+            if (lock.isHeld) lock.release()
+        }
+        wakeLock = null
+    }
+
     private fun requestPlaybackFocus(): Boolean {
         val audioManager = getSystemService(AudioManager::class.java)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
+                .setOnAudioFocusChangeListener(audioFocusListener, mainHandler)
                 .build()
             audioFocusRequest = request
             audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(
-                null,
+                audioFocusListener,
                 AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                AudioManager.AUDIOFOCUS_GAIN
             ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
     }
@@ -219,7 +261,7 @@ class TtsService : Service() {
             audioFocusRequest = null
         } else {
             @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(null)
+            audioManager.abandonAudioFocus(audioFocusListener)
         }
     }
 
@@ -228,39 +270,41 @@ class TtsService : Service() {
         currentMessageId = messageId
         utteranceChunks = TtsTextChunker.chunk(text, DEFAULT_MAX_SPEECH_INPUT_LENGTH)
         activeChunkIndex = 0
-        ensureForeground(isPlaying = true)
+        isPlaybackActive = true
         if (!requestPlaybackFocus()) {
             Log.w(TAG, "Audio focus not granted; attempting speak anyway")
         }
         Log.i(TAG, "speak len=${text.length} chunks=${utteranceChunks.size} engine=$selectedEngine")
-        enqueueChunksFrom(startIndex = 0)
+        speakChunkAt(0)
     }
 
-    private fun enqueueChunksFrom(startIndex: Int) {
-        val engine = tts ?: return
-        if (startIndex >= utteranceChunks.size) {
+    private fun speakChunkAt(index: Int) {
+        val engine = tts ?: return finishPlayback()
+        if (index >= utteranceChunks.size) {
             finishPlayback()
             return
         }
-        for (index in startIndex until utteranceChunks.size) {
-            val chunk = utteranceChunks[index]
-            val mode = if (index == startIndex) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            val utteranceId = utteranceIdForChunk(index)
-            val params = Bundle().apply {
-                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
-                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
-            }
-            val result = engine.speak(chunk, mode, params, utteranceId)
-            if (result == TextToSpeech.ERROR) {
-                Log.w(TAG, "TTS speak returned ERROR for chunk=$index")
-                notifyTtsError("朗读失败，请检查系统文字转语音设置与媒体音量。")
-                finishPlayback()
-                return
-            }
+        activeChunkIndex = index
+        acquirePlaybackWakeLock()
+        ensureForeground(isPlaying = true)
+        val chunk = utteranceChunks[index]
+        val utteranceId = utteranceIdForChunk(index)
+        val params = Bundle().apply {
+            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+        }
+        val result = engine.speak(chunk, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        Log.d(TAG, "speak chunk=$index/${utteranceChunks.lastIndex} len=${chunk.length} result=$result")
+        if (result == TextToSpeech.ERROR) {
+            Log.w(TAG, "TTS speak returned ERROR for chunk=$index")
+            notifyTtsError("朗读失败，请检查系统文字转语音设置与媒体音量。")
+            finishPlayback()
         }
     }
 
     private fun finishPlayback() {
+        isPlaybackActive = false
+        releasePlaybackWakeLock()
         abandonAudioFocus()
         stopPlayback(removeNotification = true)
     }
@@ -269,7 +313,7 @@ class TtsService : Service() {
         if (isPaused) return
         tts?.stop()
         isPaused = true
-        abandonAudioFocus()
+        releasePlaybackWakeLock()
         ttsController?.onPlaybackPaused(currentMessageId)
         updatePlaybackState(PlaybackState.STATE_PAUSED)
         updateForegroundNotification(isPlaying = false)
@@ -278,16 +322,21 @@ class TtsService : Service() {
     private fun resumePlayback() {
         if (!isPaused || utteranceChunks.isEmpty()) return
         isPaused = false
-        enqueueChunksFrom(activeChunkIndex)
+        if (!requestPlaybackFocus()) {
+            Log.w(TAG, "Audio focus not granted on resume; attempting speak anyway")
+        }
+        speakChunkAt(activeChunkIndex)
     }
 
     private fun stopPlayback(removeNotification: Boolean) {
         tts?.stop()
         isPaused = false
+        isPlaybackActive = false
         currentText = null
         currentMessageId = null
         utteranceChunks = emptyList()
         activeChunkIndex = 0
+        releasePlaybackWakeLock()
         abandonAudioFocus()
         ttsController?.onPlaybackStopped()
         updatePlaybackState(PlaybackState.STATE_STOPPED)
@@ -338,9 +387,10 @@ class TtsService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "AI reply playback",
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
-            description = "Text-to-speech playback controls"
+            description = "Text-to-speech playback while screen is off"
+            setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -373,11 +423,21 @@ class TtsService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Reading AI reply")
-            .setContentText(if (isPlaying) "Playing" else "Paused")
+            .setContentText(
+                when {
+                    isPlaying && utteranceChunks.size > 1 ->
+                        "Playing ${activeChunkIndex + 1}/${utteranceChunks.size}"
+                    isPlaying -> "Playing"
+                    else -> "Paused"
+                }
+            )
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(contentIntent)
             .setOngoing(isPlaying)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(
                 if (isPlaying) {
                     NotificationCompat.Action(
@@ -416,7 +476,7 @@ class TtsService : Service() {
         const val ACTION_RESUME = "ai.opencode.client.tts.RESUME"
         const val EXTRA_TEXT = "extra_text"
         const val EXTRA_MESSAGE_ID = "extra_message_id"
-        private const val CHANNEL_ID = "tts_playback"
+        private const val CHANNEL_ID = "tts_playback_v2"
         private const val NOTIFICATION_ID = 9001
         private const val DEFAULT_MAX_SPEECH_INPUT_LENGTH = 4000
 
