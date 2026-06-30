@@ -97,7 +97,8 @@ internal fun handleIncomingSseEvent(
     onRefreshMessages: (String, Boolean) -> Unit,
     onRefreshSessions: () -> Unit,
     onLoadPendingPermissions: () -> Unit,
-    onNonFatalIssue: (String) -> Unit
+    onNonFatalIssue: (String) -> Unit,
+    onSessionReplyComplete: (String) -> Unit = {}
 ) {
     when (event.payload.type) {
         "session.created" -> {
@@ -135,6 +136,7 @@ internal fun handleIncomingSseEvent(
                     }
                     onRefreshSessions()
                     onRefreshMessages(statusEvent.sessionId, false)
+                    onSessionReplyComplete(statusEvent.sessionId)
                 }
             } else {
                 onNonFatalIssue("Ignoring invalid session.status payload")

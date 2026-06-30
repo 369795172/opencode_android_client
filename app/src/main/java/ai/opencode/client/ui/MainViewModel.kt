@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ai.opencode.client.data.model.*
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.tts.TtsController
 import ai.opencode.client.util.FileEncoder
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.ThemeMode
@@ -81,6 +82,8 @@ data class AppState(
     val isRetryingSpeech: Boolean = false,
     val speechAudioLevel: Float = 0f,
     val speechError: String? = null,
+    val isTtsPlaying: Boolean = false,
+    val ttsReadingMessageId: String? = null,
     val aiBuilderConnectionOK: Boolean = false,
     val aiBuilderConnectionError: String? = null,
     val isTestingAIBuilderConnection: Boolean = false,
@@ -326,7 +329,8 @@ class MainViewModel @Inject constructor(
     internal val repository: OpenCodeRepository,
     private val settingsManager: SettingsManager,
     private val voiceFlowClient: VoiceFlowClient,
-    private val microphone: VoiceFlowMicrophone
+    private val microphone: VoiceFlowMicrophone,
+    private val ttsController: TtsController
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppState())
@@ -345,6 +349,20 @@ class MainViewModel @Inject constructor(
 
     init {
         loadSettings()
+        viewModelScope.launch {
+            ttsController.playbackState.collect { playback ->
+                _state.update {
+                    it.copy(
+                        isTtsPlaying = playback.isPlaying,
+                        ttsReadingMessageId = if (playback.isPlaying || playback.isPaused) {
+                            playback.messageId
+                        } else {
+                            null
+                        }
+                    )
+                }
+            }
+        }
     }
 
     private fun loadSettings() {
@@ -517,6 +535,50 @@ class MainViewModel @Inject constructor(
                 terminateSpeechSession(session)
             }
         }
+    }
+
+    fun getAutoReadAloud(): Boolean = settingsManager.autoReadAloud
+
+    fun setAutoReadAloud(enabled: Boolean) {
+        settingsManager.autoReadAloud = enabled
+    }
+
+    private fun handleSessionReplyComplete(sessionId: String) {
+        if (_state.value.isRecording) {
+            stopSpeechForBackground()
+        }
+        viewModelScope.launch {
+            delay(500)
+            if (_state.value.currentSessionId == sessionId) {
+                maybeAutoReadLastAssistant()
+            }
+        }
+    }
+
+    private fun maybeAutoReadLastAssistant() {
+        if (!settingsManager.autoReadAloud) return
+        val lastAssistant = _state.value.messages.lastOrNull { it.info.isAssistant } ?: return
+        val text = extractAssistantText(lastAssistant)
+        if (text.isBlank()) return
+        ttsController.speak(text, lastAssistant.info.id)
+    }
+
+    fun playMessage(messageId: String) {
+        if (_state.value.isRecording) {
+            stopSpeechForBackground()
+        }
+        val message = _state.value.messages.find { it.info.id == messageId } ?: return
+        val text = extractAssistantText(message)
+        if (text.isBlank()) return
+        ttsController.speak(text, messageId)
+    }
+
+    fun stopTts() {
+        ttsController.stop()
+    }
+
+    private fun extractAssistantText(message: MessageWithParts): String {
+        return message.parts.filter { it.isText }.mapNotNull { it.text }.joinToString("\n")
     }
 
     fun clearSpeechError() {
@@ -1044,7 +1106,8 @@ class MainViewModel @Inject constructor(
             onRefreshMessages = ::loadMessagesWithRetry,
             onRefreshSessions = ::loadSessions,
             onLoadPendingPermissions = ::loadPendingPermissions,
-            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) }
+            onNonFatalIssue = { message -> reportNonFatalIssue(TAG, message) },
+            onSessionReplyComplete = ::handleSessionReplyComplete
         )
     }
 
@@ -1056,6 +1119,7 @@ class MainViewModel @Inject constructor(
         microphone.discard()
         runBlocking { speechSession?.let { terminateSpeechSession(it) } }
         speechSession = null
+        ttsController.stop()
         super.onCleared()
     }
 

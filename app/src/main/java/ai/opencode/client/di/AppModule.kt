@@ -2,13 +2,15 @@ package ai.opencode.client.di
 
 import android.content.Context
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.tts.TtsController
 import ai.opencode.client.util.SettingsManager
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
 import com.yage.voiceflowkit.VoiceFlowClient
 import com.yage.voiceflowkit.VoiceFlowConfig
 import com.yage.voiceflowkit.VoiceFlowMicrophone
 import dagger.Module
 import dagger.Provides
-import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
@@ -49,4 +51,16 @@ object AppModule {
     fun provideVoiceFlowMicrophone(
         @ApplicationContext context: Context,
     ): VoiceFlowMicrophone = VoiceFlowMicrophone(context)
+
+    @Provides
+    @Singleton
+    fun provideTtsController(
+        @ApplicationContext context: Context,
+    ): TtsController = TtsController(context)
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface TtsServiceEntryPoint {
+    fun ttsController(): TtsController
 }

@@ -27,6 +27,9 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -84,7 +87,11 @@ internal fun ChatMessageList(
     workspaceDirectory: String?,
     onLoadMore: () -> Unit,
     onFileClick: (String) -> Unit,
-    onForkFromMessage: (String) -> Unit
+    onForkFromMessage: (String) -> Unit,
+    isTtsPlaying: Boolean = false,
+    ttsReadingMessageId: String? = null,
+    onPlayMessage: (String) -> Unit = {},
+    onStopTts: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val layoutInfo = listState.layoutInfo
@@ -154,7 +161,11 @@ internal fun ChatMessageList(
                 repository = repository,
                 workspaceDirectory = workspaceDirectory,
                 onFileClick = onFileClick,
-                onForkFromMessage = onForkFromMessage
+                onForkFromMessage = onForkFromMessage,
+                isTtsPlaying = isTtsPlaying,
+                ttsReadingMessageId = ttsReadingMessageId,
+                onPlayMessage = onPlayMessage,
+                onStopTts = onStopTts
             )
         }
         if (isLoading && messages.size >= messageLimit) {
@@ -191,7 +202,11 @@ private fun MessageRow(
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
     onFileClick: (String) -> Unit,
-    onForkFromMessage: (String) -> Unit
+    onForkFromMessage: (String) -> Unit,
+    isTtsPlaying: Boolean,
+    ttsReadingMessageId: String?,
+    onPlayMessage: (String) -> Unit,
+    onStopTts: () -> Unit
 ) {
     val isUser = message.info.isUser
 
@@ -277,6 +292,32 @@ private fun MessageRow(
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
+                val isThisMessageReading = ttsReadingMessageId == message.info.id
+                IconButton(
+                    onClick = {
+                        if (isThisMessageReading && isTtsPlaying) {
+                            onStopTts()
+                        } else {
+                            onPlayMessage(message.info.id)
+                        }
+                    },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = when {
+                            isThisMessageReading && isTtsPlaying -> Icons.Default.Stop
+                            isThisMessageReading && !isTtsPlaying -> Icons.Default.Pause
+                            else -> Icons.AutoMirrored.Filled.VolumeUp
+                        },
+                        contentDescription = if (isThisMessageReading && isTtsPlaying) {
+                            "Stop reading"
+                        } else {
+                            "Read aloud"
+                        },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 Box {
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(

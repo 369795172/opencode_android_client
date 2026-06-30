@@ -90,6 +90,10 @@ class SettingsManager @Inject constructor(
         get() = encryptedPrefs.getLong(KEY_AI_BUILDER_LAST_OK_TESTED, 0L)
         set(value) = encryptedPrefs.edit().putLong(KEY_AI_BUILDER_LAST_OK_TESTED, value).apply()
 
+    var autoReadAloud: Boolean
+        get() = encryptedPrefs.getBoolean(KEY_AUTO_READ_ALOUD, true)
+        set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_READ_ALOUD, value).apply()
+
     fun getDraftText(sessionId: String): String {
         val json = encryptedPrefs.getString(KEY_SESSION_DRAFTS, null) ?: return ""
         return try {
@@ -192,6 +196,7 @@ class SettingsManager @Inject constructor(
         private const val KEY_SESSION_MODELS = "session_models"
         private const val KEY_SESSION_AGENTS = "session_agents"
         private const val KEY_MODEL_HEALTH = "model_health"
+        private const val KEY_AUTO_READ_ALOUD = "auto_read_aloud"
     }
 }
 

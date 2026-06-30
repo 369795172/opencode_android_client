@@ -144,7 +144,11 @@ fun ChatScreen(
                         state.currentSessionId?.let { sessionId ->
                             viewModel.forkSession(sessionId, messageId)
                         }
-                    }
+                    },
+                    isTtsPlaying = state.isTtsPlaying,
+                    ttsReadingMessageId = state.ttsReadingMessageId,
+                    onPlayMessage = viewModel::playMessage,
+                    onStopTts = viewModel::stopTts
                 )
             }
 
