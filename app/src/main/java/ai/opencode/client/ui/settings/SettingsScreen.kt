@@ -18,9 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ai.opencode.client.tts.TtsSystemSettings
 import ai.opencode.client.ui.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,6 +32,7 @@ fun SettingsScreen(
     onBack: (() -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val saved = remember(viewModel) { viewModel.getSavedConnectionSettings() }
     val savedAIBuilder = remember(viewModel) { viewModel.getAIBuilderSettings() }
@@ -180,6 +183,11 @@ fun SettingsScreen(
                 onAutoReadAloudChange = { enabled ->
                     autoReadAloud = enabled
                     viewModel.setAutoReadAloud(enabled)
+                },
+                defaultSpeechRate = viewModel.getTtsSpeechRate(),
+                onSpeechRateChange = viewModel::setTtsSpeechRate,
+                onOpenSystemTtsSettings = {
+                    TtsSystemSettings.openTtsSettings(context)
                 }
             )
 

@@ -25,6 +25,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -336,7 +337,10 @@ internal fun SpeechRecognitionSection(
 @Composable
 internal fun TtsPlaybackSection(
     autoReadAloud: Boolean,
-    onAutoReadAloudChange: (Boolean) -> Unit
+    onAutoReadAloudChange: (Boolean) -> Unit,
+    defaultSpeechRate: Float,
+    onSpeechRateChange: (Float) -> Unit,
+    onOpenSystemTtsSettings: () -> Unit,
 ) {
     SectionHeader(title = "Text-to-Speech")
 
@@ -360,6 +364,50 @@ internal fun TtsPlaybackSection(
             checked = autoReadAloud,
             onCheckedChange = onAutoReadAloudChange
         )
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    Text(
+        "Default playback speed",
+        style = MaterialTheme.typography.bodyLarge
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { rate ->
+            FilterChip(
+                selected = defaultSpeechRate == rate,
+                onClick = { onSpeechRateChange(rate) },
+                label = { Text("${rate}x") }
+            )
+        }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    Text(
+        "System voice engine",
+        style = MaterialTheme.typography.bodyLarge
+    )
+    Text(
+        "OPPO Find N5: install Google 文字转语音 from Play Store, then set it as default and download the Chinese voice pack.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline
+    )
+    Text(
+        "Path: 设置 → 系统与更新 → 无障碍 → 文字转语音输出 → 首选引擎 → Google 文字转语音",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+    OutlinedButton(
+        onClick = onOpenSystemTtsSettings,
+        modifier = Modifier.padding(top = 8.dp)
+    ) {
+        Text("Open system TTS settings")
     }
 }
 

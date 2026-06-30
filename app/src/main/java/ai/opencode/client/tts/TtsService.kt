@@ -49,6 +49,11 @@ class TtsService : Service() {
     private var chunkRetryCount: Int = 0
     private var resumeChunkAfterReinit: Int? = null
     private var chunkWatchdogRunnable: Runnable? = null
+    private var progressTickerRunnable: Runnable? = null
+    private var speechRate: Float = 1f
+    private var pendingSpeechRate: Float = 1f
+    private var chunkStartedAtMs: Long = 0L
+    private var chunkEstimatedMs: Long = 0L
 
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
@@ -69,6 +74,9 @@ class TtsService : Service() {
             isPaused = false
             parseChunkIndex(utteranceId)?.let { activeChunkIndex = it }
             chunkRetryCount = 0
+            chunkStartedAtMs = System.currentTimeMillis()
+            publishProgress(isPlaying = true, paused = false)
+            startProgressTicker()
             ttsController?.onPlaybackStarted(currentMessageId)
             updatePlaybackState(PlaybackState.STATE_PLAYING)
             updateForegroundNotification(isPlaying = true)
@@ -82,8 +90,14 @@ class TtsService : Service() {
                 Log.d(TAG, "onDone without utteranceId; using activeChunkIndex=$chunkIndex")
             }
             if (chunkIndex >= utteranceChunks.lastIndex) {
+                publishProgress(progress = 1f, isPlaying = true, paused = false)
                 finishPlayback()
             } else {
+                publishProgress(
+                    progress = (chunkIndex + 1).toFloat() / utteranceChunks.size.coerceAtLeast(1),
+                    isPlaying = true,
+                    paused = false,
+                )
                 speakChunkAt(chunkIndex + 1)
             }
         }
@@ -129,6 +143,10 @@ class TtsService : Service() {
                     return START_NOT_STICKY
                 }
                 val messageId = payload?.messageId ?: intent.getStringExtra(EXTRA_MESSAGE_ID)
+                val rate = payload?.speechRate
+                    ?: intent.getFloatExtra(EXTRA_SPEECH_RATE, speechRate)
+                speechRate = rate.coerceIn(0.5f, 2.5f)
+                pendingSpeechRate = speechRate
                 isPaused = false
                 cancelChunkWatchdog()
                 chunkRetryCount = 0
@@ -145,6 +163,14 @@ class TtsService : Service() {
             }
             ACTION_PAUSE -> pausePlayback()
             ACTION_RESUME -> resumePlayback()
+            ACTION_SEEK -> {
+                val progress = intent.getFloatExtra(EXTRA_PROGRESS, 0f)
+                seekToProgress(progress)
+            }
+            ACTION_SET_SPEED -> {
+                val rate = intent.getFloatExtra(EXTRA_SPEECH_RATE, speechRate)
+                applySpeechRate(rate)
+            }
         }
         return if (isPlaybackActive) START_STICKY else START_NOT_STICKY
     }
@@ -153,6 +179,7 @@ class TtsService : Service() {
 
     override fun onDestroy() {
         cancelChunkWatchdog()
+        stopProgressTicker()
         releasePlaybackWakeLock()
         abandonAudioFocus()
         mediaSession?.release()
@@ -191,7 +218,8 @@ class TtsService : Service() {
                 return@TextToSpeech
             }
             engine.setOnUtteranceProgressListener(utteranceListener)
-            Log.i(TAG, "TTS ready engine=$selectedEngine locale=$locale maxChunk=${effectiveMaxChunkLength()}")
+            applySpeechRateToEngine(engine)
+            Log.i(TAG, "TTS ready engine=$selectedEngine locale=$locale maxChunk=${effectiveMaxChunkLength()} rate=$speechRate")
             isTtsReady = true
 
             val resumeAt = resumeChunkAfterReinit
@@ -367,14 +395,94 @@ class TtsService : Service() {
         utteranceChunks = TtsTextChunker.chunk(text, effectiveMaxChunkLength())
         activeChunkIndex = 0
         isPlaybackActive = true
+        applySpeechRateToEngine(tts)
         if (!requestPlaybackFocus()) {
             Log.w(TAG, "Audio focus not granted; attempting speak anyway")
         }
         Log.i(
             TAG,
-            "speak len=${text.length} chunks=${utteranceChunks.size} maxChunk=${effectiveMaxChunkLength()} engine=$selectedEngine"
+            "speak len=${text.length} chunks=${utteranceChunks.size} maxChunk=${effectiveMaxChunkLength()} engine=$selectedEngine rate=$speechRate"
         )
+        publishProgress(progress = 0f, isPlaying = true, paused = false)
         speakChunkAt(0)
+    }
+
+    private fun seekToProgress(progress: Float) {
+        if (!isPlaybackActive || utteranceChunks.isEmpty()) return
+        val clamped = progress.coerceIn(0f, 1f)
+        val target = (clamped * utteranceChunks.size)
+            .toInt()
+            .coerceIn(0, utteranceChunks.lastIndex)
+        chunkRetryCount = 0
+        cancelChunkWatchdog()
+        isPaused = false
+        publishProgress(progress = clamped, isPlaying = true, paused = false)
+        speakChunkAt(target)
+    }
+
+    private fun applySpeechRate(rate: Float) {
+        speechRate = rate.coerceIn(0.5f, 2.5f)
+        pendingSpeechRate = speechRate
+        applySpeechRateToEngine(tts)
+        ttsController?.onSpeechRateChanged(speechRate)
+        if (isPlaybackActive && !isPaused) {
+            chunkEstimatedMs = estimateChunkDurationMs(utteranceChunks.getOrNull(activeChunkIndex)?.length ?: 0)
+            publishProgress(isPlaying = true, paused = false)
+        }
+    }
+
+    private fun applySpeechRateToEngine(engine: TextToSpeech?) {
+        engine?.setSpeechRate(speechRate)
+    }
+
+    private fun estimateChunkDurationMs(chunkLength: Int): Long {
+        val perCharMs = 130f / speechRate.coerceAtLeast(0.5f)
+        return (chunkLength * perCharMs).toLong().coerceIn(MIN_WATCHDOG_MS / 4, MAX_WATCHDOG_MS)
+    }
+
+    private fun publishProgress(
+        progress: Float? = null,
+        isPlaying: Boolean = isPlaybackActive && !this.isPaused,
+        paused: Boolean = this.isPaused,
+    ) {
+        val total = utteranceChunks.size
+        if (total <= 0) return
+        val computed = progress ?: run {
+            val chunkBase = activeChunkIndex.toFloat() / total
+            if (chunkEstimatedMs <= 0L) {
+                chunkBase
+            } else {
+                val elapsed = (System.currentTimeMillis() - chunkStartedAtMs).coerceAtLeast(0L)
+                val intra = (elapsed.toFloat() / chunkEstimatedMs).coerceIn(0f, 1f)
+                chunkBase + intra / total
+            }
+        }.coerceIn(0f, 1f)
+        ttsController?.onPlaybackProgress(
+            messageId = currentMessageId,
+            chunkIndex = activeChunkIndex,
+            totalChunks = total,
+            progress = computed,
+            isPlaying = isPlaying,
+            isPaused = paused,
+        )
+    }
+
+    private fun startProgressTicker() {
+        stopProgressTicker()
+        val ticker = object : Runnable {
+            override fun run() {
+                if (!isPlaybackActive || isPaused) return
+                publishProgress(isPlaying = true, paused = false)
+                mainHandler.postDelayed(this, PROGRESS_TICK_MS)
+            }
+        }
+        progressTickerRunnable = ticker
+        mainHandler.postDelayed(ticker, PROGRESS_TICK_MS)
+    }
+
+    private fun stopProgressTicker() {
+        progressTickerRunnable?.let { mainHandler.removeCallbacks(it) }
+        progressTickerRunnable = null
     }
 
     private fun speakChunkAt(index: Int) {
@@ -395,6 +503,8 @@ class TtsService : Service() {
         acquirePlaybackWakeLock()
         ensureForeground(isPlaying = true)
         val chunk = utteranceChunks[index]
+        chunkStartedAtMs = System.currentTimeMillis()
+        chunkEstimatedMs = estimateChunkDurationMs(chunk.length)
         val utteranceId = utteranceIdForChunk(index)
         val params = Bundle().apply {
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
@@ -434,6 +544,7 @@ class TtsService : Service() {
 
     private fun finishPlayback() {
         cancelChunkWatchdog()
+        stopProgressTicker()
         isPlaybackActive = false
         resumeChunkAfterReinit = null
         chunkRetryCount = 0
@@ -445,10 +556,12 @@ class TtsService : Service() {
     private fun pausePlayback() {
         if (isPaused) return
         cancelChunkWatchdog()
+        stopProgressTicker()
         tts?.stop()
         isPaused = true
         releasePlaybackWakeLock()
         ttsController?.onPlaybackPaused(currentMessageId)
+        publishProgress(isPlaying = false, paused = true)
         updatePlaybackState(PlaybackState.STATE_PAUSED)
         updateForegroundNotification(isPlaying = false)
     }
@@ -464,6 +577,7 @@ class TtsService : Service() {
 
     private fun stopPlayback(removeNotification: Boolean) {
         cancelChunkWatchdog()
+        stopProgressTicker()
         tts?.stop()
         isPaused = false
         isPlaybackActive = false
@@ -611,8 +725,12 @@ class TtsService : Service() {
         const val ACTION_STOP = "ai.opencode.client.tts.STOP"
         const val ACTION_PAUSE = "ai.opencode.client.tts.PAUSE"
         const val ACTION_RESUME = "ai.opencode.client.tts.RESUME"
+        const val ACTION_SEEK = "ai.opencode.client.tts.SEEK"
+        const val ACTION_SET_SPEED = "ai.opencode.client.tts.SET_SPEED"
         const val EXTRA_TEXT = "extra_text"
         const val EXTRA_MESSAGE_ID = "extra_message_id"
+        const val EXTRA_PROGRESS = "extra_progress"
+        const val EXTRA_SPEECH_RATE = "extra_speech_rate"
         private const val CHANNEL_ID = "tts_playback_v2"
         private const val NOTIFICATION_ID = 9001
         private const val DEFAULT_MAX_SPEECH_INPUT_LENGTH = 3500
@@ -621,6 +739,7 @@ class TtsService : Service() {
         private const val MIN_WATCHDOG_MS = 20_000L
         private const val MAX_WATCHDOG_MS = 180_000L
         private const val WAKE_LOCK_TIMEOUT_MS = 30L * 60L * 1000L
+        private const val PROGRESS_TICK_MS = 500L
 
         private fun utteranceIdForChunk(index: Int) = "tts_chunk_$index"
 

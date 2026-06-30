@@ -83,7 +83,12 @@ data class AppState(
     val speechAudioLevel: Float = 0f,
     val speechError: String? = null,
     val isTtsPlaying: Boolean = false,
+    val ttsIsPaused: Boolean = false,
     val ttsReadingMessageId: String? = null,
+    val ttsProgress: Float = 0f,
+    val ttsCurrentChunk: Int = 0,
+    val ttsTotalChunks: Int = 0,
+    val ttsSpeechRate: Float = 1f,
     val aiBuilderConnectionOK: Boolean = false,
     val aiBuilderConnectionError: String? = null,
     val isTestingAIBuilderConnection: Boolean = false,
@@ -354,11 +359,16 @@ class MainViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isTtsPlaying = playback.isPlaying,
+                        ttsIsPaused = playback.isPaused,
                         ttsReadingMessageId = if (playback.isPlaying || playback.isPaused) {
                             playback.messageId
                         } else {
                             null
-                        }
+                        },
+                        ttsProgress = playback.progress,
+                        ttsCurrentChunk = playback.currentChunkIndex,
+                        ttsTotalChunks = playback.totalChunks,
+                        ttsSpeechRate = playback.speechRate,
                     )
                 }
             }
@@ -560,7 +570,7 @@ class MainViewModel @Inject constructor(
         val lastAssistant = _state.value.messages.lastOrNull { it.info.isAssistant } ?: return
         val text = extractAssistantText(lastAssistant)
         if (text.isBlank()) return
-        ttsController.speak(text, lastAssistant.info.id)
+        ttsController.speak(text, lastAssistant.info.id, settingsManager.ttsSpeechRate)
     }
 
     fun playMessage(messageId: String) {
@@ -570,8 +580,27 @@ class MainViewModel @Inject constructor(
         val message = _state.value.messages.find { it.info.id == messageId } ?: return
         val text = extractAssistantText(message)
         if (text.isBlank()) return
-        ttsController.speak(text, messageId)
+        ttsController.speak(text, messageId, settingsManager.ttsSpeechRate)
     }
+
+    fun pauseTts() {
+        ttsController.pause()
+    }
+
+    fun resumeTts() {
+        ttsController.resume()
+    }
+
+    fun seekTts(progress: Float) {
+        ttsController.seek(progress)
+    }
+
+    fun setTtsSpeechRate(rate: Float) {
+        settingsManager.ttsSpeechRate = rate
+        ttsController.setSpeechRate(rate)
+    }
+
+    fun getTtsSpeechRate(): Float = settingsManager.ttsSpeechRate
 
     fun stopTts() {
         ttsController.stop()

@@ -94,6 +94,12 @@ class SettingsManager @Inject constructor(
         get() = encryptedPrefs.getBoolean(KEY_AUTO_READ_ALOUD, true)
         set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_READ_ALOUD, value).apply()
 
+    var ttsSpeechRate: Float
+        get() = encryptedPrefs.getFloat(KEY_TTS_SPEECH_RATE, 1f)
+        set(value) = encryptedPrefs.edit()
+            .putFloat(KEY_TTS_SPEECH_RATE, value.coerceIn(0.5f, 2.5f))
+            .apply()
+
     fun getDraftText(sessionId: String): String {
         val json = encryptedPrefs.getString(KEY_SESSION_DRAFTS, null) ?: return ""
         return try {
@@ -197,6 +203,7 @@ class SettingsManager @Inject constructor(
         private const val KEY_SESSION_AGENTS = "session_agents"
         private const val KEY_MODEL_HEALTH = "model_health"
         private const val KEY_AUTO_READ_ALOUD = "auto_read_aloud"
+        private const val KEY_TTS_SPEECH_RATE = "tts_speech_rate"
     }
 }
 
