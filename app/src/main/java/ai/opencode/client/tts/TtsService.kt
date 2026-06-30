@@ -71,8 +71,13 @@ class TtsService : Service() {
 
     private val utteranceListener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {
+            val startedChunk = parseChunkIndex(utteranceId)
+            if (startedChunk != null && startedChunk < activeChunkIndex) {
+                Log.d(TAG, "Ignoring stale onStart chunk=$startedChunk active=$activeChunkIndex")
+                return
+            }
             isPaused = false
-            parseChunkIndex(utteranceId)?.let { activeChunkIndex = it }
+            startedChunk?.let { activeChunkIndex = it }
             chunkRetryCount = 0
             chunkStartedAtMs = System.currentTimeMillis()
             publishProgress(isPlaying = true, paused = false)
@@ -86,6 +91,10 @@ class TtsService : Service() {
             cancelChunkWatchdog()
             chunkRetryCount = 0
             val chunkIndex = parseChunkIndex(utteranceId) ?: activeChunkIndex
+            if (chunkIndex < activeChunkIndex) {
+                Log.d(TAG, "Ignoring stale onDone chunk=$chunkIndex active=$activeChunkIndex")
+                return
+            }
             if (utteranceId == null) {
                 Log.d(TAG, "onDone without utteranceId; using activeChunkIndex=$chunkIndex")
             }
@@ -258,6 +267,10 @@ class TtsService : Service() {
     private fun handleUtteranceError(utteranceId: String?, errorCode: Int) {
         cancelChunkWatchdog()
         val chunkIndex = parseChunkIndex(utteranceId) ?: activeChunkIndex
+        if (chunkIndex < activeChunkIndex) {
+            Log.d(TAG, "Ignoring stale utterance error chunk=$chunkIndex active=$activeChunkIndex")
+            return
+        }
         Log.w(
             TAG,
             "TTS utterance error chunk=$chunkIndex utteranceId=$utteranceId code=$errorCode retries=$chunkRetryCount"
@@ -410,14 +423,18 @@ class TtsService : Service() {
     private fun seekToProgress(progress: Float) {
         if (!isPlaybackActive || utteranceChunks.isEmpty()) return
         val clamped = progress.coerceIn(0f, 1f)
-        val target = (clamped * utteranceChunks.size)
-            .toInt()
-            .coerceIn(0, utteranceChunks.lastIndex)
+        val target = TtsProgressMapper.chunkIndexForProgress(clamped, utteranceChunks.size)
         chunkRetryCount = 0
         cancelChunkWatchdog()
+        stopProgressTicker()
+        tts?.stop()
         isPaused = false
         publishProgress(progress = clamped, isPlaying = true, paused = false)
-        speakChunkAt(target)
+        mainHandler.post {
+            if (isPlaybackActive) {
+                speakChunkAt(target)
+            }
+        }
     }
 
     private fun applySpeechRate(rate: Float) {
@@ -425,9 +442,17 @@ class TtsService : Service() {
         pendingSpeechRate = speechRate
         applySpeechRateToEngine(tts)
         ttsController?.onSpeechRateChanged(speechRate)
-        if (isPlaybackActive && !isPaused) {
-            chunkEstimatedMs = estimateChunkDurationMs(utteranceChunks.getOrNull(activeChunkIndex)?.length ?: 0)
-            publishProgress(isPlaying = true, paused = false)
+        if (!isPlaybackActive) return
+        val index = activeChunkIndex
+        chunkEstimatedMs = estimateChunkDurationMs(utteranceChunks.getOrNull(index)?.length ?: 0)
+        if (isPaused) return
+        cancelChunkWatchdog()
+        stopProgressTicker()
+        tts?.stop()
+        mainHandler.post {
+            if (isPlaybackActive && !isPaused) {
+                speakChunkAt(index)
+            }
         }
     }
 

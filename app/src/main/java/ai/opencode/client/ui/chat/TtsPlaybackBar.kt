@@ -17,8 +17,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,11 +42,18 @@ fun TtsPlaybackBar(
     onSpeechRateChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var sliderProgress by remember(progress) { mutableFloatStateOf(progress) }
+    var sliderProgress by remember { mutableFloatStateOf(progress) }
+    var isUserDragging by remember { mutableStateOf(false) }
     val chunkLabel = if (totalChunks > 1) {
         "${currentChunk + 1}/$totalChunks"
     } else {
         null
+    }
+
+    LaunchedEffect(progress) {
+        if (!isUserDragging) {
+            sliderProgress = progress.coerceIn(0f, 1f)
+        }
     }
 
     Surface(
@@ -95,9 +104,13 @@ fun TtsPlaybackBar(
             }
 
             Slider(
-                value = sliderProgress,
-                onValueChange = { sliderProgress = it },
+                value = sliderProgress.coerceIn(0f, 1f),
+                onValueChange = { value ->
+                    isUserDragging = true
+                    sliderProgress = value
+                },
                 onValueChangeFinished = {
+                    isUserDragging = false
                     onSeek(sliderProgress)
                 },
                 modifier = Modifier.fillMaxWidth(),

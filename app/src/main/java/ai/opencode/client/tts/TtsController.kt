@@ -57,46 +57,46 @@ class TtsController(
     }
 
     fun stop() {
-        val intent = Intent(context, TtsService::class.java).apply {
-            action = TtsService.ACTION_STOP
-        }
-        context.startService(intent)
+        dispatch(TtsService.ACTION_STOP)
         _playbackState.value = TtsPlaybackState()
     }
 
     fun pause() {
-        val intent = Intent(context, TtsService::class.java).apply {
-            action = TtsService.ACTION_PAUSE
-        }
-        context.startService(intent)
+        dispatch(TtsService.ACTION_PAUSE)
         _playbackState.update { it.copy(isPlaying = false, isPaused = true) }
     }
 
     fun resume() {
-        val intent = Intent(context, TtsService::class.java).apply {
-            action = TtsService.ACTION_RESUME
-        }
-        context.startService(intent)
+        dispatch(TtsService.ACTION_RESUME)
         _playbackState.update { it.copy(isPlaying = true, isPaused = false) }
     }
 
     fun seek(progress: Float) {
-        val intent = Intent(context, TtsService::class.java).apply {
-            action = TtsService.ACTION_SEEK
-            putExtra(TtsService.EXTRA_PROGRESS, progress.coerceIn(0f, 1f))
+        val clamped = progress.coerceIn(0f, 1f)
+        dispatch(TtsService.ACTION_SEEK) {
+            putExtra(TtsService.EXTRA_PROGRESS, clamped)
         }
-        context.startService(intent)
-        _playbackState.update { it.copy(progress = progress.coerceIn(0f, 1f)) }
+        _playbackState.update { it.copy(progress = clamped, isPlaying = true, isPaused = false) }
     }
 
     fun setSpeechRate(rate: Float) {
         val clamped = rate.coerceIn(0.5f, 2.5f)
-        val intent = Intent(context, TtsService::class.java).apply {
-            action = TtsService.ACTION_SET_SPEED
+        dispatch(TtsService.ACTION_SET_SPEED) {
             putExtra(TtsService.EXTRA_SPEECH_RATE, clamped)
         }
-        context.startService(intent)
         _playbackState.update { it.copy(speechRate = clamped) }
+    }
+
+    private fun dispatch(action: String, configure: Intent.() -> Unit = {}) {
+        val intent = Intent(context, TtsService::class.java).apply {
+            this.action = action
+            configure()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
     }
 
     internal fun onPlaybackStarted(messageId: String?) {
