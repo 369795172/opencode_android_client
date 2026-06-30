@@ -46,16 +46,55 @@ class TtsService : Service() {
     private var utteranceChunks: List<String> = emptyList()
     private var activeChunkIndex: Int = 0
     private var isPlaybackActive: Boolean = false
+    private var chunkRetryCount: Int = 0
+    private var resumeChunkAfterReinit: Int? = null
+    private var chunkWatchdogRunnable: Runnable? = null
 
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                if (!isPaused && isPlaybackActive) pausePlayback()
+            }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 if (!isPaused && isPlaybackActive) pausePlayback()
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 if (isPaused && utteranceChunks.isNotEmpty()) resumePlayback()
             }
+        }
+    }
+
+    private val utteranceListener = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            isPaused = false
+            parseChunkIndex(utteranceId)?.let { activeChunkIndex = it }
+            chunkRetryCount = 0
+            ttsController?.onPlaybackStarted(currentMessageId)
+            updatePlaybackState(PlaybackState.STATE_PLAYING)
+            updateForegroundNotification(isPlaying = true)
+        }
+
+        override fun onDone(utteranceId: String?) {
+            cancelChunkWatchdog()
+            chunkRetryCount = 0
+            val chunkIndex = parseChunkIndex(utteranceId) ?: activeChunkIndex
+            if (utteranceId == null) {
+                Log.d(TAG, "onDone without utteranceId; using activeChunkIndex=$chunkIndex")
+            }
+            if (chunkIndex >= utteranceChunks.lastIndex) {
+                finishPlayback()
+            } else {
+                speakChunkAt(chunkIndex + 1)
+            }
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) {
+            handleUtteranceError(utteranceId, TextToSpeech.ERROR)
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            handleUtteranceError(utteranceId, errorCode)
         }
     }
 
@@ -70,72 +109,7 @@ class TtsService : Service() {
         ).ttsController()
 
         setupMediaSession()
-
-        selectedEngine = TtsEngineResolver.resolveEnginePackage(applicationContext)
-        if (selectedEngine == null) {
-            Log.w(TAG, "No TTS engine installed on device")
-            notifyTtsError("未找到文字转语音引擎。请到 设置 → 无障碍 → 文字转语音输出 安装引擎并下载中文语音包。")
-            handleTtsInitFailure()
-            return
-        }
-        Log.i(TAG, "Using TTS engine: $selectedEngine")
-
-        tts = TextToSpeech(applicationContext, { status ->
-            if (status != TextToSpeech.SUCCESS) {
-                Log.w(TAG, "TextToSpeech init failed engine=$selectedEngine status=$status")
-                notifyTtsError("TTS 引擎初始化失败，请检查系统文字转语音设置。")
-                handleTtsInitFailure()
-                return@TextToSpeech
-            }
-            val locale = TtsEngineResolver.configureLanguage(tts ?: return@TextToSpeech)
-            if (locale == null) {
-                Log.w(TAG, "No supported TTS language for engine=$selectedEngine")
-                notifyTtsError("未找到可用语音包。请到 设置 → 无障碍 → 文字转语音输出 下载中文语音。")
-                handleTtsInitFailure()
-                return@TextToSpeech
-            }
-            Log.i(TAG, "TTS ready engine=$selectedEngine locale=$locale")
-            isTtsReady = true
-            val text = pendingText
-            if (text != null) {
-                speakInternal(text, pendingMessageId)
-                pendingText = null
-                pendingMessageId = null
-            }
-        }, selectedEngine)
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                isPaused = false
-                parseChunkIndex(utteranceId)?.let { activeChunkIndex = it }
-                ttsController?.onPlaybackStarted(currentMessageId)
-                updatePlaybackState(PlaybackState.STATE_PLAYING)
-                updateForegroundNotification(isPlaying = true)
-            }
-
-            override fun onDone(utteranceId: String?) {
-                val chunkIndex = parseChunkIndex(utteranceId)
-                if (chunkIndex == null) {
-                    finishPlayback()
-                    return
-                }
-                if (chunkIndex >= utteranceChunks.lastIndex) {
-                    finishPlayback()
-                } else {
-                    speakChunkAt(chunkIndex + 1)
-                }
-            }
-
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                Log.w(TAG, "TTS utterance error (legacy): utteranceId=$utteranceId")
-                finishPlayback()
-            }
-
-            override fun onError(utteranceId: String?, errorCode: Int) {
-                Log.w(TAG, "TTS utterance error: utteranceId=$utteranceId code=$errorCode")
-                finishPlayback()
-            }
-        })
+        initializeTtsEngine()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -156,6 +130,9 @@ class TtsService : Service() {
                 }
                 val messageId = payload?.messageId ?: intent.getStringExtra(EXTRA_MESSAGE_ID)
                 isPaused = false
+                cancelChunkWatchdog()
+                chunkRetryCount = 0
+                resumeChunkAfterReinit = null
                 tts?.stop()
                 currentText = text
                 currentMessageId = messageId
@@ -175,14 +152,123 @@ class TtsService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        cancelChunkWatchdog()
         releasePlaybackWakeLock()
         abandonAudioFocus()
         mediaSession?.release()
         mediaSession = null
+        shutdownTtsEngine()
+        super.onDestroy()
+    }
+
+    private fun initializeTtsEngine() {
+        selectedEngine = TtsEngineResolver.resolveEnginePackage(applicationContext)
+        if (selectedEngine == null) {
+            Log.w(TAG, "No TTS engine installed on device")
+            notifyTtsError("未找到文字转语音引擎。请到 设置 → 无障碍 → 文字转语音输出 安装引擎并下载中文语音包。")
+            handleTtsInitFailure()
+            return
+        }
+        Log.i(TAG, "Using TTS engine: $selectedEngine")
+
+        tts = TextToSpeech(applicationContext, { status ->
+            if (status != TextToSpeech.SUCCESS) {
+                Log.w(TAG, "TextToSpeech init failed engine=$selectedEngine status=$status")
+                if (isPlaybackActive && resumeChunkAfterReinit != null) {
+                    notifyTtsError("TTS 引擎重连失败，朗读已停止。")
+                } else {
+                    notifyTtsError("TTS 引擎初始化失败，请检查系统文字转语音设置。")
+                }
+                handleTtsInitFailure()
+                return@TextToSpeech
+            }
+            val engine = tts ?: return@TextToSpeech
+            val locale = TtsEngineResolver.configureLanguage(engine)
+            if (locale == null) {
+                Log.w(TAG, "No supported TTS language for engine=$selectedEngine")
+                notifyTtsError("未找到可用语音包。请到 设置 → 无障碍 → 文字转语音输出 下载中文语音。")
+                handleTtsInitFailure()
+                return@TextToSpeech
+            }
+            engine.setOnUtteranceProgressListener(utteranceListener)
+            Log.i(TAG, "TTS ready engine=$selectedEngine locale=$locale maxChunk=${effectiveMaxChunkLength()}")
+            isTtsReady = true
+
+            val resumeAt = resumeChunkAfterReinit
+            if (resumeAt != null && isPlaybackActive) {
+                resumeChunkAfterReinit = null
+                chunkRetryCount = 0
+                Log.i(TAG, "Resuming playback after engine reinit at chunk=$resumeAt")
+                speakChunkAt(resumeAt)
+                return@TextToSpeech
+            }
+
+            val text = pendingText
+            if (text != null) {
+                speakInternal(text, pendingMessageId)
+                pendingText = null
+                pendingMessageId = null
+            }
+        }, selectedEngine)
+    }
+
+    private fun shutdownTtsEngine() {
+        isTtsReady = false
         tts?.stop()
         tts?.shutdown()
         tts = null
-        super.onDestroy()
+    }
+
+    private fun reinitializeTtsEngine(resumeAtChunk: Int) {
+        Log.i(TAG, "Reinitializing TTS engine at chunk=$resumeAtChunk")
+        resumeChunkAfterReinit = resumeAtChunk
+        isTtsReady = false
+        shutdownTtsEngine()
+        initializeTtsEngine()
+    }
+
+    private fun handleUtteranceError(utteranceId: String?, errorCode: Int) {
+        cancelChunkWatchdog()
+        val chunkIndex = parseChunkIndex(utteranceId) ?: activeChunkIndex
+        Log.w(
+            TAG,
+            "TTS utterance error chunk=$chunkIndex utteranceId=$utteranceId code=$errorCode retries=$chunkRetryCount"
+        )
+
+        if (isRetryableError(errorCode) && chunkRetryCount < MAX_CHUNK_RETRIES) {
+            chunkRetryCount++
+            val delayMs = 400L * chunkRetryCount
+            Log.i(TAG, "Retrying chunk=$chunkIndex in ${delayMs}ms (attempt $chunkRetryCount)")
+            mainHandler.postDelayed({
+                if (isPlaybackActive && !isPaused && activeChunkIndex == chunkIndex) {
+                    speakChunkAt(chunkIndex)
+                }
+            }, delayMs)
+            return
+        }
+
+        if (isRetryableError(errorCode) && chunkRetryCount == MAX_CHUNK_RETRIES) {
+            chunkRetryCount++
+            reinitializeTtsEngine(chunkIndex)
+            return
+        }
+
+        chunkRetryCount = 0
+        if (chunkIndex >= utteranceChunks.lastIndex) {
+            finishPlayback()
+        } else {
+            Log.w(TAG, "Skipping failed chunk=$chunkIndex, advancing")
+            speakChunkAt(chunkIndex + 1)
+        }
+    }
+
+    private fun isRetryableError(errorCode: Int): Boolean {
+        return errorCode == TextToSpeech.ERROR ||
+            errorCode == TextToSpeech.ERROR_NETWORK ||
+            errorCode == TextToSpeech.ERROR_NETWORK_TIMEOUT ||
+            errorCode == TextToSpeech.ERROR_NOT_INSTALLED_YET ||
+            errorCode == TextToSpeech.ERROR_OUTPUT ||
+            errorCode == TextToSpeech.ERROR_SERVICE
     }
 
     private fun notifyTtsError(message: String) {
@@ -194,6 +280,7 @@ class TtsService : Service() {
     private fun handleTtsInitFailure() {
         pendingText = null
         pendingMessageId = null
+        resumeChunkAfterReinit = null
         ttsController?.onPlaybackStopped()
         stopPlayback(removeNotification = true)
     }
@@ -219,7 +306,7 @@ class TtsService : Service() {
             "$TAG::playback"
         ).apply {
             setReferenceCounted(false)
-            acquire()
+            acquire(WAKE_LOCK_TIMEOUT_MS)
         }
     }
 
@@ -265,21 +352,41 @@ class TtsService : Service() {
         }
     }
 
+    private fun effectiveMaxChunkLength(): Int {
+        return when {
+            selectedEngine.orEmpty().contains("oplus", ignoreCase = true) -> OPLUS_MAX_CHUNK_LENGTH
+            selectedEngine.orEmpty().contains("coloros", ignoreCase = true) -> OPLUS_MAX_CHUNK_LENGTH
+            selectedEngine.orEmpty().contains("heytap", ignoreCase = true) -> OPLUS_MAX_CHUNK_LENGTH
+            else -> DEFAULT_MAX_SPEECH_INPUT_LENGTH
+        }
+    }
+
     private fun speakInternal(text: String, messageId: String?) {
         currentText = text
         currentMessageId = messageId
-        utteranceChunks = TtsTextChunker.chunk(text, DEFAULT_MAX_SPEECH_INPUT_LENGTH)
+        utteranceChunks = TtsTextChunker.chunk(text, effectiveMaxChunkLength())
         activeChunkIndex = 0
         isPlaybackActive = true
         if (!requestPlaybackFocus()) {
             Log.w(TAG, "Audio focus not granted; attempting speak anyway")
         }
-        Log.i(TAG, "speak len=${text.length} chunks=${utteranceChunks.size} engine=$selectedEngine")
+        Log.i(
+            TAG,
+            "speak len=${text.length} chunks=${utteranceChunks.size} maxChunk=${effectiveMaxChunkLength()} engine=$selectedEngine"
+        )
         speakChunkAt(0)
     }
 
     private fun speakChunkAt(index: Int) {
-        val engine = tts ?: return finishPlayback()
+        val engine = tts
+        if (engine == null || !isTtsReady) {
+            if (isPlaybackActive) {
+                reinitializeTtsEngine(index)
+            } else {
+                finishPlayback()
+            }
+            return
+        }
         if (index >= utteranceChunks.size) {
             finishPlayback()
             return
@@ -294,16 +401,42 @@ class TtsService : Service() {
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
         }
         val result = engine.speak(chunk, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        scheduleChunkWatchdog(index, chunk.length)
         Log.d(TAG, "speak chunk=$index/${utteranceChunks.lastIndex} len=${chunk.length} result=$result")
         if (result == TextToSpeech.ERROR) {
             Log.w(TAG, "TTS speak returned ERROR for chunk=$index")
-            notifyTtsError("朗读失败，请检查系统文字转语音设置与媒体音量。")
-            finishPlayback()
+            handleUtteranceError(utteranceId, TextToSpeech.ERROR)
         }
     }
 
+    private fun scheduleChunkWatchdog(index: Int, chunkLength: Int) {
+        cancelChunkWatchdog()
+        val estimatedMs = (chunkLength * 130L).coerceIn(MIN_WATCHDOG_MS, MAX_WATCHDOG_MS)
+        val watchdog = Runnable {
+            if (!isPlaybackActive || isPaused || activeChunkIndex != index) return@Runnable
+            Log.w(TAG, "Watchdog timeout for chunk=$index after ${estimatedMs}ms; advancing")
+            cancelChunkWatchdog()
+            chunkRetryCount = 0
+            if (index >= utteranceChunks.lastIndex) {
+                finishPlayback()
+            } else {
+                speakChunkAt(index + 1)
+            }
+        }
+        chunkWatchdogRunnable = watchdog
+        mainHandler.postDelayed(watchdog, estimatedMs)
+    }
+
+    private fun cancelChunkWatchdog() {
+        chunkWatchdogRunnable?.let { mainHandler.removeCallbacks(it) }
+        chunkWatchdogRunnable = null
+    }
+
     private fun finishPlayback() {
+        cancelChunkWatchdog()
         isPlaybackActive = false
+        resumeChunkAfterReinit = null
+        chunkRetryCount = 0
         releasePlaybackWakeLock()
         abandonAudioFocus()
         stopPlayback(removeNotification = true)
@@ -311,6 +444,7 @@ class TtsService : Service() {
 
     private fun pausePlayback() {
         if (isPaused) return
+        cancelChunkWatchdog()
         tts?.stop()
         isPaused = true
         releasePlaybackWakeLock()
@@ -329,6 +463,7 @@ class TtsService : Service() {
     }
 
     private fun stopPlayback(removeNotification: Boolean) {
+        cancelChunkWatchdog()
         tts?.stop()
         isPaused = false
         isPlaybackActive = false
@@ -336,6 +471,8 @@ class TtsService : Service() {
         currentMessageId = null
         utteranceChunks = emptyList()
         activeChunkIndex = 0
+        resumeChunkAfterReinit = null
+        chunkRetryCount = 0
         releasePlaybackWakeLock()
         abandonAudioFocus()
         ttsController?.onPlaybackStopped()
@@ -478,7 +615,12 @@ class TtsService : Service() {
         const val EXTRA_MESSAGE_ID = "extra_message_id"
         private const val CHANNEL_ID = "tts_playback_v2"
         private const val NOTIFICATION_ID = 9001
-        private const val DEFAULT_MAX_SPEECH_INPUT_LENGTH = 4000
+        private const val DEFAULT_MAX_SPEECH_INPUT_LENGTH = 3500
+        private const val OPLUS_MAX_CHUNK_LENGTH = 1800
+        private const val MAX_CHUNK_RETRIES = 2
+        private const val MIN_WATCHDOG_MS = 20_000L
+        private const val MAX_WATCHDOG_MS = 180_000L
+        private const val WAKE_LOCK_TIMEOUT_MS = 30L * 60L * 1000L
 
         private fun utteranceIdForChunk(index: Int) = "tts_chunk_$index"
 
