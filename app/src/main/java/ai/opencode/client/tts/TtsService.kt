@@ -41,6 +41,8 @@ class TtsService : Service() {
     private var selectedEngine: String? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var utteranceChunks: List<String> = emptyList()
+    private var activeChunkIndex: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -89,27 +91,28 @@ class TtsService : Service() {
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 isPaused = false
+                parseChunkIndex(utteranceId)?.let { activeChunkIndex = it }
                 ttsController?.onPlaybackStarted(currentMessageId)
                 updatePlaybackState(PlaybackState.STATE_PLAYING)
                 updateForegroundNotification(isPlaying = true)
             }
 
             override fun onDone(utteranceId: String?) {
-                abandonAudioFocus()
-                stopPlayback(removeNotification = true)
+                val chunkIndex = parseChunkIndex(utteranceId)
+                if (chunkIndex == null || chunkIndex >= utteranceChunks.lastIndex) {
+                    finishPlayback()
+                }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 Log.w(TAG, "TTS utterance error (legacy): utteranceId=$utteranceId")
-                abandonAudioFocus()
-                stopPlayback(removeNotification = true)
+                finishPlayback()
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 Log.w(TAG, "TTS utterance error: utteranceId=$utteranceId code=$errorCode")
-                abandonAudioFocus()
-                stopPlayback(removeNotification = true)
+                finishPlayback()
             }
         })
     }
@@ -119,7 +122,8 @@ class TtsService : Service() {
         when (intent?.action) {
             ACTION_STOP -> stopPlayback(removeNotification = true)
             ACTION_SPEAK -> {
-                val text = intent.getStringExtra(EXTRA_TEXT)
+                val payload = ttsController?.consumePendingSpeakPayload()
+                val text = payload?.text ?: intent.getStringExtra(EXTRA_TEXT)
                 if (text.isNullOrBlank()) {
                     stopPlayback(removeNotification = true)
                     return START_NOT_STICKY
@@ -129,7 +133,7 @@ class TtsService : Service() {
                     stopPlayback(removeNotification = true)
                     return START_NOT_STICKY
                 }
-                val messageId = intent.getStringExtra(EXTRA_MESSAGE_ID)
+                val messageId = payload?.messageId ?: intent.getStringExtra(EXTRA_MESSAGE_ID)
                 isPaused = false
                 tts?.stop()
                 currentText = text
@@ -222,22 +226,43 @@ class TtsService : Service() {
     private fun speakInternal(text: String, messageId: String?) {
         currentText = text
         currentMessageId = messageId
+        utteranceChunks = TtsTextChunker.chunk(text, DEFAULT_MAX_SPEECH_INPUT_LENGTH)
+        activeChunkIndex = 0
         ensureForeground(isPlaying = true)
         if (!requestPlaybackFocus()) {
             Log.w(TAG, "Audio focus not granted; attempting speak anyway")
         }
-        val params = Bundle().apply {
-            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, UTTERANCE_ID)
-            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+        Log.i(TAG, "speak len=${text.length} chunks=${utteranceChunks.size} engine=$selectedEngine")
+        enqueueChunksFrom(startIndex = 0)
+    }
+
+    private fun enqueueChunksFrom(startIndex: Int) {
+        val engine = tts ?: return
+        if (startIndex >= utteranceChunks.size) {
+            finishPlayback()
+            return
         }
-        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, UTTERANCE_ID)
-        Log.i(TAG, "speak len=${text.length} result=$result engine=$selectedEngine")
-        if (result == TextToSpeech.ERROR) {
-            Log.w(TAG, "TTS speak returned ERROR")
-            notifyTtsError("朗读失败，请检查系统文字转语音设置与媒体音量。")
-            abandonAudioFocus()
-            stopPlayback(removeNotification = true)
+        for (index in startIndex until utteranceChunks.size) {
+            val chunk = utteranceChunks[index]
+            val mode = if (index == startIndex) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            val utteranceId = utteranceIdForChunk(index)
+            val params = Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+            }
+            val result = engine.speak(chunk, mode, params, utteranceId)
+            if (result == TextToSpeech.ERROR) {
+                Log.w(TAG, "TTS speak returned ERROR for chunk=$index")
+                notifyTtsError("朗读失败，请检查系统文字转语音设置与媒体音量。")
+                finishPlayback()
+                return
+            }
         }
+    }
+
+    private fun finishPlayback() {
+        abandonAudioFocus()
+        stopPlayback(removeNotification = true)
     }
 
     private fun pausePlayback() {
@@ -251,10 +276,9 @@ class TtsService : Service() {
     }
 
     private fun resumePlayback() {
-        val text = currentText ?: return
-        if (!isPaused) return
+        if (!isPaused || utteranceChunks.isEmpty()) return
         isPaused = false
-        speakInternal(text, currentMessageId)
+        enqueueChunksFrom(activeChunkIndex)
     }
 
     private fun stopPlayback(removeNotification: Boolean) {
@@ -262,6 +286,8 @@ class TtsService : Service() {
         isPaused = false
         currentText = null
         currentMessageId = null
+        utteranceChunks = emptyList()
+        activeChunkIndex = 0
         abandonAudioFocus()
         ttsController?.onPlaybackStopped()
         updatePlaybackState(PlaybackState.STATE_STOPPED)
@@ -392,6 +418,13 @@ class TtsService : Service() {
         const val EXTRA_MESSAGE_ID = "extra_message_id"
         private const val CHANNEL_ID = "tts_playback"
         private const val NOTIFICATION_ID = 9001
-        private const val UTTERANCE_ID = "tts_utterance"
+        private const val DEFAULT_MAX_SPEECH_INPUT_LENGTH = 4000
+
+        private fun utteranceIdForChunk(index: Int) = "tts_chunk_$index"
+
+        private fun parseChunkIndex(utteranceId: String?): Int? {
+            if (utteranceId == null || !utteranceId.startsWith("tts_chunk_")) return null
+            return utteranceId.removePrefix("tts_chunk_").toIntOrNull()
+        }
     }
 }

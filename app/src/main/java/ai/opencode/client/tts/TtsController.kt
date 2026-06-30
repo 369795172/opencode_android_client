@@ -15,20 +15,27 @@ data class TtsPlaybackState(
     val messageId: String? = null
 )
 
+internal data class TtsSpeakPayload(
+    val text: String,
+    val messageId: String?
+)
+
 @Singleton
 class TtsController(
     private val context: Context
 ) {
     private val _playbackState = MutableStateFlow(TtsPlaybackState())
     val playbackState: StateFlow<TtsPlaybackState> = _playbackState.asStateFlow()
+    @Volatile
+    private var pendingSpeakPayload: TtsSpeakPayload? = null
 
     fun speak(text: String, messageId: String? = null) {
         val cleaned = stripMarkdown(text)
         if (cleaned.isBlank()) return
 
+        pendingSpeakPayload = TtsSpeakPayload(cleaned, messageId)
         val intent = Intent(context, TtsService::class.java).apply {
             action = TtsService.ACTION_SPEAK
-            putExtra(TtsService.EXTRA_TEXT, cleaned)
             putExtra(TtsService.EXTRA_MESSAGE_ID, messageId)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -65,6 +72,12 @@ class TtsController(
 
     internal fun onPlaybackStopped() {
         _playbackState.value = TtsPlaybackState()
+    }
+
+    internal fun consumePendingSpeakPayload(): TtsSpeakPayload? {
+        val payload = pendingSpeakPayload
+        pendingSpeakPayload = null
+        return payload
     }
 
     companion object {
