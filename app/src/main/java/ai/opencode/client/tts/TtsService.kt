@@ -71,6 +71,10 @@ class TtsService : Service() {
 
     private val utteranceListener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {
+            if (isPaused || !isPlaybackActive) {
+                Log.d(TAG, "Ignoring onStart while paused/inactive utteranceId=$utteranceId")
+                return
+            }
             val startedChunk = parseChunkIndex(utteranceId)
             if (startedChunk != null && startedChunk < activeChunkIndex) {
                 Log.d(TAG, "Ignoring stale onStart chunk=$startedChunk active=$activeChunkIndex")
@@ -88,6 +92,10 @@ class TtsService : Service() {
         }
 
         override fun onDone(utteranceId: String?) {
+            if (isPaused || !isPlaybackActive) {
+                Log.d(TAG, "Ignoring onDone while paused/inactive utteranceId=$utteranceId")
+                return
+            }
             cancelChunkWatchdog()
             chunkRetryCount = 0
             val chunkIndex = parseChunkIndex(utteranceId) ?: activeChunkIndex
@@ -265,6 +273,10 @@ class TtsService : Service() {
     }
 
     private fun handleUtteranceError(utteranceId: String?, errorCode: Int) {
+        if (isPaused || !isPlaybackActive) {
+            Log.d(TAG, "Ignoring utterance error while paused/inactive code=$errorCode")
+            return
+        }
         cancelChunkWatchdog()
         val chunkIndex = parseChunkIndex(utteranceId) ?: activeChunkIndex
         if (chunkIndex < activeChunkIndex) {
@@ -580,10 +592,10 @@ class TtsService : Service() {
 
     private fun pausePlayback() {
         if (isPaused) return
+        isPaused = true
         cancelChunkWatchdog()
         stopProgressTicker()
         tts?.stop()
-        isPaused = true
         releasePlaybackWakeLock()
         ttsController?.onPlaybackPaused(currentMessageId)
         publishProgress(isPlaying = false, paused = true)

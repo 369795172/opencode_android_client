@@ -92,7 +92,7 @@ class TtsController(
             this.action = action
             configure()
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (action == TtsService.ACTION_SPEAK && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
             context.startService(intent)
@@ -101,7 +101,11 @@ class TtsController(
 
     internal fun onPlaybackStarted(messageId: String?) {
         _playbackState.update {
-            it.copy(isPlaying = true, isPaused = false, messageId = messageId)
+            if (it.isPaused) {
+                it
+            } else {
+                it.copy(isPlaying = true, isPaused = false, messageId = messageId)
+            }
         }
     }
 

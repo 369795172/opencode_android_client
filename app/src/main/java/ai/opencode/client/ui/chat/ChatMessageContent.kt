@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -95,8 +96,10 @@ internal fun ChatMessageList(
     onFileClick: (String) -> Unit,
     onForkFromMessage: (String) -> Unit,
     isTtsPlaying: Boolean = false,
+    ttsIsPaused: Boolean = false,
     ttsReadingMessageId: String? = null,
     onPlayMessage: (String) -> Unit = {},
+    onResumeTts: () -> Unit = {},
     onStopTts: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
@@ -169,8 +172,10 @@ internal fun ChatMessageList(
                 onFileClick = onFileClick,
                 onForkFromMessage = onForkFromMessage,
                 isTtsPlaying = isTtsPlaying,
+                ttsIsPaused = ttsIsPaused,
                 ttsReadingMessageId = ttsReadingMessageId,
                 onPlayMessage = onPlayMessage,
+                onResumeTts = onResumeTts,
                 onStopTts = onStopTts
             )
         }
@@ -210,8 +215,10 @@ private fun MessageRow(
     onFileClick: (String) -> Unit,
     onForkFromMessage: (String) -> Unit,
     isTtsPlaying: Boolean,
+    ttsIsPaused: Boolean,
     ttsReadingMessageId: String?,
     onPlayMessage: (String) -> Unit,
+    onResumeTts: () -> Unit,
     onStopTts: () -> Unit
 ) {
     val isUser = message.info.isUser
@@ -302,10 +309,10 @@ private fun MessageRow(
                 val isThisMessageReading = ttsReadingMessageId == message.info.id
                 IconButton(
                     onClick = {
-                        if (isThisMessageReading && isTtsPlaying) {
-                            onStopTts()
-                        } else {
-                            onPlayMessage(message.info.id)
+                        when {
+                            isThisMessageReading && isTtsPlaying -> onStopTts()
+                            isThisMessageReading && ttsIsPaused -> onResumeTts()
+                            else -> onPlayMessage(message.info.id)
                         }
                     },
                     modifier = Modifier.size(24.dp)
@@ -313,13 +320,13 @@ private fun MessageRow(
                     Icon(
                         imageVector = when {
                             isThisMessageReading && isTtsPlaying -> Icons.Default.Stop
-                            isThisMessageReading && !isTtsPlaying -> Icons.Default.Pause
+                            isThisMessageReading && ttsIsPaused -> Icons.Default.PlayArrow
                             else -> Icons.AutoMirrored.Filled.VolumeUp
                         },
-                        contentDescription = if (isThisMessageReading && isTtsPlaying) {
-                            "Stop reading"
-                        } else {
-                            "Read aloud"
+                        contentDescription = when {
+                            isThisMessageReading && isTtsPlaying -> "Stop reading"
+                            isThisMessageReading && ttsIsPaused -> "Resume reading"
+                            else -> "Read aloud"
                         },
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         modifier = Modifier.size(16.dp)

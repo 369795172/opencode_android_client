@@ -146,8 +146,10 @@ fun ChatScreen(
                         }
                     },
                     isTtsPlaying = state.isTtsPlaying,
+                    ttsIsPaused = state.ttsIsPaused,
                     ttsReadingMessageId = state.ttsReadingMessageId,
                     onPlayMessage = viewModel::playMessage,
+                    onResumeTts = viewModel::resumeTts,
                     onStopTts = viewModel::stopTts
                 )
             }
