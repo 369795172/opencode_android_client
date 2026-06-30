@@ -128,7 +128,7 @@ class ModelAvailabilityTest {
     }
 
     @Test
-    fun `prefix fallback prefers exact match when available`() {
+    fun `prefix always picks latest selectable model when exact match also available`() {
         val presets = listOf(
             AppState.ModelOption("GLM", "zai", "glm-5", modelIdPrefix = "glm-")
         )
@@ -145,7 +145,28 @@ class ModelAvailabilityTest {
         )
         val out = resolveAvailableModels(presets, providers)
         assertEquals(1, out.size)
-        assertEquals("glm-5", out[0].modelId)
+        assertEquals("glm-5.1", out[0].modelId)
+    }
+
+    @Test
+    fun `prefix picks glm-5_2 when preset glm-5_1 and both versions available`() {
+        val presets = listOf(
+            AppState.ModelOption("GLM", "zai-coding-plan", "glm-5.1", modelIdPrefix = "glm-")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "zai-coding-plan",
+                    models = mapOf(
+                        "glm-5.1" to ProviderModel(id = "glm-5.1", status = "active"),
+                        "glm-5.2" to ProviderModel(id = "glm-5.2", status = "active")
+                    )
+                )
+            )
+        )
+        val out = resolveAvailableModels(presets, providers)
+        assertEquals(1, out.size)
+        assertEquals("glm-5.2", out[0].modelId)
     }
 
     @Test
