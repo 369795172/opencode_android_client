@@ -28,8 +28,8 @@ android {
         applicationId = "ai.opencode.client"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "0.1.20260610.1"
+        versionCode = 16
+        versionName = "0.1.20260630.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Integration test credentials from .env (dynamic, not in code)

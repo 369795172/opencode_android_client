@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
@@ -14,6 +15,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import ai.opencode.client.MainActivity
 import ai.opencode.client.R
@@ -35,28 +37,34 @@ class TtsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
+        // Promote to foreground before TTS engine init (OEM engines can block >5s).
+        ensureForeground(isPlaying = false)
+
         ttsController = EntryPointAccessors.fromApplication(
             applicationContext,
             TtsServiceEntryPoint::class.java
         ).ttsController()
 
-        createNotificationChannel()
         setupMediaSession()
 
-        tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.getDefault()
-                isTtsReady = true
-                val text = pendingText
-                if (text != null) {
-                    speakInternal(text, pendingMessageId)
-                    pendingText = null
-                    pendingMessageId = null
-                }
-            } else {
+        tts = TextToSpeech(applicationContext) { status ->
+            if (status != TextToSpeech.SUCCESS) {
+                Log.w(TAG, "TextToSpeech init failed with status=$status")
+                handleTtsInitFailure()
+                return@TextToSpeech
+            }
+            if (!configureTtsLanguage()) {
+                Log.w(TAG, "No supported TTS language found")
+                handleTtsInitFailure()
+                return@TextToSpeech
+            }
+            isTtsReady = true
+            val text = pendingText
+            if (text != null) {
+                speakInternal(text, pendingMessageId)
                 pendingText = null
                 pendingMessageId = null
-                stopPlayback(removeNotification = true)
             }
         }
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -73,43 +81,41 @@ class TtsService : Service() {
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
+                Log.w(TAG, "TTS utterance error (legacy): utteranceId=$utteranceId")
                 stopPlayback(removeNotification = true)
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
+                Log.w(TAG, "TTS utterance error: utteranceId=$utteranceId code=$errorCode")
                 stopPlayback(removeNotification = true)
             }
         })
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground(isPlaying = false)
         when (intent?.action) {
             ACTION_STOP -> stopPlayback(removeNotification = true)
-            else -> {
-                ensureForeground(isPlaying = false)
-                when (intent?.action) {
-                    ACTION_SPEAK -> {
-                        val text = intent.getStringExtra(EXTRA_TEXT)
-                        if (text == null) {
-                            stopPlayback(removeNotification = true)
-                            return START_NOT_STICKY
-                        }
-                        val messageId = intent.getStringExtra(EXTRA_MESSAGE_ID)
-                        isPaused = false
-                        tts?.stop()
-                        currentText = text
-                        currentMessageId = messageId
-                        if (isTtsReady) {
-                            speakInternal(text, messageId)
-                        } else {
-                            pendingText = text
-                            pendingMessageId = messageId
-                        }
-                    }
-                    ACTION_PAUSE -> pausePlayback()
-                    ACTION_RESUME -> resumePlayback()
+            ACTION_SPEAK -> {
+                val text = intent.getStringExtra(EXTRA_TEXT)
+                if (text.isNullOrBlank()) {
+                    stopPlayback(removeNotification = true)
+                    return START_NOT_STICKY
+                }
+                val messageId = intent.getStringExtra(EXTRA_MESSAGE_ID)
+                isPaused = false
+                tts?.stop()
+                currentText = text
+                currentMessageId = messageId
+                if (isTtsReady) {
+                    speakInternal(text, messageId)
+                } else {
+                    pendingText = text
+                    pendingMessageId = messageId
                 }
             }
+            ACTION_PAUSE -> pausePlayback()
+            ACTION_RESUME -> resumePlayback()
         }
         return START_NOT_STICKY
     }
@@ -123,6 +129,31 @@ class TtsService : Service() {
         tts?.shutdown()
         tts = null
         super.onDestroy()
+    }
+
+    private fun configureTtsLanguage(): Boolean {
+        val engine = tts ?: return false
+        val candidates = listOf(
+            Locale.getDefault(),
+            Locale.SIMPLIFIED_CHINESE,
+            Locale.TRADITIONAL_CHINESE,
+            Locale.US,
+        )
+        for (locale in candidates) {
+            when (engine.setLanguage(locale)) {
+                TextToSpeech.LANG_AVAILABLE,
+                TextToSpeech.LANG_COUNTRY_AVAILABLE,
+                TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> return true
+            }
+        }
+        return false
+    }
+
+    private fun handleTtsInitFailure() {
+        pendingText = null
+        pendingMessageId = null
+        ttsController?.onPlaybackStopped()
+        stopPlayback(removeNotification = true)
     }
 
     private fun ensureForeground(isPlaying: Boolean) {
@@ -144,8 +175,13 @@ class TtsService : Service() {
         ensureForeground(isPlaying = true)
         val params = Bundle().apply {
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, UTTERANCE_ID)
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
         }
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, UTTERANCE_ID)
+        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, UTTERANCE_ID)
+        if (result == TextToSpeech.ERROR) {
+            Log.w(TAG, "TTS speak returned ERROR")
+            stopPlayback(removeNotification = true)
+        }
     }
 
     private fun pausePlayback() {
