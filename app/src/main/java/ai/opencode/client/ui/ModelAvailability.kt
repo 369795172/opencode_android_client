@@ -11,8 +11,9 @@ internal fun isProviderModelSelectable(model: ProviderModel): Boolean {
 /**
  * Merge strategy:
  * 1) Keep preset models that exist and are selectable on server.
- * 2) For presets with [modelIdPrefix], always pick the lexicographically greatest
- *    selectable model matching the prefix (e.g. "glm-5.2" over "glm-5.1").
+ * 2) For presets with [modelIdPrefix], use the preset [modelId] when it is selectable;
+ *    otherwise pick the lexicographically greatest selectable model matching the prefix
+ *    (e.g. "glm-5.2" over "glm-5.1" when the preset id is missing from the server).
  * 3) If providers unavailable, fall back to presets.
  */
 internal fun resolveAvailableModels(
@@ -26,6 +27,10 @@ internal fun resolveAvailableModels(
         val provider = byId[preset.providerId] ?: return@mapNotNull null
         val prefix = preset.modelIdPrefix
         if (prefix != null) {
+            val exactModel = provider.models[preset.modelId]
+            if (exactModel != null && isProviderModelSelectable(exactModel)) {
+                return@mapNotNull preset
+            }
             val best = provider.models.entries
                 .filter { it.key.startsWith(prefix) && isProviderModelSelectable(it.value) }
                 .maxByOrNull { it.key }

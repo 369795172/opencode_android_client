@@ -128,7 +128,7 @@ class ModelAvailabilityTest {
     }
 
     @Test
-    fun `prefix always picks latest selectable model when exact match also available`() {
+    fun `prefix uses exact preset modelId when selectable even if newer prefix match exists`() {
         val presets = listOf(
             AppState.ModelOption("GLM", "zai", "glm-5", modelIdPrefix = "glm-")
         )
@@ -145,11 +145,11 @@ class ModelAvailabilityTest {
         )
         val out = resolveAvailableModels(presets, providers)
         assertEquals(1, out.size)
-        assertEquals("glm-5.1", out[0].modelId)
+        assertEquals("glm-5", out[0].modelId)
     }
 
     @Test
-    fun `prefix picks glm-5_2 when preset glm-5_1 and both versions available`() {
+    fun `prefix fallback picks latest when preset modelId missing from server`() {
         val presets = listOf(
             AppState.ModelOption("GLM", "zai-coding-plan", "glm-5.1", modelIdPrefix = "glm-")
         )
@@ -158,8 +158,28 @@ class ModelAvailabilityTest {
                 ConfigProvider(
                     id = "zai-coding-plan",
                     models = mapOf(
-                        "glm-5.1" to ProviderModel(id = "glm-5.1", status = "active"),
                         "glm-5.2" to ProviderModel(id = "glm-5.2", status = "active")
+                    )
+                )
+            )
+        )
+        val out = resolveAvailableModels(presets, providers)
+        assertEquals(1, out.size)
+        assertEquals("glm-5.2", out[0].modelId)
+    }
+
+    @Test
+    fun `prefix keeps glm-5_2 when glm-5v-turbo is also on server`() {
+        val presets = listOf(
+            AppState.ModelOption("GLM", "zai-coding-plan", "glm-5.2", modelIdPrefix = "glm-")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "zai-coding-plan",
+                    models = mapOf(
+                        "glm-5.2" to ProviderModel(id = "glm-5.2", status = "active"),
+                        "glm-5v-turbo" to ProviderModel(id = "glm-5v-turbo", status = "active")
                     )
                 )
             )
