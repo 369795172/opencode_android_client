@@ -31,7 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import ai.opencode.client.R
 import ai.opencode.client.data.model.FileNode
 import ai.opencode.client.ui.theme.AddedFile
 import ai.opencode.client.ui.theme.DeletedFile
@@ -97,7 +99,7 @@ internal fun FileRow(
             if (file.ignored == true) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "ignored",
+                    text = stringResource(R.string.files_ignored),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -118,12 +120,15 @@ internal fun FileRow(
                 },
                 onClick = {
                     showMenu = false
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val clip = ClipData.newPlainText("file path", file.path)
-                    clipboard.setPrimaryClip(clip)
-                    Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+                    copyRelativePath(context, file.path)
                 }
             )
         }
     }
+}
+
+private fun copyRelativePath(context: Context, path: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("path", path))
+    Toast.makeText(context, "Copied path", Toast.LENGTH_SHORT).show()
 }

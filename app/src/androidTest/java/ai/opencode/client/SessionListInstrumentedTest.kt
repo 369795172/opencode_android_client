@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -73,6 +74,32 @@ class SessionListInstrumentedTest {
 
         composeRule.onNodeWithText("Load older").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { loadMoreCalls.get() > 0 }
+    }
+
+    @Test
+    fun sessionListCollapseButtonInvokesCallbackWhenProvided() {
+        val session = Session(
+            id = "session-1",
+            directory = "/tmp/project",
+            title = "Session 1"
+        )
+        val collapseCalls = AtomicInteger(0)
+
+        composeRule.setContent {
+            MaterialTheme {
+                SessionList(
+                    sessions = listOf(session),
+                    currentSessionId = "session-1",
+                    onSelectSession = {},
+                    onCreateSession = {},
+                    onDeleteSession = {},
+                    onCollapseSessions = { collapseCalls.incrementAndGet() }
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Hide sessions").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { collapseCalls.get() == 1 }
     }
 
     @Test
@@ -188,5 +215,38 @@ class SessionListInstrumentedTest {
 
         composeRule.onNodeWithText("Idle Session").assertIsDisplayed()
         composeRule.onNodeWithText("Idle").assertIsDisplayed()
+    }
+
+    @Test
+    fun sessionListRollsNeedAttentionUpToParentAndOverridesRunning() {
+        val parent = Session(
+            id = "parent",
+            directory = "/tmp/project",
+            title = "Parent"
+        )
+        val child = Session(
+            id = "child",
+            parentId = "parent",
+            directory = "/tmp/project",
+            title = "Child"
+        )
+
+        composeRule.setContent {
+            MaterialTheme {
+                SessionList(
+                    sessions = listOf(parent, child),
+                    currentSessionId = "parent",
+                    sessionStatuses = mapOf("parent" to SessionStatus(type = "busy")),
+                    attentionSessionIds = listOf("child"),
+                    onSelectSession = {},
+                    onCreateSession = {},
+                    onDeleteSession = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Parent").assertIsDisplayed()
+        composeRule.onNodeWithText("Need attention").assertIsDisplayed()
+        composeRule.onNodeWithText("Running").assertDoesNotExist()
     }
 }

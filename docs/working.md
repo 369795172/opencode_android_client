@@ -1,10 +1,199 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-07-30 — Dual recording strategies + Save auto-test (open PR, do not merge)
+
+- 分支 `feat/dual-recording-strategies`：Settings 增加 OpenAI Realtime / Grok STT picker；Chat 录音 Start 时 snapshot strategy。
+- Grok 路径不创建 realtime session，Stop 后 multipart 上传；OpenAI 路径保持现有 WS + heartbeat。
+- **Save UX 重做**：去掉独立的 Test Connection 按钮；点 Save 即保存 + 现场测试，成功显示 connected、失败直接报错。`saveAIBuilderSettings` 不再无条件清掉已连接状态，避免改个 picker 就丢失连接绿勾。
+- "Grok Batch" 改名 **"Grok STT"**。
+- VoiceFlowKit 依赖 pin 到 dual-strategy commit 完整 SHA `0fbc2d5cdeeb2335671726044f7fb105314671f1`；本地存在 sibling monorepo 时 `includeBuild` 替换为源码。
+- 验证：`./gradlew :app:testDebugUnitTest` 通过。PR 保持 Open，等 voiceflow-android merge/tag 后再改 exact `0.3.0` 并 merge。
+
+## 2026-07-15 — Session Deep Link
+
+- 分支：`feat/session-deep-links`，基于 `github/master`；本地 `master` 的独立 commit `18f4a30` 保持不动，不混入本 PR。
+- 对齐 iOS `opencode://session/<session_id>` contract：Manifest system Intent、Chat Markdown、严格 JVM parser 和 ViewModel router 共用同一路径。
+- 当前 Host 通过 `GET /session/:id` 验证后才切 session；断连时 pending，Host 切换/连续链接用 generation token 丢弃旧响应。
+- by-ID 目标先 upsert 完整 Session，再复用现有 message/status hydration；session refresh 保留不在分页窗口中的当前目标。
+- 根层提供 opening/error UI，手机成功后回到 Chat；平板保留三栏。
+- 主产品与技术 contract 已并入 `docs/PRD.md` 和 `docs/RFC.md` §5.13。
+
+## 2026-06-30 — NFC Quick Prompt (Experimental)
+
+### 目标
+
+在 Settings → Experimental 增加 NFC Quick Prompt 功能。用户输入一段 prompt，写入 NTAG215 NFC tag；亮屏靠近 tag 时系统自动拉起 App，新建 session，填入 prompt，按写入时的设置决定直接发送或等待确认。
+
+### 分支
+
+`feat/nfc-quick-prompt`（基于 `master`）
+
+### 设计文档
+
+NFC Quick Prompt 的 PRD 和 RFC 内容已合并进主 `docs/PRD.md` 和 `docs/RFC.md`（§5.12）。独立的 `NFC_Quick_Prompt_PRD.md`、`NFC_Quick_Prompt_RFC.md` 和 `nfc_feature_plan.md` 已删除。
+
+### 实现
+
+1. **AndroidManifest.xml**：新增 `NFC` permission + `<uses-feature nfc required=false>`；`MainActivity` 加 `launchMode="singleTop"` 和 `NDEF_DISCOVERED` intent-filter（scheme=`opencode`、host=`prompt`）；注册 `NfcWriterActivity`（透明、noHistory）。
+2. **SettingsManager.kt**：新增 3 个属性 `nfcEnabled`/`nfcPrompt`/`nfcAutoSend`（EncryptedSharedPreferences），新增常量 `NFC_PROMPT_MAX_BYTES=480` 和 `NFC_TAG_MAX_BYTES=504`。
+3. **AppState**：新增 `pendingNfcAction: NfcPendingAction?` 字段和 `NfcPendingAction(prompt, autoSend)` data class。
+4. **MainViewModel.kt**：
+   - `handleNfcPrompt(prompt, autoSend)`：检查 nfcEnabled → 设置 pendingNfcAction → createSession()
+   - `consumePendingNfcAction()`：setInputText(prompt) + 条件 sendMessage()，清空 pending
+   - `loadMessages` 的 `onMessagesLoaded` 回调触发 consumePendingNfcAction
+   - NFC settings 读写辅助方法
+5. **MainViewModelSessionActions.kt**：`launchLoadMessages` 新增可选 `onMessagesLoaded` 回调，在成功路径末尾调用。
+6. **MainActivity.kt**：override `onNewIntent`，解析 `NDEF_DISCOVERED` URI（`opencode://prompt?a=&p=`），调用 `viewModel.handleNfcPrompt`。
+7. **NfcWriterActivity.kt**（新增）：透明 Activity，读 SettingsManager 生成 URI，foreground dispatch 写入 NDEF。字节校验 > 504 拒绝。
+8. **SettingsSections.kt**：新增 `NfcExperimentalSection` Compose section（启用开关、多行 prompt 输入、字节计数、autoSend 开关、Write to tag 按钮）。
+9. **SettingsScreen.kt**：在 SpeechRecognitionSection 之后、AboutSection 之前挂载 `NfcExperimentalSection`。
+10. **strings.xml / values-zh**：NFC 相关文案（中英文）。
+11. **themes.xml**：新增 `Theme.Transparent` 主题供 NfcWriterActivity 使用。
+
+### 测试
+
+`NfcQuickPromptTest.kt`（6 个测试）：
+- `handleNfcPrompt ignored when NFC disabled` — nfcEnabled=false 时静默忽略
+- `handleNfcPrompt sets pending action when enabled` — 启用后设置 pending action 并创建 session
+- `consumePendingNfcAction fills input and sends when autoSend` — autoSend=true 时 sendMessage 被调用
+- `consumePendingNfcAction fills input only when autoSend false` — autoSend=false 时只填入不发送
+- `consumePendingNfcAction no-op when no pending action` — 无 pending 时不做任何操作
+- `NfcPendingAction holds prompt and autoSend` — data class 字段验证
+
+### 验证
+
+- `./gradlew testDebugUnitTest` — 全部通过（含新增 6 个 NFC 测试 + 既有全部测试）
+- `./gradlew assembleDebug` — BUILD SUCCESSFUL
+
+### 当前状态
+
+- 代码实现完成，测试通过，真机验证通过。
+- PR #77 已开，准备 merge。
+
+### 真机调试修复
+
+1. **NfcWriterActivity 写入卡住**：旧代码用 `enableForegroundDispatch` + 错误的 PendingIntent（传了 Activity 自身的 intent 而非新构造的 `Intent(this, NfcWriterActivity::class.java).addFlags(FLAG_ACTIVITY_SINGLE_TOP)`），导致 `onNewIntent` 不触发。修复 PendingIntent 构造，移到 `onResume` 启用。
+2. **"Empty Tag" 系统弹窗**：曾尝试 `enableReaderMode` + `FLAG_READER_SKIP_NDEF_CHECK`，但在 MIUI/HyperOS 上不生效。回到 `enableForegroundDispatch`（null filters 拦住所有 tag 类型）。
+3. **Session storm（320+ session）**：root cause 是 `handleNfcIntent(intent)` 误放在 `setContent` 的 Composable lambda 中，每次 UI 重组都重新触发。修复：移到只在 `onCreate` 和 `onNewIntent` 调用。
+4. **Debounce**：加 30 秒 cooldown 防止 tag 贴着天线时系统反复 dispatch。
+5. **ViewModel 初始化竞态**：`onNewIntent` 可能在 `setContent` 赋值 `mainViewModel` 之前到达。暂存 `pendingNfcPrompt`，在 `setContent` 第一行消费。
+6. **NFC 功能不响应**：修复竞态问题后 tag 触发正常拉起 App 并执行。
+
+## 2026-06-14 — Phase 7：Markdown Web Preview + Tablet Sessions 折叠
+
+### Compact 后恢复步骤
+
+新的 agent 或 context compact 后先读本节，再读两份设计文档：`docs/Android_Markdown_Web_Preview_PRD.md` 和 `docs/Android_Markdown_Web_Preview_RFC.md`。当前分支是 `feature/android-markdown-preview-collapse`。本轮目标是对齐 iOS 最近两个 PR：`#94 feat: Markdown Web Preview (Phase 0/1/2)` 和 `#95 feat(ipad): collapse Sessions panel + remove dead SplitSidebarView`。
+
+恢复时不要重新发散调研。除非代码已明显变化，按下面的执行计划继续推进：先实现 tablet Sessions pane collapse，再实现 Markdown Web Preview 的 resource shell 和 Files 接入，最后补测试和跑验证。每完成一个可独立回滚的阶段就 commit。全部测试通过后直接开 PR，不 merge。
+
+### 已完成
+
+1. 已创建分支：`feature/android-markdown-preview-collapse`。
+2. 已读 workspace 与项目规则：根目录 `AGENTS.md`、Android `AGENTS.md`、internal writing skill、parallel subagent skill。
+3. 已用 subagent 并行调研三块：iOS Markdown Web Preview、iOS tablet Sessions pane collapse、Android 架构/测试层级。
+4. 已更新主文档：`docs/PRD.md` 和 `docs/RFC.md` 增加 Phase 7、Web Preview、tablet Sessions pane collapse。
+5. 已新增 Android 专属设计文档：`docs/Android_Markdown_Web_Preview_PRD.md` 和 `docs/Android_Markdown_Web_Preview_RFC.md`。
+6. 已更新 `.gitignore`，忽略 `docs/ios_markdown_preview_fixtures/`。这个目录只用于把 iOS 的 Markdown Preview PRD/RFC 复制进 Android repo 手工渲染，不提交。
+7. 已实现 tablet Sessions pane collapse：`MainActivity.TabletLayout` 使用 `rememberSaveable` 保存 `sessionsPaneCollapsed`，折叠时左栏不渲染，Files/Chat 各占 50%；`SessionList` header 增加 `Hide sessions`，Files pane 左上角增加 `Show sessions` 恢复入口。
+8. 已实现 Android Markdown Web Preview MVP：新增 `app/src/main/assets/web_preview/` 本地 shell；`FilePreviewPane` 增加 `Web Preview` / `Native Preview` / `Markdown Source` 三态，默认 Web；新增 `MarkdownWebPreviewPane`，复用 `MarkdownImageResolver` 生成 data URI，WebView 加载 `file:///android_asset/web_preview/preview.html` 并通过 JSON payload 注入 Markdown。
+9. 已补低层测试：`MarkdownImageResolverTest` 增加 query/fragment stripping case；`SessionListInstrumentedTest` 增加 collapse callback component test。
+10. 已修复既有 androidTest 编译漂移：`ChatInputBarInstrumentedTest` 补齐 `agentActivityText` / `agentStartedAtMillis` 参数。
+11. 已修复 Web Preview 切文件黑屏：之前切文件时 `ResolvedMarkdownWebPreview` 先把 `resolvedContent` 置空，Compose 临时移除 WebView；新文件的 WebView shell 加载到 JS ready 前显示空深色页，视觉像全黑闪一下。现在先立即渲染当前 Markdown 文本，再异步补 data URI 图片，切文件不会进入 blank WebView 状态。
+12. 已修复 `.md` 一直黑屏的更底层问题：WebView 通过 `file:///android_asset/web_preview/preview.html` 加载 shell，必须允许 file asset 子资源读取，否则相邻的 `preview.js` / `markdown-it.min.js` / `purify.min.js` / `preview.css` 可能不加载，只剩黑色 HTML 背景。现在 `allowFileAccess=true` 仅用于 app asset shell；workspace 文件仍不走 WebView file URL，图片继续预解析成 data URI。`renderMarkdown()` 也增加了 renderer-ready 重试，避免注入早于 JS ready。
+13. 真机反馈 Web Preview 首次打开仍有黑色首帧。当前诊断分两层：第一，WebView 先显示空的深色 `preview.html` shell，随后 `preview.js` 才完成 renderer 初始化和 Markdown 注入；第二，WebView 创建时的硬件合成层可能抢到窗口首帧，导致整个 Activity 黑闪，而不只是 Markdown pane 变黑。默认模式保持 Web Preview；修复方式是在 JS 发出 `rendered` bridge 事件前，用 Compose Native Markdown 覆盖 WebView，并用 `onPageCommitVisible` + `postVisualStateCallback` 控制 WebView 可见时机。bridge 回调统一切回 main thread 更新 Compose state。
+14. 用户进一步确认黑闪只发生在进程内第一次切到 Markdown，之后不再闪。这个现象基本指向 WebView/Chromium 首次初始化，而不是每次 Markdown render。已在 `OpenCodeApp` 启动后预热一个不 attach 到窗口的 `about:blank` WebView，把首次初始化从用户点击 MD 的交互路径挪走。此前尝试过的 `LAYER_TYPE_SOFTWARE` 已撤回；Chromium 官方不建议对 WebView 使用 software layer，它也可能放大全窗口合成黑闪。
+
+### 关键调研结论
+
+iOS PR #94 的产品语义是 Files-only Web Preview。Swift 侧复用 `MarkdownImageResolver.resolveImages(...)` 把相对图片转 data URI，再把 Markdown payload 注入本地 `preview.html`。WebView shell 使用 `markdown-it` + `DOMPurify`，允许 HTML/CSS card、inline SVG、`details/summary` 和 table，禁止 `script/iframe/form/object/embed/on*/javascript:`。Files 预览模式是 `native / web / source`，当前默认 `web`。测试包括 path unit test、Web shell verification、XCUITest fixture。
+
+iOS PR #95 折叠的是 iPad / regular width 的左侧 Sessions pane，不是 session row tree。状态是 view-local `sessionsCollapsed`，展开时三栏 `Sessions / Files / Chat`，折叠时 Sessions 宽度为 0，Files / Chat 平分。左栏有 Hide sessions 按钮，折叠后 Files 栏左上有 Show sessions 按钮，另有左缘 swipe 展开手势。Android 第一版先做按钮，手势可作为后续 polish。
+
+Android 当前基线：`MainActivity.TabletLayout` 固定三栏，左栏 `SessionList/Settings` 25%，中栏 `FilesScreen` 37.5%，右栏 `ChatScreen` 37.5%。Files Markdown 入口在 `FilePreviewPane.kt`，当前只有 Compose Native Markdown。Android 已有 `MarkdownImageResolver.resolveImages(...)` 和 data URI 图片链路，可直接复用。项目没有 WebView / assets shell。
+
+### 执行计划
+
+1. 文档与 fixture checkpoint
+   - 复制 iOS `Markdown_Web_Preview_PRD.md` 和 `Markdown_Web_Preview_RFC.md` 到 Android `docs/ios_markdown_preview_fixtures/`。
+   - 确认该目录被 git ignore，不进入 commit。
+   - commit 文档和计划：`.gitignore`、`docs/PRD.md`、`docs/RFC.md`、`docs/Android_Markdown_Web_Preview_PRD.md`、`docs/Android_Markdown_Web_Preview_RFC.md`、`docs/working.md`。
+
+2. Tablet Sessions pane collapse
+   - 修改 `MainActivity.TabletLayout`。
+   - 新增 `sessionsPaneCollapsed`，建议 `rememberSaveable`。
+   - 展开时保持当前三栏比例；折叠时左栏不渲染，Files/Chat 各占 `0.5f`。
+   - 左栏顶部增加 `Hide sessions` 按钮；折叠后 Files 顶部左侧增加 `Show sessions` 按钮。
+   - 不复用 `expandedSessionIds`，不改变 phone layout。
+   - 补 component/instrumented test 或至少为按钮加 stable content description，后续 UI test 可定位。
+   - 验证 `./gradlew testDebugUnitTest` 和 `./gradlew assembleDebug`，可独立 commit。
+
+3. Web Preview resource shell
+   - 新增 `app/src/main/assets/web_preview/preview.html`、`preview.css`、`preview.js`、`markdown-it.min.js`、`purify.min.js`。
+   - 资源可以从 iOS `Resources/WebPreview/` 迁移，但 Android 需要检查路径和 bridge 名称。
+   - JS 暴露 `window.renderMarkdown(payload)`，payload 至少包含 `markdown` 和 `theme`。
+   - CSS 保留主题变量：`--bg`、`--fg`、`--fg-muted`、`--border`、`--card-bg`、`--ok-*`、`--bad-*`、`--warn-*`、`--block-*`。
+   - commit resource shell。
+
+4. Files Web Preview 接入
+   - 在 `FilePreviewPane.kt` 增加 `MarkdownPreviewMode`：`Web` / `Native` / `Source`，默认 `Web`。
+   - Toolbar 增加 mode menu，保留 Refresh / Close；图片 Share 逻辑不受影响。
+   - 新增 `MarkdownWebPreviewPane.kt`：负责 resolver、loading、error、oversize gate。
+   - 新增 WebView wrapper：`AndroidView(factory = { WebView(...) })`，加载 `file:///android_asset/web_preview/preview.html`。
+   - WebView settings：`javaScriptEnabled = true`，`allowFileAccess = false`，`allowContentAccess = false`，`domStorageEnabled = false`。
+   - JSON 注入使用 Kotlinx Serialization 或 `JSONObject.quote` 级别的安全编码，不手写拼接 Markdown 字符串。
+   - commit MVP。
+
+5. 安全、链接与测试
+   - WebViewClient 默认拦截 navigation；`http/https` 外链走系统浏览器；fragment anchor 留在页面内；其它 scheme 阻断。
+   - JS bridge 接收 error/link/image 事件，第一版 image click 可 no-op。
+   - 补 `MarkdownImageResolverTest` 的 Web Preview path case。
+   - 补 `MarkdownWebPreviewInstrumentedTest`：至少覆盖 WebView 存在、fixture sentinel、mode switch 到 Source/Native、安全 fixture 不执行脚本。
+   - 验证命令：先 `./gradlew testDebugUnitTest`，再 `./gradlew assembleDebug`；有 emulator 时跑 targeted `connectedDebugAndroidTest` 或相关 instrumented class。不要在物理 Android 设备上跑 install / connected tests。
+
+### 当前待处理
+
+- [x] 复制 iOS Markdown Preview PRD/RFC 到 ignored fixture 目录。
+- [x] 提交文档计划 checkpoint：`a772863 docs: plan Android markdown web preview parity`。
+- [x] 实现 tablet Sessions pane collapse，验证 `./gradlew assembleDebug` 与 `./gradlew testDebugUnitTest` 均通过。
+- [x] 实现 Web Preview resource shell。
+- [x] 接入 Files mode menu 和 WebView renderer。
+- [x] 补 unit/component tests。
+- [x] 跑 connected/component 验证。
+- [x] 开 PR：`https://github.com/grapeot/opencode_android_client/pull/61`。
+- [x] 修复 Web Preview 首次打开黑色首帧：WebView 后台加载，Native Markdown overlay 持续到 JS 发出 `rendered`；WebView 使用 visual-state callback 后显示，并在 app 启动后预热 Chromium/WebView 首次初始化。
+
+### 当前验证状态
+
+- `./gradlew testDebugUnitTest`：通过。
+- `./gradlew assembleDebug`：通过。
+- `ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest`：通过，25 tests，2 skipped（AI Builder live credential 类），0 failed。
+- 切文件黑屏修复后重复执行以上三条验证，均通过；connected test 明确指定 `ANDROID_SERIAL=emulator-5554`，避免安装到已连接真机。
+- `.md` shell asset 加载修复后再次执行以上三条验证，均通过。
+- Web Preview 首次打开黑色首帧修复后重复执行以上三条验证，均通过。默认 Markdown mode 保持 Web Preview；Native Preview 作为 Web renderer 完成前的临时覆盖层和菜单中的手动 fallback。用户确认黑闪只在第一次切 MD 出现后，新增 app 启动后 WebView warm-up，并再次验证 `./gradlew testDebugUnitTest assembleDebug` 与 `ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest` 通过。
+
+### 提交节奏
+
+建议 commit 切分：
+
+1. `docs: plan Android markdown web preview parity`
+2. `feat(tablet): collapse sessions pane`
+3. `feat(markdown): add web preview shell`
+4. `feat(files): add markdown web preview mode`
+5. `test: cover markdown web preview`
+
+如果某个阶段测试失败，先修复再 commit。不要把 broken checkpoint commit 到分支，除非明确标记为 WIP 且用户要求保留。
+
+## 2026-06-20
+
+- 模型列表中将 `Ollama Kimi K2.6`（`ollama-cloud/kimi-k2.6`）替换为 `Ollama GLM 5.2`（`ollama-cloud/glm-5.2`）。OpenCode server 的 `ollama-cloud` provider registry 已通过 `scripts/regen_models_local.py` 的 `INJECTIONS` 注入 `glm-5.2` 条目，model key 是 `glm-5.2`。
+- `ModelOption.shortName` 从 `Ollama Kimi K2.6 -> Kimi` 改为 `Ollama GLM 5.2 -> OGLM-5.2`（加 O 前缀和版本号，与顶部 `GLM-5.2` preset 的 shortName `GLM` 区分），对齐 iOS model chip 显示。
+- Android 用 index 持久化 session model selection，GLM 5.2 占据原 Kimi 的 index 6 槽位，无需 canonical mapping 即可平滑迁移。
+
 ## 2026-06-10
 
-- 从 `grapeot/opencode_android_client` upstream/master 合并至 `path-b-grapeot`（ba15faa 及之前约 30 commits：F3 voice rail、session archive、todo panel、tool card 重做、VoiceFlowKit 0.3.1 等）。
-- 保留本地 `ai.opencode.client` 包名、`ModelPresets` 预设列表、应用 icon、`settings.gradle.kts` 项目名。
-- 版本：`versionName=0.1.20260610.1`、`versionCode=12`。
+- 模型列表中将 `MiniMax M3`（`ollama-cloud/minimax-m3`）替换为 `Ollama Kimi K2.6`（`ollama-cloud/kimi-k2.6`）。OpenCode server 的 `ollama-cloud` provider registry 暴露的 model key 是 `kimi-k2.6`；直接传 Ollama library tag `kimi-k2.6:cloud` 会让 `prompt_async` 返回 204 但后台不生成 assistant message。
+- `ModelOption.shortName` 新增 `Ollama Kimi K2.6 -> Kimi`，对齐 iOS model chip 显示。
 
 ## 2026-06-08
 

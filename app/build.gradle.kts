@@ -28,8 +28,8 @@ android {
         applicationId = "ai.opencode.client"
         minSdk = 26
         targetSdk = 34
-        versionCode = 25
-        versionName = "0.1.20260701.1"
+        versionCode = 27
+        versionName = "0.1.20260731.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Integration test credentials from .env (dynamic, not in code)
@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.appcompat)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -85,7 +86,10 @@ dependencies {
     
     // VoiceFlowKit: realtime speech transcription pipeline, consumed remotely from
     // grapeot/voiceflow-android via JitPack (com.github.<user>:<repo>:<tag>).
-    implementation("com.github.grapeot:voiceflow-android:0.3.1")
+    // Dual-strategy VoiceFlowKit. Prefer exact SemVer after voiceflow-android
+    // merges/tags 0.3.0; until then pin the dual-strategy PR commit (full SHA;
+    // short hashes can cold-start JitPack past CI timeouts).
+    implementation("com.github.grapeot:voiceflow-android:0fbc2d5cdeeb2335671726044f7fb105314671f1")
 
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
@@ -94,6 +98,8 @@ dependencies {
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.bcprov)
+    implementation(libs.jsch)
     
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

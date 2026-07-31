@@ -1,8 +1,11 @@
 package ai.opencode.client.ui.chat
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +14,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -18,13 +22,16 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Refresh
@@ -53,13 +60,18 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import ai.opencode.client.R
+import ai.opencode.client.data.model.ComposerImageAttachment
 import ai.opencode.client.data.model.PermissionRequest
 import ai.opencode.client.data.model.PermissionResponse
 import ai.opencode.client.ui.theme.StopRed
@@ -79,24 +91,28 @@ internal fun ChatInputBar(
     isSpeechConfigured: Boolean,
     agentActivityText: String?,
     agentStartedAtMillis: Long?,
+    imageAttachments: List<ComposerImageAttachment>,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
+    onAddImages: () -> Unit,
+    onRemoveImage: (String) -> Unit,
     onAbort: () -> Unit,
     onAbortSpeech: () -> Unit,
     onRetrySpeech: () -> Unit,
     onDiscardSpeech: () -> Unit,
     onToggleRecording: () -> Unit
 ) {
-    val canSend = text.isNotBlank() && !isTranscribing && !isRetryingSpeech
+    val canSend = (text.isNotBlank() || imageAttachments.isNotEmpty()) &&
+        !isRecording && !isTranscribing && !isRetryingSpeech
     val voiceStatus = when {
-        isRecording -> "Listening"
-        isTranscribing -> "Transcribing"
-        isRetryingSpeech -> "Retry this segment"
-        hasPreservedSpeechAudio -> "Preserved audio"
+        isRecording -> stringResource(R.string.chat_listening)
+        isTranscribing -> stringResource(R.string.chat_transcribing)
+        isRetryingSpeech -> stringResource(R.string.chat_retry_segment)
+        hasPreservedSpeechAudio -> stringResource(R.string.chat_preserved_audio)
         else -> null
     }
     val composerStatus = listOfNotNull(
-        if (isBusy) agentActivityText ?: "Agent running" else null,
+        if (isBusy) agentActivityText ?: stringResource(R.string.chat_agent_running) else null,
         voiceStatus
     ).joinToString(" · ").takeIf { it.isNotEmpty() }
 
@@ -131,6 +147,14 @@ internal fun ChatInputBar(
                 onDiscardSpeech = onDiscardSpeech,
             )
 
+            if (imageAttachments.isNotEmpty()) {
+                ImageAttachmentStrip(
+                    attachments = imageAttachments,
+                    onRemoveImage = onRemoveImage,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                )
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -139,6 +163,17 @@ internal fun ChatInputBar(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
+                ChatPrimaryActionButton(
+                    onClick = onAddImages,
+                    enabled = imageAttachments.size < 4 && !isTranscribing && !isRetryingSpeech,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    dimWhenDisabled = true,
+                    icon = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.chat_add_image)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -147,7 +182,7 @@ internal fun ChatInputBar(
                 ) {
                     if (text.isEmpty()) {
                         Text(
-                            if (isRecording) "Transcription will appear here..." else "Type a message...",
+                            if (isRecording) stringResource(R.string.chat_transcription_placeholder) else stringResource(R.string.chat_type_message),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
@@ -171,10 +206,59 @@ internal fun ChatInputBar(
                     contentColor = Color.White,
                     dimWhenDisabled = true,
                     icon = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send"
+                    contentDescription = stringResource(R.string.chat_send)
                 )
             }
 
+        }
+    }
+}
+
+@Composable
+private fun ImageAttachmentStrip(
+    attachments: List<ComposerImageAttachment>,
+    onRemoveImage: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        attachments.forEach { attachment ->
+            val bitmap = remember(attachment.id, attachment.thumbnailData) {
+                BitmapFactory.decodeByteArray(attachment.thumbnailData, 0, attachment.thumbnailData.size)?.asImageBitmap()
+            }
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = attachment.filename,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                IconButton(
+                    onClick = { onRemoveImage(attachment.id) },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(24.dp)
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.chat_remove_image),
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -193,11 +277,11 @@ private fun VoiceRail(
     onDiscardSpeech: () -> Unit,
 ) {
     val railTitle = when {
-        isRecording -> "Listening"
-        isTranscribing -> "Transcribing"
-        isRetryingSpeech -> "Retry this segment"
-        hasPreservedSpeechAudio -> "Preserved audio"
-        else -> "Tap to speak"
+        isRecording -> stringResource(R.string.chat_listening)
+        isTranscribing -> stringResource(R.string.chat_transcribing)
+        isRetryingSpeech -> stringResource(R.string.chat_retry_segment)
+        hasPreservedSpeechAudio -> stringResource(R.string.chat_preserved_audio)
+        else -> stringResource(R.string.chat_tap_to_speak)
     }
     val mode = when {
         isRecording -> WaveformMode.Active
@@ -205,6 +289,7 @@ private fun VoiceRail(
         else -> WaveformMode.Idle
     }
     val accent = MaterialTheme.colorScheme.primary
+    val waveformDescription = stringResource(R.string.chat_speech_waveform)
     val railColor = if (mode == WaveformMode.Idle) {
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
     } else {
@@ -227,7 +312,7 @@ private fun VoiceRail(
                 hasPreservedSpeechAudio -> Icons.Default.Refresh
                 else -> Icons.Default.Mic
             },
-            contentDescription = if (hasPreservedSpeechAudio) "Retry this segment" else railTitle,
+            contentDescription = if (hasPreservedSpeechAudio) stringResource(R.string.chat_retry_segment) else railTitle,
         )
 
         VoiceRailWaveform(
@@ -237,21 +322,21 @@ private fun VoiceRail(
             modifier = Modifier
                 .weight(1f)
                 .height(24.dp)
-                .semantics { contentDescription = "Speech waveform" }
+                .semantics { contentDescription = waveformDescription }
         )
 
         when {
             isTranscribing -> TextButton(onClick = onAbortSpeech) {
-                Text("Stop transcription wait", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.chat_stop_transcription_wait), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             hasPreservedSpeechAudio -> TextButton(
                 onClick = onDiscardSpeech,
                 enabled = !isRetryingSpeech,
             ) {
-                Text("Discard audio", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.chat_discard_audio), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> Text(
-                text = if (isSpeechConfigured) railTitle else "Configure speech",
+                text = if (isSpeechConfigured) railTitle else stringResource(R.string.chat_configure_speech),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -319,13 +404,13 @@ private fun QuietComposerStatus(
                 IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Default.MoreHoriz,
-                        contentDescription = "Interrupt agent",
+                        contentDescription = stringResource(R.string.chat_interrupt_agent),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
-                        text = { Text("Interrupt agent") },
+                        text = { Text(stringResource(R.string.chat_interrupt_agent)) },
                         leadingIcon = { Icon(Icons.Default.Stop, contentDescription = null, tint = StopRed) },
                         onClick = {
                             menuExpanded = false
@@ -516,15 +601,15 @@ internal fun ChatPermissionCard(
                 Spacer(modifier = Modifier.size(16.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { onRespond(PermissionResponse.REJECT) }) {
-                        Text("Reject", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.permission_reject), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     TextButton(onClick = { onRespond(PermissionResponse.ONCE) }) {
-                        Text("Allow Once", color = MaterialTheme.colorScheme.primary)
+                        Text(stringResource(R.string.permission_allow_once), color = MaterialTheme.colorScheme.primary)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     TextButton(onClick = { onRespond(PermissionResponse.ALWAYS) }) {
-                        Text("Always Allow", color = MaterialTheme.colorScheme.primary)
+                        Text(stringResource(R.string.permission_always_allow), color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }

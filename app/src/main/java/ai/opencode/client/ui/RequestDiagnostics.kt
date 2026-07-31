@@ -1,6 +1,8 @@
 package ai.opencode.client.ui
 
+import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.Message
+import ai.opencode.client.data.model.ProvidersResponse
 import java.util.UUID
 
 enum class RequestErrorCode {
@@ -114,4 +116,70 @@ internal fun classifyFailureCategory(message: String?): RequestFailureCategory {
             RequestFailureCategory.NETWORK_UNREACHABLE
         else -> RequestFailureCategory.UNKNOWN
     }
+}
+
+internal fun AgentInfo.requiresDirectory(): Boolean {
+    if (native == true) return false
+    return mode == "subagent"
+}
+
+internal fun runSendPreflight(
+    model: Message.ModelInfo?,
+    agentName: String,
+    providers: ProvidersResponse?,
+    agents: List<AgentInfo>,
+    directory: String?
+): SendPreflightResult {
+    val providerList = providers?.providers.orEmpty()
+    if (model != null && providerList.isNotEmpty()) {
+        val provider = providerList.find { it.id == model.providerId }
+        if (provider == null) {
+            return SendPreflightResult(
+                ok = false,
+                failure = SendPreflightFailure(
+                    code = RequestErrorCode.INVALID_MODEL,
+                    message = "Provider '${model.providerId}' is not available on server."
+                )
+            )
+        }
+        val providerModel = provider.models[model.modelId]
+        if (providerModel == null) {
+            return SendPreflightResult(
+                ok = false,
+                failure = SendPreflightFailure(
+                    code = RequestErrorCode.INVALID_MODEL,
+                    message = "Model '${model.providerId}/${model.modelId}' is not available."
+                )
+            )
+        }
+        if (!isProviderModelSelectable(providerModel)) {
+            return SendPreflightResult(
+                ok = false,
+                failure = SendPreflightFailure(
+                    code = RequestErrorCode.INVALID_MODEL,
+                    message = "Model '${model.providerId}/${model.modelId}' is not active."
+                )
+            )
+        }
+    }
+    if (agents.isNotEmpty()) {
+        val selectedAgent = agents.find { it.name == agentName }
+            ?: return SendPreflightResult(
+                ok = false,
+                failure = SendPreflightFailure(
+                    code = RequestErrorCode.INVALID_AGENT,
+                    message = "Agent '$agentName' does not exist on server."
+                )
+            )
+        if (selectedAgent.requiresDirectory() && directory.isNullOrBlank()) {
+            return SendPreflightResult(
+                ok = false,
+                failure = SendPreflightFailure(
+                    code = RequestErrorCode.MISSING_DIRECTORY,
+                    message = "Agent '$agentName' requires a workspace directory."
+                )
+            )
+        }
+    }
+    return SendPreflightResult(ok = true)
 }

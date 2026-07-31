@@ -13,7 +13,7 @@ import java.security.MessageDigest
 private val lenientJson = Json { ignoreUnknownKeys = true }
 
 internal object MainViewModelTimings {
-    const val sessionPageSize = 100
+    const val sessionPageSize = 400
     const val messageRetryDelayMs = 400L
     const val messageRefreshDelayMs = 1200L
     const val busyPollingIntervalMs = 2000L
@@ -97,10 +97,11 @@ internal fun bumpSessionUpdated(sessions: List<Session>, sessionId: String, upda
 
 internal fun mergeRefreshedSessionsPreservingLocalActivity(
     refreshed: List<Session>,
-    local: List<Session>
+    local: List<Session>,
+    currentSessionId: String? = null
 ): List<Session> {
     val localById = local.associateBy { it.id }
-    return refreshed.map { remote ->
+    val merged = refreshed.map { remote ->
         val localSession = localById[remote.id]
         val localUpdated = localSession?.time?.updated
         val remoteUpdated = remote.time?.updated
@@ -117,6 +118,12 @@ internal fun mergeRefreshedSessionsPreservingLocalActivity(
         } else {
             remote
         }
+    }
+    val selectedSession = currentSessionId?.let(localById::get)
+    return if (selectedSession != null && merged.none { it.id == selectedSession.id }) {
+        listOf(selectedSession) + merged
+    } else {
+        merged
     }
 }
 

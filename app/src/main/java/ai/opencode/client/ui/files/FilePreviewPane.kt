@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,19 +45,24 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import com.mikepenz.markdown.m3.Markdown
+import ai.opencode.client.R
 import ai.opencode.client.data.model.FileContent
 import ai.opencode.client.data.repository.OpenCodeRepository
-import ai.opencode.client.ui.theme.markdownTypographyCompact
-import ai.opencode.client.ui.util.DataUriImageTransformer
 import ai.opencode.client.ui.util.HttpImageHolder
 import ai.opencode.client.ui.util.MarkdownImageResolver
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
+
+private enum class MarkdownPreviewMode {
+    Web,
+    Native,
+    Source
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +73,7 @@ internal fun FilePreviewPane(
     sessionDirectory: String? = null,
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
+    onMarkdownLinkClick: (href: String, sourcePath: String) -> Unit = { _, _ -> },
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -75,22 +84,53 @@ internal fun FilePreviewPane(
     val imagePayload = remember(path, content) {
         if (previewKind == FilePreviewUtils.PreviewContentKind.IMAGE) decodeImagePayload(content) else null
     }
+    var markdownPreviewMode by remember(path) { mutableStateOf(MarkdownPreviewMode.Web) }
+    var modeMenuExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(path.substringAfterLast('/'), style = MaterialTheme.typography.titleSmall) },
             navigationIcon = {
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close))
                 }
             },
             actions = {
+                if (previewKind == FilePreviewUtils.PreviewContentKind.MARKDOWN) {
+                    Box {
+                        IconButton(onClick = { modeMenuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.files_preview_mode))
+                        }
+                        DropdownMenu(
+                            expanded = modeMenuExpanded,
+                            onDismissRequest = { modeMenuExpanded = false }
+                        ) {
+                            MarkdownPreviewMode.entries.forEach { mode ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            when (mode) {
+                                                MarkdownPreviewMode.Web -> stringResource(R.string.files_open_web_preview)
+                                                MarkdownPreviewMode.Native -> stringResource(R.string.files_open_native_preview)
+                                                MarkdownPreviewMode.Source -> stringResource(R.string.files_open_markdown_source)
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        markdownPreviewMode = mode
+                                        modeMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
                 IconButton(onClick = onRefresh, enabled = !isRefreshing) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.common_refresh))
                 }
                 if (imagePayload != null) {
                     IconButton(onClick = { shareImage(context, path, imagePayload.bytes) }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share")
+                        Icon(Icons.Default.Share, contentDescription = stringResource(R.string.files_share))
                     }
                 }
             }
@@ -100,12 +140,25 @@ internal fun FilePreviewPane(
 
         when {
             imagePayload != null -> ImageViewer(bitmap = imagePayload.bitmap)
-            previewKind == FilePreviewUtils.PreviewContentKind.MARKDOWN -> PreviewMarkdown(
-                content = content,
-                filePath = path,
-                repository = repository,
-                sessionDirectory = sessionDirectory
-            )
+            previewKind == FilePreviewUtils.PreviewContentKind.MARKDOWN -> when (markdownPreviewMode) {
+                MarkdownPreviewMode.Web -> MarkdownWebPreviewPane(
+                    content = content,
+                    filePath = path,
+                    repository = repository,
+                    sessionDirectory = sessionDirectory,
+                    onMarkdownLinkClick = { href -> onMarkdownLinkClick(href, path) },
+                    onOpenNative = { markdownPreviewMode = MarkdownPreviewMode.Native },
+                    onOpenSource = { markdownPreviewMode = MarkdownPreviewMode.Source }
+                )
+                MarkdownPreviewMode.Native -> PreviewMarkdown(
+                    content = content,
+                    filePath = path,
+                    repository = repository,
+                    sessionDirectory = sessionDirectory,
+                    onMarkdownLinkClick = { href -> onMarkdownLinkClick(href, path) }
+                )
+                MarkdownPreviewMode.Source -> PreviewPlainText(content = content)
+            }
             previewKind == FilePreviewUtils.PreviewContentKind.BINARY -> PreviewBinaryFallback()
             else -> PreviewPlainText(content = content)
         }
@@ -117,7 +170,8 @@ private fun PreviewMarkdown(
     content: String,
     filePath: String,
     repository: OpenCodeRepository,
-    sessionDirectory: String?
+    sessionDirectory: String?,
+    onMarkdownLinkClick: (String) -> Unit = {}
 ) {
     var resolvedContent by remember(content, filePath) { mutableStateOf<String?>(null) }
     val normalizedContent = remember(content) { MarkdownImageResolver.normalizeStandaloneImageBlocks(content) }
@@ -145,11 +199,10 @@ private fun PreviewMarkdown(
         contentPadding = PaddingValues(16.dp)
     ) {
         item {
-            Markdown(
+            WorkspaceLinkMarkdown(
                 content = resolvedContent ?: normalizedContent,
-                typography = markdownTypographyCompact(),
                 modifier = Modifier.fillMaxWidth(),
-                imageTransformer = DataUriImageTransformer
+                onLinkClick = onMarkdownLinkClick
             )
         }
     }

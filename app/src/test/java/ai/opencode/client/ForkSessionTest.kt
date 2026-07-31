@@ -2,7 +2,11 @@ package ai.opencode.client
 
 import android.util.Log
 import ai.opencode.client.data.model.Session
+import ai.opencode.client.data.model.HostProfile
+import ai.opencode.client.data.repository.HostProfileStore
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.ssh.SSHKeyManager
+import ai.opencode.client.ssh.TunnelManager
 import ai.opencode.client.tts.TtsController
 import ai.opencode.client.tts.TtsPlaybackState
 import ai.opencode.client.ui.AppState
@@ -43,6 +47,9 @@ class ForkSessionTest {
     private lateinit var settingsManager: SettingsManager
     private lateinit var voiceFlowClient: VoiceFlowClient
     private lateinit var microphone: VoiceFlowMicrophone
+    private lateinit var hostProfileStore: HostProfileStore
+    private lateinit var tunnelManager: TunnelManager
+    private lateinit var sshKeyManager: SSHKeyManager
     private lateinit var ttsController: TtsController
 
     @Before
@@ -57,9 +64,15 @@ class ForkSessionTest {
         settingsManager = mockk(relaxed = true)
         voiceFlowClient = mockk(relaxed = true)
         microphone = mockk(relaxed = true)
+        hostProfileStore = mockk(relaxed = true)
+        tunnelManager = mockk(relaxed = true)
+        sshKeyManager = mockk(relaxed = true)
         ttsController = mockk(relaxed = true)
-
         every { ttsController.playbackState } returns MutableStateFlow(TtsPlaybackState())
+
+        val defaultProfile = HostProfile.defaultDirect("http://server.test")
+        every { hostProfileStore.currentProfile() } returns defaultProfile
+        every { hostProfileStore.profiles() } returns listOf(defaultProfile)
 
         every { settingsManager.serverUrl } returns "http://server.test"
         every { settingsManager.username } returns null
@@ -108,7 +121,7 @@ class ForkSessionTest {
     }
 
     private fun createViewModel(): MainViewModel {
-        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone, ttsController)
+        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone, hostProfileStore, tunnelManager, sshKeyManager, ttsController = ttsController)
     }
 
     @Test

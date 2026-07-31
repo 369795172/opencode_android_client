@@ -12,10 +12,16 @@ import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.model.SSEEvent
 import ai.opencode.client.data.model.SSEPayload
 import ai.opencode.client.data.model.HealthResponse
+import ai.opencode.client.data.model.HostProfile
+import ai.opencode.client.data.model.HostTransport
+import ai.opencode.client.data.repository.HostProfileStore
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.ssh.SSHKeyManager
+import ai.opencode.client.ssh.TunnelManager
 import ai.opencode.client.tts.TtsController
 import ai.opencode.client.tts.TtsPlaybackState
 import ai.opencode.client.ui.AppState
+import ai.opencode.client.ui.DeepLinkError
 import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.ui.ModelPresets
 import ai.opencode.client.ui.session.buildSessionTree
@@ -34,11 +40,13 @@ import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -61,6 +69,9 @@ class MainViewModelTest {
     private lateinit var settingsManager: SettingsManager
     private lateinit var voiceFlowClient: VoiceFlowClient
     private lateinit var microphone: VoiceFlowMicrophone
+    private lateinit var hostProfileStore: HostProfileStore
+    private lateinit var tunnelManager: TunnelManager
+    private lateinit var sshKeyManager: SSHKeyManager
     private lateinit var ttsController: TtsController
 
     @Before
@@ -75,9 +86,15 @@ class MainViewModelTest {
         settingsManager = mockk(relaxed = true)
         voiceFlowClient = mockk(relaxed = true)
         microphone = mockk(relaxed = true)
+        hostProfileStore = mockk(relaxed = true)
+        tunnelManager = mockk(relaxed = true)
+        sshKeyManager = mockk(relaxed = true)
         ttsController = mockk(relaxed = true)
-
         every { ttsController.playbackState } returns MutableStateFlow(TtsPlaybackState())
+
+        val defaultProfile = HostProfile.defaultDirect("http://server.test")
+        every { hostProfileStore.currentProfile() } returns defaultProfile
+        every { hostProfileStore.profiles() } returns listOf(defaultProfile)
 
         every { settingsManager.serverUrl } returns "http://server.test"
         every { settingsManager.username } returns null
@@ -90,9 +107,11 @@ class MainViewModelTest {
         every { settingsManager.aiBuilderToken } returns ""
         every { settingsManager.aiBuilderCustomPrompt } returns ""
         every { settingsManager.aiBuilderTerminology } returns ""
+        every { settingsManager.aiBuilderRecordingStrategy } returns "OPENAI_REALTIME"
         every { settingsManager.aiBuilderLastOKSignature } returns null
         every { settingsManager.aiBuilderLastOKTestedAt } returns 0L
         every { settingsManager.autoReadAloud } returns true
+        every { settingsManager.ttsSpeechRate } returns 1f
 
         every { settingsManager.serverUrl = any() } just runs
         every { settingsManager.username = any() } just runs
@@ -105,6 +124,7 @@ class MainViewModelTest {
         every { settingsManager.aiBuilderToken = any() } just runs
         every { settingsManager.aiBuilderCustomPrompt = any() } just runs
         every { settingsManager.aiBuilderTerminology = any() } just runs
+        every { settingsManager.aiBuilderRecordingStrategy = any() } just runs
         every { settingsManager.aiBuilderLastOKSignature = any() } just runs
         every { settingsManager.aiBuilderLastOKTestedAt = any() } just runs
 
@@ -123,7 +143,7 @@ class MainViewModelTest {
     }
 
     private fun createViewModel(): MainViewModel {
-        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone, ttsController)
+        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone, hostProfileStore, tunnelManager, sshKeyManager, ttsController = ttsController)
     }
 
     private fun updateState(viewModel: MainViewModel, transform: (AppState) -> AppState) {
@@ -144,6 +164,176 @@ class MainViewModelTest {
         return MessageDigest.getInstance("SHA-256")
             .digest(input.toByteArray())
             .joinToString("") { "%02x".format(it) }
+    }
+
+    @Test
+    fun `deep link stays pending until connected`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.receiveDeepLink("opencode://session/ses_later")
+        advanceUntilIdle()
+
+        assertEquals("ses_later", viewModel.state.value.pendingDeepLinkSessionId)
+        assertFalse(viewModel.state.value.isResolvingDeepLink)
+        coVerify(exactly = 0) { repository.getSession(any()) }
+    }
+
+    @Test
+    fun `deep link verifies and hydrates session outside list`() = runTest {
+        val source = Session(id = "ses_source", directory = "/source", title = "Source")
+        val target = Session(id = "ses_target", directory = "/target", title = "Target")
+        coEvery { repository.getSession(target.id) } returns Result.success(target)
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(isConnected = true, sessions = listOf(source), currentSessionId = source.id)
+        }
+
+        viewModel.receiveDeepLink("opencode://session/${target.id}")
+        advanceUntilIdle()
+
+        assertEquals(target.id, viewModel.state.value.currentSessionId)
+        assertEquals(target, viewModel.state.value.currentSession)
+        assertNull(viewModel.state.value.pendingDeepLinkSessionId)
+        assertFalse(viewModel.state.value.isResolvingDeepLink)
+        assertEquals(1L, viewModel.state.value.deepLinkNavigationVersion)
+        coVerify(exactly = 1) { repository.getSession(target.id) }
+        coVerify(atLeast = 1) { repository.getMessages(target.id, any()) }
+    }
+
+    @Test
+    fun `deep link failure preserves current session`() = runTest {
+        val source = Session(id = "ses_source", directory = "/source", title = "Source")
+        coEvery { repository.getSession("ses_missing") } returns Result.failure(IllegalStateException("offline"))
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(isConnected = true, sessions = listOf(source), currentSessionId = source.id)
+        }
+
+        viewModel.receiveDeepLink("opencode://session/ses_missing")
+        advanceUntilIdle()
+
+        assertEquals(source.id, viewModel.state.value.currentSessionId)
+        assertEquals(listOf(source), viewModel.state.value.sessions)
+        assertEquals(DeepLinkError.OPEN_FAILED, viewModel.state.value.deepLinkError)
+    }
+
+    @Test
+    fun `invalid deep link cancels older pending route`() = runTest {
+        val viewModel = createViewModel()
+        viewModel.receiveDeepLink("opencode://session/ses_older")
+
+        viewModel.receiveDeepLink("opencode://session/not-valid")
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.pendingDeepLinkSessionId)
+        assertEquals(DeepLinkError.INVALID, viewModel.state.value.deepLinkError)
+        coVerify(exactly = 0) { repository.getSession(any()) }
+    }
+
+    @Test
+    fun `reprocessing same pending deep link invalidates cancelled request`() = runTest {
+        val target = Session(id = "ses_target", directory = "/target", title = "Target")
+        var requestCount = 0
+        coEvery { repository.getSession(target.id) } coAnswers {
+            requestCount += 1
+            if (requestCount == 1) {
+                delay(10_000)
+            }
+            Result.success(target)
+        }
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(isConnected = true) }
+
+        viewModel.receiveDeepLink("opencode://session/${target.id}")
+        runCurrent()
+        viewModel.processPendingDeepLinkIfPossible()
+        advanceUntilIdle()
+
+        assertEquals(2, requestCount)
+        assertEquals(target.id, viewModel.state.value.currentSessionId)
+        assertNull(viewModel.state.value.pendingDeepLinkSessionId)
+        assertNull(viewModel.state.value.deepLinkError)
+    }
+
+    @Test
+    fun `host switch clears old runtime and keeps pending deep link`() = runTest {
+        val first = HostProfile(
+            id = "host-1",
+            name = "First",
+            transport = HostTransport.DIRECT,
+            serverUrl = "http://first.test"
+        )
+        val second = HostProfile(
+            id = "host-2",
+            name = "Second",
+            transport = HostTransport.DIRECT,
+            serverUrl = "http://second.test"
+        )
+        var currentProfile = first
+        every { hostProfileStore.currentProfile() } answers { currentProfile }
+        every { hostProfileStore.profiles() } returns listOf(first, second)
+        every { hostProfileStore.select(second.id) } answers {
+            currentProfile = second
+            second
+        }
+        coEvery { repository.checkHealth() } returns Result.failure(IllegalStateException("offline"))
+        coEvery { repository.getSession("ses_target") } coAnswers {
+            delay(10_000)
+            Result.success(Session(id = "ses_target", directory = "/target", title = "Target"))
+        }
+        val viewModel = createViewModel()
+        val source = Session(id = "ses_source", directory = "/source", title = "Source")
+        updateState(viewModel) {
+            it.copy(
+                isConnected = true,
+                sessions = listOf(source),
+                currentSessionId = source.id,
+                messages = listOf(MessageWithParts(Message(id = "m1", sessionId = source.id, role = "user"))),
+                streamingPartTexts = mapOf("p1" to "old"),
+                streamingReasoningPart = Part(id = "p2", type = "reasoning", text = "old"),
+                sessionTodos = mapOf(source.id to emptyList()),
+                sendingSessionIds = setOf(source.id),
+                filePathToShowInFiles = "old.md"
+            )
+        }
+        viewModel.receiveDeepLink("opencode://session/ses_target")
+        runCurrent()
+
+        viewModel.selectHostProfile(second.id)
+        advanceUntilIdle()
+
+        assertEquals(second.id, viewModel.state.value.currentHostProfileId)
+        assertTrue(viewModel.state.value.sessions.isEmpty())
+        assertNull(viewModel.state.value.currentSessionId)
+        assertTrue(viewModel.state.value.messages.isEmpty())
+        assertTrue(viewModel.state.value.streamingPartTexts.isEmpty())
+        assertNull(viewModel.state.value.streamingReasoningPart)
+        assertTrue(viewModel.state.value.sessionTodos.isEmpty())
+        assertTrue(viewModel.state.value.sendingSessionIds.isEmpty())
+        assertNull(viewModel.state.value.filePathToShowInFiles)
+        assertEquals("ses_target", viewModel.state.value.pendingDeepLinkSessionId)
+        assertFalse(viewModel.state.value.isResolvingDeepLink)
+        verify(exactly = 1) { tunnelManager.disconnect() }
+    }
+
+    @Test
+    fun `selectSession clears streaming state from previous session`() = runTest {
+        val source = Session(id = "ses_source", directory = "/source", title = "Source")
+        val target = Session(id = "ses_target", directory = "/target", title = "Target")
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                sessions = listOf(source, target),
+                currentSessionId = source.id,
+                streamingPartTexts = mapOf("part" to "old text"),
+                streamingReasoningPart = Part(id = "reasoning", type = "reasoning", text = "old")
+            )
+        }
+
+        viewModel.selectSession(target.id)
+
+        assertTrue(viewModel.state.value.streamingPartTexts.isEmpty())
+        assertNull(viewModel.state.value.streamingReasoningPart)
     }
 
     @Test
@@ -172,8 +362,8 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage success clears input and uses selected preset model`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(100) } returns Result.success(
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getSessions(400) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 
@@ -191,10 +381,9 @@ class MainViewModelTest {
         coVerify {
             repository.sendMessage(
                 "session-1",
-                any(),
+                "hello world",
                 "review",
-                Message.ModelInfo(selected.providerId, selected.modelId),
-                any()
+                Message.ModelInfo(selected.providerId, selected.modelId)
             )
         }
         assertEquals("", viewModel.state.value.inputText)
@@ -202,9 +391,30 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `sendMessage ignores duplicate sends while request is in flight`() = runTest {
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } coAnswers {
+            delay(100)
+            Result.success(Unit)
+        }
+
+        val viewModel = createViewModel()
+        viewModel.selectSession("session-1")
+        advanceUntilIdle()
+        viewModel.setInputText("hello")
+
+        viewModel.sendMessage()
+        viewModel.sendMessage()
+
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.sendMessage(any(), any(), any(), any(), any()) }
+        assertFalse(viewModel.state.value.sendingSessionIds.contains("session-1"))
+    }
+
+    @Test
     fun `sendMessage success refreshes sessions`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(100) } returns Result.success(
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getSessions(400) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project", title = "Updated"))
         )
 
@@ -216,7 +426,7 @@ class MainViewModelTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        coVerify(atLeast = 1) { repository.getSessions(100) }
+        coVerify(atLeast = 1) { repository.getSessions(400) }
         assertEquals("Updated", viewModel.state.value.sessions.single().title)
     }
 
@@ -234,8 +444,8 @@ class MainViewModelTest {
             title = "Previous Top",
             time = ai.opencode.client.data.model.Session.TimeInfo(updated = 2_000)
         )
-        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(100) } returns Result.success(listOf(previousTop, current))
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getSessions(400) } returns Result.success(listOf(previousTop, current))
 
         val viewModel = createViewModel()
         updateState(viewModel) {
@@ -254,7 +464,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage failure keeps input and exposes error`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.failure(IllegalStateException("send failed"))
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.failure(IllegalStateException("send failed"))
 
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")
@@ -270,7 +480,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage still queues prompt when current session is busy`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
 
         val viewModel = createViewModel()
         viewModel.selectSession("session-1")
@@ -288,13 +498,30 @@ class MainViewModelTest {
         coVerify {
             repository.sendMessage(
                 "session-1",
-                any(),
-                any(),
+                "queue this next",
                 any(),
                 any()
             )
         }
         assertEquals("", viewModel.state.value.inputText)
+    }
+
+    @Test
+    fun `sendMessage ignores request while recording`() = runTest {
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                inputText = "do not send yet",
+                isRecording = true
+            )
+        }
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any(), any()) }
+        assertEquals("do not send yet", viewModel.state.value.inputText)
     }
 
     @Test
@@ -307,7 +534,7 @@ class MainViewModelTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any()) }
         assertEquals("   ", viewModel.state.value.inputText)
     }
 
@@ -319,7 +546,7 @@ class MainViewModelTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.sendMessage(any(), any(), any(), any()) }
         assertEquals("hello", viewModel.state.value.inputText)
     }
 
@@ -371,7 +598,7 @@ class MainViewModelTest {
                 title = "Server Refreshed"
             )
         )
-        coEvery { repository.getSessions(100) } returns Result.success(updatedSessions)
+        coEvery { repository.getSessions(400) } returns Result.success(updatedSessions)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
@@ -401,7 +628,7 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(100) }
+        coVerify { repository.getSessions(400) }
         assertEquals("Server Refreshed", viewModel.state.value.sessions.single().title)
     }
 
@@ -411,7 +638,7 @@ class MainViewModelTest {
         // but the full refresh it triggers returns a stale snapshot (placeholder title, older
         // timestamp). The freshly received title must remain visible (Chat header reads it from
         // state.sessions) rather than being clobbered by the stale refresh.
-        coEvery { repository.getSessions(100) } returns Result.success(
+        coEvery { repository.getSessions(400) } returns Result.success(
             listOf(
                 ai.opencode.client.data.model.Session(
                     id = "session-1",
@@ -461,7 +688,7 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(100) }
+        coVerify { repository.getSessions(400) }
         assertEquals(
             "Pythagorean theorem: history, proof, engineering",
             viewModel.state.value.sessions.single { it.id == "session-1" }.title
@@ -484,7 +711,7 @@ class MainViewModelTest {
                 time = ai.opencode.client.data.model.Session.TimeInfo(updated = 1_000)
             )
         )
-        coEvery { repository.getSessions(100) } returns Result.success(refreshedSessions)
+        coEvery { repository.getSessions(400) } returns Result.success(refreshedSessions)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
@@ -507,13 +734,13 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(100) }
+        coVerify { repository.getSessions(400) }
         assertEquals("session-2", viewModel.state.value.sessions.first().id)
     }
 
     @Test
     fun `message updated SSE refreshes current messages and sessions`() = runTest {
-        coEvery { repository.getSessions(100) } returns Result.success(
+        coEvery { repository.getSessions(400) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 
@@ -533,26 +760,26 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(100) }
+        coVerify { repository.getSessions(400) }
         coVerify { repository.getMessages("session-1", 30) }
     }
 
     @Test
     fun `loadSessions requests current limit and tracks hasMore`() = runTest {
-        val sessions = (1..100).map { index ->
+        val sessions = (1..400).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        coEvery { repository.getSessions(100) } returns Result.success(sessions)
+        coEvery { repository.getSessions(400) } returns Result.success(sessions)
 
         val viewModel = createViewModel()
 
         viewModel.loadSessions()
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(100) }
-        assertEquals(100, viewModel.state.value.loadedSessionLimit)
+        coVerify { repository.getSessions(400) }
+        assertEquals(400, viewModel.state.value.loadedSessionLimit)
         assertTrue(viewModel.state.value.hasMoreSessions)
-        assertEquals(100, viewModel.state.value.sessions.size)
+        assertEquals(400, viewModel.state.value.sessions.size)
         assertFalse(viewModel.state.value.isRefreshingSessions)
     }
 
@@ -576,7 +803,7 @@ class MainViewModelTest {
         val initialSessions = listOf(
             ai.opencode.client.data.model.Session(id = "parent-1", directory = "/tmp/project")
         )
-        coEvery { repository.getSessions(100) } returns Result.success(initialSessions)
+        coEvery { repository.getSessions(400) } returns Result.success(initialSessions)
 
         val viewModel = createViewModel()
         viewModel.loadSessions()
@@ -593,7 +820,7 @@ class MainViewModelTest {
                 parentId = "parent-1"
             )
         )
-        coEvery { repository.getSessions(100) } returns Result.success(refreshedSessions)
+        coEvery { repository.getSessions(400) } returns Result.success(refreshedSessions)
 
         viewModel.loadSessions()
         advanceUntilIdle()
@@ -618,19 +845,19 @@ class MainViewModelTest {
 
     @Test
     fun `loadMoreSessions requests higher limit and replaces sessions`() = runTest {
-        val initial = (1..100).map { index ->
+        val initial = (1..400).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        val expanded = (1..150).map { index ->
+        val expanded = (1..450).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        coEvery { repository.getSessions(200) } returns Result.success(expanded)
+        coEvery { repository.getSessions(800) } returns Result.success(expanded)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
                 sessions = initial,
-                loadedSessionLimit = 100,
+                loadedSessionLimit = 400,
                 hasMoreSessions = true,
                 currentSessionId = "session-20"
             )
@@ -639,19 +866,19 @@ class MainViewModelTest {
         viewModel.loadMoreSessions()
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(200) }
-        assertEquals(200, viewModel.state.value.loadedSessionLimit)
+        coVerify { repository.getSessions(800) }
+        assertEquals(800, viewModel.state.value.loadedSessionLimit)
         assertFalse(viewModel.state.value.hasMoreSessions)
-        assertEquals(150, viewModel.state.value.sessions.size)
+        assertEquals(450, viewModel.state.value.sessions.size)
         assertEquals("session-20", viewModel.state.value.currentSessionId)
     }
 
     @Test
     fun `loadMoreSessions ignores duplicate triggers while request is in flight`() = runTest {
-        val expanded = (1..150).map { index ->
+        val expanded = (1..450).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        coEvery { repository.getSessions(200) } coAnswers {
+        coEvery { repository.getSessions(800) } coAnswers {
             kotlinx.coroutines.delay(100)
             Result.success(expanded)
         }
@@ -659,9 +886,9 @@ class MainViewModelTest {
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
-                sessions = (1..100).map { index -> ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index") },
-                loadedSessionLimit = 100,
-                hasMoreSessions = true
+                loadedSessionLimit = 400,
+                hasMoreSessions = true,
+                sessions = (1..400).map { index -> ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index") }
             )
         }
 
@@ -669,8 +896,8 @@ class MainViewModelTest {
         viewModel.loadMoreSessions()
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { repository.getSessions(200) }
-        assertEquals(200, viewModel.state.value.loadedSessionLimit)
+        coVerify(exactly = 1) { repository.getSessions(800) }
+        assertEquals(800, viewModel.state.value.loadedSessionLimit)
     }
 
     @Test
@@ -787,10 +1014,12 @@ class MainViewModelTest {
     @Test
     fun `toggleRecording handles missing realtime session when stopping recording`() = runTest {
         every { settingsManager.aiBuilderToken } returns "token"
+        every { settingsManager.aiBuilderRecordingStrategy } returns "OPENAI_REALTIME"
         val viewModel = createViewModel()
         updateState(viewModel) { it.copy(isRecording = true, aiBuilderConnectionOK = true, inputText = "draft") }
 
         viewModel.toggleRecording()
+        advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isRecording)
         assertFalse(viewModel.state.value.isTranscribing)
@@ -985,7 +1214,7 @@ class MainViewModelTest {
     fun `handleSSEEvent idle status clears streaming state and refreshes messages`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "a1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
-        coEvery { repository.getSessions(100) } returns Result.success(
+        coEvery { repository.getSessions(400) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
         val viewModel = createViewModel()
@@ -1096,7 +1325,7 @@ class MainViewModelTest {
 
     @Test
     fun `sendMessage on success clears draft for current session`() = runTest {
-        coEvery { repository.sendMessage(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
 
         val viewModel = createViewModel()
         viewModel.selectSession("s1")
@@ -1311,7 +1540,7 @@ class MainViewModelTest {
     fun `handleSSEEvent message created refreshes messages for current session`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "m1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
-        coEvery { repository.getSessions(100) } returns Result.success(
+        coEvery { repository.getSessions(400) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 

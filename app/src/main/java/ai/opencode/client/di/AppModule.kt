@@ -2,15 +2,17 @@ package ai.opencode.client.di
 
 import android.content.Context
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.ssh.JschTunnelManager
+import ai.opencode.client.ssh.TunnelManager
 import ai.opencode.client.tts.TtsController
 import ai.opencode.client.util.SettingsManager
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
 import com.yage.voiceflowkit.VoiceFlowClient
 import com.yage.voiceflowkit.VoiceFlowConfig
 import com.yage.voiceflowkit.VoiceFlowMicrophone
 import dagger.Module
 import dagger.Provides
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
@@ -21,6 +23,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideOpenCodeRepository(): OpenCodeRepository = OpenCodeRepository()
+
+    @Provides
+    @Singleton
+    fun provideTunnelManager(manager: JschTunnelManager): TunnelManager = manager
 
     /**
      * VoiceFlowKit is a DI-agnostic library (no Hilt inside it), so we provide its

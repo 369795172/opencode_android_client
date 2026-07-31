@@ -48,6 +48,12 @@ interface OpenCodeApi {
         @Body body: ForkSessionRequest
     ): Session
 
+    @POST("session/{id}/revert")
+    suspend fun revertSession(
+        @Path("id") sessionId: String,
+        @Body body: RevertSessionRequest
+    ): Session
+
     @POST("session/{id}/permissions/{permissionId}")
     suspend fun respondPermission(
         @Path("id") sessionId: String,
@@ -119,8 +125,7 @@ data class UpdateSessionTimeRequest(
 data class PromptRequest(
     val parts: List<PartInput>,
     val agent: String = "build",
-    val model: ModelInput? = null,
-    val directory: String? = null
+    val model: ModelInput? = null
 ) {
     @kotlinx.serialization.Serializable
     data class PartInput(
@@ -129,17 +134,7 @@ data class PromptRequest(
         val mime: String? = null,
         val filename: String? = null,
         val url: String? = null
-    ) {
-        companion object {
-            fun text(content: String) = PartInput(type = "text", text = content)
-            fun file(mime: String, filename: String, url: String) = PartInput(
-                type = "file",
-                mime = mime,
-                filename = filename,
-                url = url
-            )
-        }
-    }
+    )
 
     @kotlinx.serialization.Serializable
     data class ModelInput(
@@ -161,4 +156,10 @@ data class QuestionReplyRequest(
 @kotlinx.serialization.Serializable
 data class ForkSessionRequest(
     @kotlinx.serialization.SerialName("messageID") val messageId: String? = null
+)
+
+@kotlinx.serialization.Serializable
+data class RevertSessionRequest(
+    @kotlinx.serialization.SerialName("messageID") val messageId: String,
+    @kotlinx.serialization.SerialName("partID") val partId: String? = null
 )

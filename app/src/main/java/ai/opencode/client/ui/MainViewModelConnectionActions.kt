@@ -1,7 +1,7 @@
 package ai.opencode.client.ui
 
 import ai.opencode.client.data.repository.OpenCodeRepository
-import ai.opencode.client.util.PersistedModelHealth
+import ai.opencode.client.data.repository.HostProfileStore
 import ai.opencode.client.util.SettingsManager
 import com.yage.voiceflowkit.VoiceFlowClient
 import com.yage.voiceflowkit.VoiceFlowConfig
@@ -13,12 +13,16 @@ import kotlinx.coroutines.launch
 internal fun applySavedSettings(
     repository: OpenCodeRepository,
     settingsManager: SettingsManager,
+    hostProfileStore: HostProfileStore,
     state: MutableStateFlow<AppState>
 ) {
+    settingsManager.migrateRemovedGpt56SolProModelIndices()
+    val currentProfile = hostProfileStore.currentProfile()
+    val password = currentProfile.basicAuth?.passwordId?.let { settingsManager.basicAuthPassword(it) }
     repository.configure(
-        baseUrl = settingsManager.serverUrl,
-        username = settingsManager.username,
-        password = settingsManager.password
+        baseUrl = currentProfile.serverUrl,
+        username = currentProfile.basicAuth?.username,
+        password = password
     )
 
     val savedModelIndex = settingsManager.selectedModelIndex
@@ -30,9 +34,12 @@ internal fun applySavedSettings(
     state.update {
         it.copy(
             currentSessionId = settingsManager.currentSessionId,
+            hostProfiles = hostProfileStore.profiles(),
+            currentHostProfileId = currentProfile.id,
             selectedModelIndex = clampedModelIndex,
             selectedAgentName = settingsManager.selectedAgentName ?: "build",
-            themeMode = settingsManager.themeMode
+            themeMode = settingsManager.themeMode,
+            languageMode = settingsManager.languageMode
         )
     }
 
@@ -77,20 +84,6 @@ internal fun launchConnectionTest(
                 }
             }
     }
-}
-
-internal fun persistModelHealth(
-    settingsManager: SettingsManager,
-    health: Map<String, ModelHealth>
-) {
-    val persisted = health.mapValues { (_, value) ->
-        PersistedModelHealth(
-            healthy = value.healthy,
-            updatedAtMs = value.updatedAtMs,
-            reason = value.reason
-        )
-    }
-    settingsManager.setModelHealthSnapshot(persisted)
 }
 
 internal fun launchAIBuilderConnectionTest(

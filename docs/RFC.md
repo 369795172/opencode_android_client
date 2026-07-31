@@ -8,9 +8,9 @@
 |------|------|
 | **RFC 编号** | RFC-001 |
 | **标题** | OpenCode Android Client 技术方案 |
-| **状态** | Accepted (Implemented) |
+| **状态** | Accepted + Phase 8 SSH Host Profiles Draft |
 | **创建日期** | 2026-02 |
-| **最后更新** | 2026-05-25 |
+| **最后更新** | 2026-06-21 |
 | **PRD 引用** | [PRD.md](PRD.md) |
 
 ---
@@ -32,6 +32,8 @@
 │  ChatScreen            │  MainViewModel        │  OpenCodeApi               │
 │  FilesScreen           │                       │  SSEClient                 │
 │  SettingsScreen        │                       │  OpenCodeRepository        │
+│  HostProfilesScreen    │                       │  TunnelManager             │
+│                        │                       │  SSHKeyManager             │
 │  Components            │                       │  AIBuildersAudioClient     │
 │                        │                       │  AudioRecorderManager      │
 │                        │                       │  SettingsManager           │
@@ -45,6 +47,8 @@
 │  POST /v1/audio/realtime/sessions  │  WS /v1/audio/realtime/ws    │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+SSH Tunnel 模式下，OpenCode REST/SSE 仍然使用同一套 OkHttp/Retrofit/SSEClient。差异只发生在 repository 配置前：`TunnelManager` 先建立 `127.0.0.1:<localPort>` 到 SSH gateway 侧 `127.0.0.1:<remotePort>` 的 local forward，然后 `OpenCodeRepository.configure()` 使用本地 loopback URL。这样 Files、Chat、SSE、health check 不需要各自感知 SSH。
 
 **分层说明**：
 - **UI Layer**：Jetpack Compose 声明式 UI
@@ -64,22 +68,23 @@
 | 序列化 | Kotlinx Serialization | Kotlin 原生，性能好 |
 | 依赖注入 | Hilt | 官方推荐，Dagger 封装 |
 | Markdown | multiplatform-markdown-renderer-m3 | 已落地，Compose 兼容性好 |
-| SSH（可选） | Apache Mina SSHD 或 JSch | 成熟，支持端口转发 |
+| Markdown Web Preview | Android WebView + bundled markdown-it + DOMPurify | Phase 7 对齐 iOS PR #94，承载 HTML-in-Markdown / CSS cards / inline SVG |
+| SSH Tunnel | mwiede/JSch | Java 实现、依赖面小，适合 app 内 local port forwarding；Apache Mina SSHD 作为替代方案 |
 | 安全存储 | EncryptedSharedPreferences + Keystore | Android 官方方案 |
 
 ### 2.1 HTTP 连接配置
 
 Android 9+ 默认禁止明文流量。`network_security_config.xml` 设置 base-config cleartextTrafficPermitted="false"，仅对 localhost、127.0.0.1、10.0.2.2、ts.net（Tailscale MagicDNS）开放 HTTP，其余强制 HTTPS。Android 不支持 IP 段匹配，局域网 IP 需使用 HTTPS 或 Tailscale。
 
-### 2.2 SSH 库选型（可选）
+### 2.2 SSH 库选型
 
 | 库 | 语言 | 维护状态 | 推荐度 |
 |----|------|----------|--------|
-| **Apache Mina SSHD** | Java | 活跃 | ★★★★★ |
-| JSch | Java | 维护模式 | ★★★★ |
+| **mwiede/JSch** | Java | 活跃 fork | ★★★★★ |
+| Apache Mina SSHD | Java | 活跃 | ★★★★ |
 | sshj | Java | 活跃 | ★★★★ |
 
-**推荐 Apache Mina SSHD**：功能完整，支持端口转发，文档齐全。
+**推荐 mwiede/JSch**：Android 端只需要 SSH client + local port forwarding，不需要完整 SSH server/subsystem。mwiede/JSch 是 JSch 的维护 fork，API 面小，接入成本低，适合 Phase 8 先完成 iOS feature parity。Apache Mina SSHD 功能完整，但体积、配置、线程池和 forwarding filter 复杂度更高，作为 JSch 在 key format 或 Android crypto 上遇到阻塞时的替代方案。sshj 保留为备选，不作为第一实现。
 
 ---
 
@@ -253,6 +258,105 @@ class SSEClient(
 | `AudioTranscriptionConfig.sendChunkSizeBytes` | `240_000` | live send chunk 上限 |
 | `AudioTranscriptionConfig.realtimeReplayChunkSizeBytes` | `240_000` | recovery replay chunk 上限 |
 | `AudioTranscriptionConfig.realtimeHeartbeatIntervalSeconds` | `12` | heartbeat 间隔 |
+
+### 3.5 Host Profiles 与 SSH Tunnel
+
+Phase 8 把连接层从单一全局 `serverUrl` 升级为 Host Profiles。Profile 是用户可理解的 OpenCode 环境；transport 是访问路径。Direct transport 直接访问 OpenCode HTTP(S) URL；SSH Tunnel transport 通过 app 内 SSH local forwarding 访问 gateway 后面的 OpenCode instance。Repository、REST API、SSE 和 Files 不直接感知 SSH，只消费最终 resolved base URL。
+
+核心数据模型：
+
+```kotlin
+@Serializable
+enum class HostTransport {
+    @SerialName("direct")
+    DIRECT,
+    @SerialName("sshTunnel")
+    SSH_TUNNEL
+}
+
+@Serializable
+data class BasicAuthConfig(
+    val username: String,
+    val passwordId: String
+)
+
+@Serializable
+data class SshTunnelConfig(
+    val host: String,
+    val port: Int = 8006,
+    val username: String = "opencode",
+    val remotePort: Int = 19001
+)
+
+@Serializable
+data class HostProfile(
+    val id: String,
+    val name: String,
+    val transport: HostTransport,
+    @SerialName("serverURL")
+    val serverUrl: String,
+    val basicAuth: BasicAuthConfig? = null,
+    val ssh: SshTunnelConfig? = null,
+    val lastUsedAt: Long? = null
+)
+```
+
+存储策略：
+
+1. `SettingsManager` 保存 `host_profiles_json` 和 `current_host_profile_id`。旧的 `server_url / username / password` 作为 migration source，首次加载时自动生成一个 Direct profile。
+2. Basic Auth password 继续存在 EncryptedSharedPreferences，但 profile 只保存 `passwordId`。Export 不输出 password。
+3. SSH private key 是设备级 secret，存 app-private encrypted storage 或 EncryptedSharedPreferences；多个 SSH profiles 复用同一把 key。第一版由 BouncyCastle 生成 Ed25519 key，写出 OpenSSH private key，再由 JSch 读取执行 SSH auth；导出的 public key 为 `ssh-ed25519 ... opencode-android`，与 iOS 和 private-host gateway 的 `authorized_keys` 约束保持一致。Non-exportable Android Keystore key 留作后续增强。Rotate key 是显式恢复动作，UI 必须先确认并提示用户更新服务器授权；不要对开发期旧 RSA key 做自动迁移。
+4. Known hosts 以 SSH gateway `host:port` 为 key 存 fingerprint。多个 profile 指向同一 gateway 时共享 trust state。
+
+跨端 import/export JSON 与 iOS 对齐。Transport JSON 使用 iOS raw value：`direct` / `sshTunnel`。Direct export 包含 `version/name/transport/serverURL`；SSH export 包含 `version/name/transport/ssh{host,port,username,remotePort}`。Export 不包含 private key、Basic Auth password、known host fingerprint、local port、last used time。Import SSH profile 时强制 `transport = SSH_TUNNEL`，并由 app 管理 resolved local URL。
+
+```json
+{
+  "version": 1,
+  "name": "VPS OpenCode",
+  "transport": "sshTunnel",
+  "ssh": {
+    "host": "gateway.example.com",
+    "port": 8006,
+    "username": "opencode",
+    "remotePort": 19001
+  }
+}
+```
+
+连接解析流程：
+
+```kotlin
+suspend fun resolveProfile(profile: HostProfile): ResolvedConnection {
+    return when (profile.transport) {
+        HostTransport.DIRECT -> ResolvedConnection(profile.serverUrl, profile.basicAuth)
+        HostTransport.SSH_TUNNEL -> {
+            val localUrl = tunnelManager.ensureStarted(profile.ssh!!)
+            ResolvedConnection(localUrl, profile.basicAuth)
+        }
+    }
+}
+```
+
+`TunnelManager.ensureStarted()` 必须幂等：同一 SSH config 已连接时直接返回当前 local URL；config 变化时先关闭旧 tunnel 再启动新 tunnel。Local port 优先用稳定端口 `4096`；如果端口被占用，回退到随机可用端口，并把实际 local URL 只保存在 runtime state，不写入 export JSON。
+
+SSH Tunnel 状态机：
+
+| Phase | 说明 | 失败提示 |
+|------|------|----------|
+| `sshGateway` | TCP 连接 SSH gateway | gateway 不可达、端口错误、网络断开 |
+| `sshHostKey` | TOFU / fingerprint 校验 | host key changed，需要 reset trusted host |
+| `sshAuth` | private key auth | public key 未授权、私钥损坏、用户名错误 |
+| `localTunnel` | 绑定 loopback local port 并建立 forwarding | 本地端口占用、forwarding 被服务端拒绝 |
+| `health` | 通过 local URL 请求 `/global/health` | OpenCode server 未启动、remotePort 错误 |
+| `connected` | REST/SSE 可用 | - |
+
+生命周期边界：
+
+1. App 前台使用时自动建立 tunnel；切换 profile 时关闭旧 tunnel 并重建。
+2. App 进入后台时可以断开 SSE 与 tunnel；回前台先 `ensureStarted()`，再 REST 全量同步和重建 SSE。
+3. Phase 8 不实现后台永久 tunnel，不添加 Foreground Service，也不把 SSH tunnel 作为 notification transport。
+4. `testConnection()` 不能只复用 30 秒 health debounce。用户保存或修改 SSH config 后，必须重新跑 tunnel phase；health check 的防抖只作用于未变化的 resolved connection。
 
 ---
 
@@ -805,6 +909,138 @@ message.info.resolvedModel?.let { model ->
 - 图片预览默认 fit-to-screen，支持双击缩放、拖动平移、系统分享
 - Android 分享通过 `FileProvider + ACTION_SEND` 实现，对外仅暴露 cache 中的临时文件 URI
 
+### 5.10 Phase 7 Markdown Web Preview（对齐 iOS PR #94）
+
+实现路径：Files 中 Markdown 默认进入 Web Preview；Kotlin 侧复用 `MarkdownImageResolver` 把相对图片转 data URI；WebView 加载 `app/src/main/assets/web_preview/preview.html`；本地 `markdown-it` 将 Markdown 转 HTML；`DOMPurify` 过滤危险 HTML；Compose toolbar 提供 Web / Native / Source 三态回退。
+
+集成边界：
+
+1. `FilePreviewPane` 对 Markdown 文件提供 `Web Preview`、`Native Preview`、`Markdown Source` 三态。
+2. 默认模式为 `Web Preview`；Native Compose Markdown renderer 保留为回退路径。
+3. WebView 只加载 app assets 里的 renderer shell，不从网络加载 JS，不直接读取 workspace 文件。`WebSettings.allowFileAccess = true` 仅用于 app asset shell；workspace 文件仍走 data URI。
+4. 相对图片复用 `MarkdownImageResolver.resolveImages(...)` 转 data URI，保证 Web / Native / Chat 的路径语义一致。
+5. WebView navigation 默认拦截；外链交给系统，workspace 相对链接回 Files。
+6. 大文件先显示确认 gate（总长度 `60_000`、单行 `5_000`），避免直接注入超大 Markdown。
+7. DOMPurify allowlist 允许基础 Markdown 标签、`details/summary`、`div/span`、`img`、table、inline SVG、局部 `style`；移除 `script`/`iframe`/`form`/`on*`/`javascript:`。
+8. Markdown payload 用 JSON serializer 生成，不手写字符串拼接。
+9. 深浅色主题通过 CSS 变量传递（`--bg`、`--fg`、`--fg-muted`、`--border`、`--card-bg`、`--ok-*`、`--bad-*`、`--warn-*`、`--block-*`）。
+10. App 启动后预热 WebView（加载 `about:blank`）以消除首次切到 Markdown 时的 Chromium 初始化黑闪。Web Preview 首帧用 Native Markdown overlay 覆盖直到 JS bridge 发出 `rendered` 事件。
+
+### 5.11 Phase 7 Tablet Sessions Pane 折叠（对齐 iOS PR #95）
+
+当前 `MainActivity.TabletLayout` 是固定三栏：Sessions/Settings 25%，Files 37.5%，Chat 37.5%。Phase 7 增加一个 transient UI state：
+
+```kotlin
+var sessionsPaneCollapsed by rememberSaveable { mutableStateOf(false) }
+```
+
+展开状态保持现有权重。折叠状态不渲染左侧 Sessions/Settings pane，Files 与 Chat 各占 `0.5f`。折叠按钮放在左侧 Sessions pane 顶部；展开按钮放在 Files pane 顶部左侧，避免用户折叠后失去恢复入口。
+
+实现边界：
+
+1. 只作用于 `WindowWidthSizeClass.Expanded`。
+2. 不改变手机 `PhoneLayout` 的底部 Tab、Chat session sheet 或 edge gesture。
+3. 不复用 `expandedSessionIds`，避免 pane collapse 与 session tree row expansion 混淆。
+4. 第一版不持久化到 settings；`rememberSaveable` 足够覆盖旋转和配置变化。
+5. 需要给 hide/show 按钮稳定 content description：`Hide sessions` / `Show sessions`，供 accessibility 与 UI test 使用。
+
+### 5.12 NFC Quick Prompt（Experimental）
+
+#### Manifest
+
+```xml
+<uses-permission android:name="android.permission.NFC" />
+<uses-feature android:name="android.hardware.nfc" android:required="false" />
+```
+
+MainActivity 新增 `android:launchMode="singleTop"` 和 NDEF intent-filter：
+
+```xml
+<intent-filter>
+    <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <data android:scheme="opencode" android:host="prompt" />
+</intent-filter>
+```
+
+NfcWriterActivity 注册为单独 Activity（透明 `Theme.Transparent`，`noHistory`）。
+
+#### NDEF tag 格式
+
+URI scheme：`opencode://prompt`，query params：`a`（autoSend `0`/`1`）、`p`（prompt URL-encoded UTF-8）。写入使用 `NdefRecord.createUri(uri)` → `NdefMessage` → `Ndef.writeNdefMessage`。
+
+#### 字节预算
+
+NTAG215 用户可用 504 字节。NDEF TLV wrapper ≈ 3 字节，NDEF Record header ≈ 5 字节。保守取 **480 字节** prompt 上限，生成 URI 后校验总字节数 ≤ 504。
+
+#### Settings 持久化
+
+`SettingsManager` 新增 `nfcEnabled`/`nfcPrompt`/`nfcAutoSend`（EncryptedSharedPreferences），常量 `NFC_PROMPT_MAX_BYTES=480`、`NFC_TAG_MAX_BYTES=504`。
+
+#### Intent 接收
+
+`MainActivity` 在两个路径处理 NFC intent：
+
+1. **`onCreate`**（冷启动）：app 被 tag 唤起时 intent 通过 `getIntent()` 到达，`onCreate` 末尾调用 `handleNfcIntent(intent)`。
+2. **`onNewIntent`**（app 已在运行）：`singleTop` 下 tag dispatch 走 `onNewIntent`。
+
+**关键**：`handleNfcIntent` 只在这两处调用，**不放在 Composable body 里**——之前误放在 `setContent` lambda 中导致每次 UI 重组都重复触发，产生数百个垃圾 session。
+
+**ViewModel 初始化竞态**：`onNewIntent` 可能在 `setContent` 给 `mainViewModel` 赋值之前到达。暂存 `pendingNfcPrompt: Pair<String, Boolean>?`，在 `setContent` 第一行消费。
+
+**Debounce**：30 秒 cooldown。`lastNfcTriggerTimeMs` 在 `MainActivity` 实例上，不重置（不依赖 `onResume`）。
+
+#### ViewModel 编排
+
+`MainViewModel.handleNfcPrompt(prompt, autoSend)`：
+1. 若 `!settingsManager.nfcEnabled` → 静默 return
+2. 设置 `pendingNfcAction = NfcPendingAction(prompt, autoSend)` → `createSession()`
+3. `selectSession` → `loadMessages` 的 `onMessagesLoaded` 回调 → `consumePendingNfcAction()`：`setInputText(prompt)` + 条件 `sendMessage()`
+
+`launchLoadMessages` 新增可选 `onMessagesLoaded` 回调，在成功路径末尾调用。
+
+#### NfcWriterActivity
+
+- `onCreate`：取 SettingsManager 的 nfcPrompt/nfcAutoSend，生成 URI，校验字节 ≤ 504
+- `onResume`：`enableForegroundDispatch`，使用 `Intent(this, NfcWriterActivity::class.java).addFlags(FLAG_ACTIVITY_SINGLE_TOP)` 构造 PendingIntent，使 tag 到达时走 `onNewIntent`
+- `onNewIntent`：`Ndef.get(tag).writeNdefMessage(msg)` → toast → finish
+- `onPause`：`disableForegroundDispatch`
+
+设计教训：
+- `enableReaderMode` + `FLAG_READER_SKIP_NDEF_CHECK` 在 MIUI/HyperOS 上不抑制系统 "Empty Tag" 弹窗，改用 `enableForegroundDispatch`
+- PendingIntent 必须用新构造的 Intent，不能传 Activity 自身的 `intent`（否则 `onNewIntent` 不触发）
+
+#### 风险
+
+- **误触发**：nfcEnabled 开关 + 30s debounce 缓解
+- **安全**：prompt 明文写在 tag 上，任何人可读
+- **ROM 兼容**：`enableReaderMode` 在 MIUI/HyperOS 不抑制弹窗
+- **Composable 重组**：`handleNfcIntent` 绝不能放在 `setContent` lambda 中
+
+### 5.13 Session Deep Link
+
+V1 严格接受 `opencode://session/<session_id>`。`OpenCodeDeepLinkParser` 使用 `java.net.URI`，供 JVM unit test、系统 Intent 和 Chat Markdown 共用；要求 scheme/host 为 `opencode`/`session`，path 只有一个 segment，ID 以 `ses_` 开头且仅含 ASCII 字母、数字、下划线和连字符。parser 拒绝 userinfo、port、query、fragment、encoded slash、重复 percent encoding 和过长 ID。
+
+Manifest 为 `MainActivity` 增加独立的 `ACTION_VIEW + DEFAULT + BROWSABLE` filter，不与 NFC 的 `NDEF_DISCOVERED` filter 合并。`handleIncomingIntent()` 统一分派 cold-start `intent` 与 warm `onNewIntent()`；NFC debounce 和 feature flag 不作用于 session link。手机成功解析后通过 `deepLinkNavigationVersion` 回到 Chat 顶层 route，平板三栏中的 Chat 始终可见。
+
+ViewModel 状态机为：
+
+```text
+receive URL
+  -> strict parse
+  -> store latest pending session ID
+  -> wait while disconnected
+  -> GET /session/:id on current Host
+  -> upsert complete Session
+  -> selectSession + existing message/status hydration
+```
+
+`deepLinkRouteGeneration` 和当前 Host Profile ID 共同校验异步结果。新链接覆盖旧链接；Host 切换时取消旧 job、递增 generation、保留 pending ID，待新 Host 连接成功后重新 resolve。GET 成功前不修改 `currentSessionId` 或 messages。Session 列表刷新使用 `mergeRefreshedSessionsPreservingLocalActivity(..., currentSessionId)` 保留不在当前分页窗口内的已验证目标，同时用原始 server response 数量计算 `hasMoreSessions`。
+
+Chat Markdown 在 `WorkspaceMarkdownLinkResolver` 之前拦截 `opencode` scheme：合法链接进入同一 ViewModel router，非法链接显示全局 deep-link error；普通 HTTP、file 和 workspace relative link 保持原路径。Activity 根层显示 `deep-link-opening` / `deep-link-error`，因此从 Chat、Files 或 Settings 唤起都可见。
+
+安全边界与 iOS 一致：当前 Host only，不轮询其他 Host，不恢复离线 archive DB，不接受 server/凭证/prompt/tool action，不自动执行 Markdown link。测试覆盖 parser contract、repository by-ID path、断连 pending、成功 hydration、失败保留上下文和 session-window preservation；系统 cold/warm Intent 的 emulator E2E 作为后续可选 Tier 3，不在物理设备执行。
+
 ---
 
 ## 6. 安全设计
@@ -934,6 +1170,7 @@ app/
 | 3 | 文件树、Markdown / 图片预览、Diff、平板布局 | 已完成 |
 | 5 | UX 对齐 iOS：Chat toolbar 重排（§5.4）、Session Rename UI、草稿持久化（§4.3）、Model/Agent per-session（§4.4） | ✅ 完成 |
 | 5b | 消息历史分页修复（§5.5）、Model/Agent Capsule 文本化（§5.6）、平板 toolbar 适配（§5.7）、消息模型标注（§5.8） | 1-2 天 |
+| 7 | Markdown Web Preview（§5.10）、Tablet Sessions pane 折叠（§5.11） | 2-4 天 |
 | 4 | SSH Tunnel（可选） | 1 周 |
 
 ---
@@ -946,6 +1183,8 @@ app/
 | SSE 兼容性 | 使用成熟的 OkHttp SSE 库 |
 | 平板适配复杂度 | 先完成手机版，平板作为 Phase 3 |
 | SSH 库稳定性 | 充分测试，提供降级方案（公网 HTTPS） |
+| WebView 安全面扩大 | 本地固定 JS、DOMPurify allowlist、禁 workspace file access、禁任意 navigation |
+| Web Preview 大文档性能 | oversize gate、Native/Source 回退，后续再引入 asset loader / custom scheme 优化大图 |
 
 ---
 

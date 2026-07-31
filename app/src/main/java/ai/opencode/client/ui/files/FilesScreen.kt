@@ -1,5 +1,7 @@
 package ai.opencode.client.ui.files
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,9 +21,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ai.opencode.client.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +38,7 @@ fun FilesScreen(
     onFileClick: (String) -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     LaunchedEffect(pathToShow, sessionDirectory) {
         viewModel.syncPathToShow(pathToShow, sessionDirectory)
@@ -41,17 +47,17 @@ fun FilesScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         if (state.selectedFilePath == null) {
             TopAppBar(
-                title = { Text(state.currentPath.ifEmpty { "Files" }) },
+                title = { Text(state.currentPath.ifEmpty { stringResource(R.string.files_title) }) },
                 navigationIcon = {
                     if (state.currentPath.isNotEmpty()) {
                         IconButton(onClick = viewModel::navigateUp) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                         }
                     }
                 },
                 actions = {
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.common_refresh))
                     }
                 }
             )
@@ -62,7 +68,7 @@ fun FilesScreen(
                 modifier = Modifier.padding(16.dp),
                 action = {
                     TextButton(onClick = viewModel::clearError) {
-                        Text("Dismiss")
+                        Text(stringResource(R.string.common_dismiss))
                     }
                 }
             ) {
@@ -79,6 +85,18 @@ fun FilesScreen(
                     sessionDirectory = sessionDirectory,
                     isRefreshing = state.isPreviewRefreshing,
                     onRefresh = { viewModel.refreshPreview(sessionDirectory) },
+                    onMarkdownLinkClick = { href, sourcePath ->
+                        when (val resolution = WorkspaceMarkdownLinkResolver.resolve(href, sessionDirectory, sourcePath)) {
+                            is WorkspaceMarkdownLinkResolver.Resolution.External -> {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolution.url))
+                                runCatching { context.startActivity(intent) }
+                                    .onFailure { viewModel.showError(it.message ?: "Could not open link") }
+                            }
+                            is WorkspaceMarkdownLinkResolver.Resolution.Preview -> viewModel.openPreviewPath(resolution.path, sessionDirectory)
+                            WorkspaceMarkdownLinkResolver.Resolution.Ignored -> Unit
+                            is WorkspaceMarkdownLinkResolver.Resolution.Rejected -> viewModel.showError(resolution.message)
+                        }
+                    },
                     onClose = {
                         viewModel.closePreview()
                         onCloseFile()

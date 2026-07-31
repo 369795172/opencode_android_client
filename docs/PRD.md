@@ -7,9 +7,9 @@
 | 字段 | 值 |
 |------|------|
 | **产品名称** | OpenCode Android Client |
-| **状态** | v1.2 (UX Parity Phase 5b) |
+| **状态** | v1.4 (SSH Host Profiles parity planning) |
 | **创建日期** | 2026-02 |
-| **最后更新** | 2026-05-25 |
+| **最后更新** | 2026-06-21 |
 | **参考** | iOS Client PRD |
 
 ---
@@ -62,7 +62,7 @@ Markdown 是这个 App 里 AI 与人类交互的**主要信息媒介**。这不�
 
 ### 1.3 与 iOS Client 的关系
 
-Android Client 与 iOS Client 共享同一套产品范式和视觉语言（Quiet Tech），两者在功能上追求对等——Steer 范式、Markdown 交互窗口、文件卡片预览、语音输入、模型/Agent 切换等核心体验在两个平台上保持一致。差异仅在于平台实现手段（Jetpack Compose / Material 3 vs SwiftUI）和少数受平台限制的功能（如 iOS 已实现 SSH Tunnel，Android 暂用 Tailscale/HTTPS 替代）。详细的平台差异对照见下文"与 iOS 版本的差异"章节。
+Android Client 与 iOS Client 共享同一套产品范式和视觉语言（Quiet Tech），两者在功能上追求对等——Steer 范式、Markdown 交互窗口、文件卡片预览、语音输入、模型/Agent 切换、Host Profiles 与 SSH Tunnel 等核心体验在两个平台上保持一致。差异仅在于平台实现手段（Jetpack Compose / Material 3 vs SwiftUI、JSch vs Citadel/SwiftNIO）。详细的平台差异对照见下文"与 iOS 版本的差异"章节。
 
 ### 1.4 核心能力总览
 
@@ -76,6 +76,9 @@ Android Client 提供以下核心能力：
 | 文件卡片预览 | 在 Chat 流中点击 tool/patch 卡片跳转文件预览，确认 AI 的改动 |
 | Session 管理 | 查看、创建、切换、重命名、删除、Fork Session，追踪多线任务 |
 | 权限审批 | 手动批准或拒绝 AI 请求的 shell 操作等权限 |
+| Markdown Web Preview | Files 中用 WebView 渲染 HTML-in-Markdown、CSS 卡片、inline SVG 和复杂 visual 报告 |
+| Host Profiles + SSH Tunnel | 管理多个连接配置，支持 Direct 与 SSH Tunnel transport，并与 iOS import/export JSON 对齐 |
+| NFC Quick Prompt (Experimental) | 将常用 prompt 写入 NFC tag，亮屏靠近即可自动拉起 App 新建 session 并发送 |
 
 ---
 
@@ -205,15 +208,16 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 > Files Tab 是兜底入口——主工作流中文件访问通过 Chat 窗口的 tool/patch 卡片跳转完成。
 
 - **文件树**：递归展示工作目录，支持 git 状态颜色标记 ✅
-- **文件预览**：文本文件等宽字体显示，Markdown 文件渲染 ✅
+- **文件预览**：文本文件等宽字体显示，Markdown 文件支持 Native / Web / Source 三态预览。Web Preview 对齐 iOS PR #94，使用本地 WebView shell 渲染 HTML-in-Markdown、CSS 卡片、inline SVG、`<details>`、宽表和 workspace 相对图片。默认打开 Web Preview，失败或大文件时可退回 Native / Source。🔲 Phase 7
 - **图片预览**：图片默认 fit-to-screen，支持双击放大、拖动平移、系统分享 ✅
 - **Session 变更**：🔲 暂不实现
 
 #### Settings Tab
 
-- **服务器连接**：配置 URL（HTTP/HTTPS）、Basic Auth ✅
-- **连接测试**：验证服务器可达性 ✅
-- **SSH Tunnel**：🔲 暂不实现
+- **Host Profiles**：管理多个 OpenCode host profile，支持创建、编辑、复制、删除、切换、导入、导出 🔲 Phase 8
+- **Direct Transport**：配置 OpenCode Server URL（HTTP/HTTPS）与 Basic Auth ✅
+- **SSH Tunnel Transport**：配置 SSH gateway、SSH port、SSH username、assigned remote port；App 内建立 `127.0.0.1:<localPort>` 到 gateway 侧 `127.0.0.1:<remotePort>` 的 local forward 🔲 Phase 8
+- **连接测试**：Direct 模式验证 `/global/health`；SSH 模式按 SSH gateway、SSH auth、local tunnel、health 分阶段诊断 🔲 Phase 8 增强
 - **主题**：Light / Dark / System ✅
 - **语音识别配置**：AI Builder Base URL、Token、Prompt、Terminology、连接测试 ✅
 
@@ -221,9 +225,55 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 
 - **手机**：底部 Tab 导航（Chat / Files / Settings） ✅
 - **平板**：三栏布局（WindowSizeClass.Expanded） ✅
-  - 左：Workspace（Files / Settings 切换）
+  - 左：Sessions / Settings，Phase 7 对齐 iOS PR #95 支持 Sessions pane 折叠与展开 🔲
   - 中：文件预览
   - 右：Chat
+
+#### Phase 7：Markdown Web Preview 与平板 Sessions 折叠（对齐 iOS PR #94/#95）
+
+本阶段补齐两个 iOS 已落地能力。第一，Files 中的 Markdown 预览从单一路径升级为 Native / Web / Source 三态。Web Preview 负责承载 AI internal writing 里已经开始使用的 HTML/CSS 卡片、inline SVG、深浅色语义变量和折叠审计层；Native Preview 保留为稳定回退；Source 用于调试和大文件安全查看。
+
+产品边界：`.md` / `.markdown` 文件提供 Web Preview（默认）、Native Preview、Markdown Source 三种模式。Web Preview 支持 HTML-in-Markdown 的安全子集（局部 `<style>`、`div/span` 卡片、inline SVG、`details/summary`、GFM 表格）。workspace 相对图片复用 `MarkdownImageResolver.resolveImages(...)` 转 data URI。大文件先显示确认 gate。WebView 只加载 app assets 里的 renderer shell，不从网络加载 JS，不直接读取 workspace 文件系统。`<script>`/`iframe`/`form`/`on*`/`javascript:` 被禁止。深浅色主题下正文、卡片、代码块、chip 保持可读。
+
+第二，平板三栏布局的左侧 Sessions pane 支持折叠。展开时保持当前 25% / 37.5% / 37.5% 三栏；折叠时左栏不渲染，Files 与 Chat 平分宽度；Files 顶栏左侧显示展开按钮。这个能力只作用于 tablet / expanded width，不改变手机底部 Tab 和 session sheet 逻辑。
+
+#### Phase 8：Host Profiles 与 SSH Tunnel（对齐 iOS）
+
+Android 端需要补齐 iOS 已有的连接能力，而不是继续把 Tailscale/HTTPS 作为唯一远程方案。本阶段把连接配置从单一全局 server setting 升级为 Host Profiles：每个 profile 表示一个 OpenCode 环境，transport 决定访问路径。Direct profile 直接保存 OpenCode Server URL；SSH Tunnel profile 保存 SSH gateway 参数和 assigned remote port，OpenCode HTTP/SSE 流量由 app 内 tunnel 转发到本地 `127.0.0.1:<localPort>`。
+
+产品 contract 与 iOS 保持一致：
+
+1. Host Profile 支持 Direct / SSH Tunnel 两种 transport。
+2. SSH Tunnel profile 的 OpenCode URL 由 app 管理，用户不编辑本地 tunnel URL。
+3. 支持多 profile 管理：新增、编辑、复制、删除、切换、最近使用时间。
+4. 支持 iOS 兼容的 JSON import/export。Export 不包含 private key、Basic Auth password、known host 等 secret/runtime 字段。
+5. SSH host key 使用 TOFU：首次连接保存 gateway `host:port` 的 fingerprint，之后 fingerprint 改变时阻断连接并给出明确恢复入口。
+6. SSH private key 是设备级能力，不是 profile 级 secret。第一版 Android 生成或导入 app 私有 key，并展示 OpenSSH public key 供服务器授权；多个 SSH profiles 复用同一把 key。
+7. 生命周期只承诺前台和回前台恢复。后台长期 tunnel、question/permission 通知和 Foreground Service 属于后续通知增强，不进入 Phase 8 的成功标准。
+
+#### NFC Quick Prompt（Experimental）
+
+用户在 Settings → Experimental → NFC Quick Prompt 里输入一段多行 prompt，写入 NTAG215 NFC tag。之后亮屏靠近 tag，系统自动拉起 App，新建 session，填入 prompt，按写入时的设置决定直接发送或等待确认。典型场景：把一个常用 prompt（如"帮我审查最新的 diff 并给出改进建议"）写入 NFC tag 贴在桌面上，每次想触发时手机亮屏靠近即可，免去解锁、找 App、新建 session、打字的全部步骤。
+
+产品边界：
+- 启用开关（默认关）：关闭时 App 不响应 NFC tag 触发
+- 多行 prompt 输入框，实时显示 UTF-8 字节用量 / 480 上限
+- Auto-send 开关：开启=直接发送，关闭=填入输入框等用户确认
+- Write to tag 按钮：启动 NfcWriterActivity 透明 Activity 写入 NDEF
+- 30 秒 debounce：一次触发后 30 秒内忽略后续 intent（tag 贴着天线时系统反复 dispatch）
+- NTAG215 用户可用 504 字节，扣 NDEF overhead 后 prompt 上限 480 UTF-8 字节
+- 熄屏不工作（Android tag dispatch 要求屏幕亮）
+- tag 内容明文，无加密
+- NFC prompt action 仍是 Android 专属；session 导航则由 iOS/Android 共享 `opencode://session/<id>` contract
+- 非目标：熄屏触发、多 tag 身份管理、iOS 适配、tag 内容加密、从服务器拉 prompt 的间接模式
+
+#### Session Deep Link（跨平台会话导航）
+
+iOS 与 Android 共享同一个只读导航协议：`opencode://session/<session_id>`。链接可以来自 Chat 中的 Agent Markdown，也可以来自邮件、Notes、网页或系统 Intent。用户点击后，客户端只在当前 Host 调用 `GET /session/:id` 验证；成功才切换到目标 session 和 Chat，失败保留原上下文并显示全局错误。
+
+Android cold start 与 warm launch 都支持该协议。连接尚未恢复时保存最后一个 pending link，连接成功后再解析。目标 session 不要求已进入当前 100 条列表窗口；验证成功后把完整 Session 注入列表，保证 Chat、Files 和 workspace Markdown link 使用目标 `directory`。
+
+Session 搜索继续由 Agent 和 semantic-search 负责，客户端不建设搜索页面、embedding 索引或离线 archive 读取能力。V1 不自动切换 Host，不携带 Host Profile、server URL、凭证、query 或绝对路径，不支持 message 定位，也不能发送 prompt、批准权限、执行 tool、删除或归档 session。
 
 ---
 
@@ -233,7 +283,7 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 |------|------|
 | 最低版本 | Android 8.0 (API 26) |
 | 网络协议 | HTTP REST + SSE（Server-Sent Events） |
-| 安全 | HTTPS 默认；HTTP 仅允许 localhost 与 Tailscale (*.ts.net)，局域网 IP 需 HTTPS |
+| 安全 | HTTPS 默认；HTTP 仅允许 localhost、127.0.0.1、Android emulator host `10.0.2.2` 与 Tailscale (*.ts.net)，局域网 IP 需 HTTPS；SSH Tunnel 只暴露 loopback local port |
 | 无本地 AI | 不引入本地推理、文件系统操作、shell 能力 |
 | 语音音频 | 麦克风音频以 PCM16 mono 24kHz 进入 VoiceFlowKit realtime session；本地 cache 只存临时 `.pcm`，停止或取消后清理；显式 abort 会保留 cache 供 retry 后再清理；`VoiceFlowMicrophone.audioLevel` 驱动 voice rail waveform |
 
@@ -242,6 +292,8 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 ## 已知限制与风险
 
 **网络依赖**：App 完全依赖与 OpenCode Server 的网络连接。如果 Server 不可达（网络不通、Server 未启动），App 无法使用。当前支持局域网直连与公网 HTTPS 访问；弱网下通过"最近 3 轮 + 下拉扩展历史"降低首屏延迟。Android 的 `network_security_config` 默认禁止明文流量，仅对 localhost 和 Tailscale MagicDNS（`*.ts.net`）开放 HTTP。
+
+**SSH Tunnel 安全边界**：SSH Tunnel 只解决 OpenCode HTTP/SSE 访问路径，不是系统级 VPN，也不代理其他 app。Host key 必须通过 TOFU 或显式 reset 流程管理；不能为了连接成功关闭校验。Private key、Basic Auth password 和 known host fingerprint 都留在设备本地，不进入 profile export。
 
 **SSE 在 Android 上的行为**：Android 系统可能在 App 进入后台后限制网络连接。需要实现可靠的前后台切换重连和状态恢复机制。不建议在后台保持 SSE 长连接。
 
@@ -273,7 +325,8 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 | 功能 | iOS | Android | 说明 |
 |------|-----|---------|------|
 | HTTP 连接 | 需配置 ATS | 需配置 network_security_config | 两者都允许 HTTP |
-| SSH Tunnel | Citadel (SwiftNIO) | 🔲 暂不实现 | iOS 已实现，Android 用 Tailscale/HTTPS 替代 |
+| SSH Tunnel | Citadel (SwiftNIO) local forward | 🔲 Phase 8 | Android 用 JSch app 内 local forward，对齐 iOS transport contract |
+| Host Profiles | 多 profile、Direct/SSH、import/export JSON | 🔲 Phase 8 | Android 对齐 iOS profile 管理与跨端 JSON contract |
 | UI 框架 | SwiftUI | Jetpack Compose | 声明式，概念相似 |
 | 状态管理 | @Observable | ViewModel + StateFlow | 架构相似 |
 | 安全存储 | Keychain | Keystore + EncryptedSharedPreferences | 功能等价 |
@@ -287,6 +340,9 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 | 消息历史分页 | pull-to-refresh | Phase 5b 修复 | 当前 Android 滚动检测方向反转 |
 | 消息模型标注 | caption 显示 provider/model | ✅ Phase 5b 完成 | 消息行顶部显示 provider/model |
 | Fork Session | 消息节点 fork | ✅ Phase 5b 完成 | API + DropdownMenu 已实现 |
+| Markdown Web Preview | Files 默认 Web Preview，Native/Source 回退 | 🔲 Phase 7 | 对齐 iOS PR #94，Android 使用本地 WebView + bundled JS/CSS |
+| Tablet Sessions pane collapse | 左侧 Sessions pane 可折叠 | 🔲 Phase 7 | 对齐 iOS PR #95，只影响 expanded width 三栏布局 |
+| Session Deep Link | `opencode://session/<id>` cold/warm + Chat Markdown | ✅ 已对齐 | 当前 Host 验证、pending reconnect、旧响应失效 |
 
 ---
 
@@ -300,7 +356,10 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 | 5 | UX 对齐 iOS：Chat toolbar 重排、Session Rename UI、草稿持久化、Model/Agent per-session 记忆 | ✅ 完成 (2026-03-14) |
 | 5b | 消息历史分页修复、Model/Agent 文本化 Capsule、平板 toolbar 适配、消息模型标注 | 🔲 进行中 |
 | 6 | 语音输入 realtime recovery：立即 PCM capture、本地 cache、session attach/replay、断线恢复 | ✅ 完成 (2026-05-25) |
-| 4 | SSH Tunnel、Session 变更文件列表 | 🔲 未来可选 |
+| 7 | Markdown Web Preview、Native/Web/Source 三态、平板 Sessions pane 折叠 | 🔲 规划中 (2026-06-14) |
+| 8 | Host Profiles、SSH Tunnel、iOS import/export parity、分阶段连接诊断 | 🔲 规划中 (2026-06-21) |
+| NFC | NFC Quick Prompt（Experimental）：写入 prompt 到 NTAG215、亮屏靠近自动拉起 App 新建 session 并发送 | ✅ 完成 (2026-06-30) |
+| Future | Session 变更文件列表、后台通知/Foreground Service | 🔲 未来可选 |
 
 ---
 
@@ -313,6 +372,7 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 5. 平板三栏布局体验流畅
 6. Chat 在监控模式下自动跟随，在历史查看模式下不强制跳到底部
 7. 语音输入在 WebSocket 建连慢、发送失败或心跳发现连接关闭时仍能通过本地 PCM cache 恢复并完成转写
+8. Android 与 iOS 在 Host Profiles、SSH Tunnel、import/export JSON 和连接诊断上达到功能对等
 
 ---
 
@@ -324,7 +384,7 @@ iOS 在每条 assistant 消息旁显示回复该消息的模型名称（如 `ant
 4. **推送通知**：暂不实现，但已识别为高优先级工程增强项——AI 等待人类决策时，需要通过 Android 前台通知机制主动触达用户，消除人机异步空转。
 5. **大型 Session**：暂不考虑性能优化，不预期 session 超过百条消息。
 6. **后台 SSE 连接**：不保持。App 进入后台时断开 SSE，回到前台时通过 REST 全量同步 + 重建 SSE 恢复。
-7. **SSH Tunnel**：Android 端暂不实现（iOS 已通过 Citadel 实现）。Android 用户可通过 Tailscale 直接组网，或使用 HTTPS 公网访问替代。
+7. **SSH Tunnel**：Android 端进入 Phase 8 实现，目标是与 iOS 完成 Host Profiles + SSH Tunnel feature parity。底层采用 JSch app 内 local forward，不使用系统 VPN，不依赖 Termux/OpenSSH，不承诺后台永久保活。
 
 ---
 

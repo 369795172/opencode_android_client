@@ -1,40 +1,55 @@
 package ai.opencode.client.ui.chat
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import ai.opencode.client.R
 import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.Part
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.ui.MainViewModel
+import ai.opencode.client.ui.files.FilesScreen
+import ai.opencode.client.ui.files.WorkspaceMarkdownLinkResolver
+import ai.opencode.client.util.OpenCodeDeepLinkParser
 import ai.opencode.client.ui.sanitizeBearerToken
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     viewModel: MainViewModel,
     onNavigateToFiles: (String) -> Unit = {},
+    useInlineFilePreview: Boolean = false,
     onNavigateToSettings: () -> Unit = {},
     showSettingsButton: Boolean = true,
     showNewSessionInTopBar: Boolean = true,
@@ -43,6 +58,7 @@ fun ChatScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     val aiBuilderToken = sanitizeBearerToken(viewModel.getAIBuilderSettings().token)
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -50,27 +66,82 @@ fun ChatScreen(
         if (granted) {
             viewModel.toggleRecording()
         } else {
-            viewModel.setSpeechError("Microphone permission denied. Please allow microphone access in system settings.")
+            viewModel.setSpeechError(context.getString(R.string.chat_microphone_permission_denied))
+        }
+    }
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        scope.launch {
+            viewModel.addImageAttachments(loadImageAttachments(context, uris))
+        }
+    }
+    var previewRequest by remember { mutableStateOf<WorkspacePreviewRequest?>(null) }
+    var linkError by remember { mutableStateOf<String?>(null) }
+
+    fun handleAssistantMarkdownLink(href: String) {
+        if (OpenCodeDeepLinkParser.handles(href)) {
+            viewModel.receiveDeepLink(href)
+            return
+        }
+        val workspaceDirectory = state.currentSession?.directory
+        when (val resolution = WorkspaceMarkdownLinkResolver.resolve(href, workspaceDirectory)) {
+            is WorkspaceMarkdownLinkResolver.Resolution.External -> {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolution.url))
+                runCatching { context.startActivity(intent) }
+                    .onFailure { linkError = it.message ?: "Could not open link" }
+            }
+            is WorkspaceMarkdownLinkResolver.Resolution.Preview -> {
+                if (useInlineFilePreview) {
+                    onNavigateToFiles(resolution.path)
+                } else {
+                    previewRequest = WorkspacePreviewRequest(
+                        path = resolution.path,
+                        hostProfileId = state.currentHostProfileId,
+                        sessionId = state.currentSessionId,
+                        workspaceDirectory = workspaceDirectory.orEmpty()
+                    )
+                }
+            }
+            WorkspaceMarkdownLinkResolver.Resolution.Ignored -> Unit
+            is WorkspaceMarkdownLinkResolver.Resolution.Rejected -> linkError = resolution.message
         }
     }
 
     // Cache last non-null contextUsage so the ring stays visible during streaming
     var cachedContextUsage by remember { mutableStateOf(state.contextUsage) }
     state.contextUsage?.let { cachedContextUsage = it }
-    val currentSessionIsRunning = state.currentSessionStatus?.let { it.isBusy || it.isRetry } == true
+    val currentSessionIsRunning = state.currentSessionStatus?.let { it.isBusy || it.isRetry } == true ||
+        state.currentSessionId?.let { it in state.sendingSessionIds } == true
     val currentActivity = remember(
         state.currentSessionId,
         state.currentSessionStatus,
-        state.messages,
+            state.visibleMessages,
         state.streamingReasoningPart,
         state.streamingPartTexts,
+        state.sessionSendTimestamps,
     ) {
         currentSessionActivity(
             sessionId = state.currentSessionId,
             status = state.currentSessionStatus,
-            messages = state.messages,
+            messages = state.visibleMessages,
             streamingReasoningPart = state.streamingReasoningPart,
             streamingPartTexts = state.streamingPartTexts,
+            sendTimestamp = state.currentSessionId?.let { state.sessionSendTimestamps[it] },
+        )
+    }
+    val completedTurnActivities = remember(
+        state.currentSessionId,
+        state.visibleMessages,
+        currentSessionIsRunning,
+        currentActivity?.text,
+    ) {
+        turnActivitiesForSession(
+            sessionId = state.currentSessionId,
+            messages = state.visibleMessages,
+            isSessionBusy = currentSessionIsRunning,
+            activityText = currentActivity?.text ?: "",
+            mode = TurnActivityMode.CompletedOnly,
         )
     }
 
@@ -92,6 +163,7 @@ fun ChatScreen(
                 sessions = state.sessions,
                 currentSessionId = state.currentSessionId,
                 sessionStatuses = state.sessionStatuses,
+                attentionSessionIds = state.attentionSessionIds,
                 hasMoreSessions = state.hasMoreSessions,
                 isLoadingMoreSessions = state.isLoadingMoreSessions,
                 isRefreshingSessions = state.isRefreshingSessions,
@@ -100,6 +172,13 @@ fun ChatScreen(
                 selectedModelIndex = state.selectedModelIndex,
                 contextUsage = cachedContextUsage,
                 sessionTodos = state.sessionTodos[state.currentSessionId ?: ""] ?: emptyList(),
+                aiUsageEnabled = state.aiUsageDashboardUrl.isNotBlank() && state.availableModels.getOrNull(state.selectedModelIndex)?.providerId in setOf("openai", "zai-coding-plan", "ollama-cloud"),
+                selectedAIUsageQuota = state.selectedAIUsageQuota,
+                aiUsageQuotaSnapshot = state.aiUsageQuotaSnapshot,
+                isLoadingAIUsage = state.isLoadingAIUsage,
+                isRefreshingAIUsage = state.isRefreshingAIUsage,
+                aiUsageError = state.aiUsageError,
+                aiUsageDashboardUrl = state.aiUsageDashboardUrl,
                 showSettingsButton = showSettingsButton,
                 showNewSessionInTopBar = showNewSessionInTopBar,
                 showSessionListInTopBar = showSessionListInTopBar
@@ -114,6 +193,8 @@ fun ChatScreen(
                 onRefreshSessions = viewModel::loadSessions,
                 onToggleSessionExpanded = viewModel::toggleSessionExpanded,
                 onSelectModel = viewModel::selectModel,
+                onOpenAIUsage = viewModel::loadAIUsage,
+                onRefreshAIUsage = viewModel::refreshAIUsage,
                 onNavigateToSettings = onNavigateToSettings,
                 onRenameSession = { title ->
                     state.currentSessionId?.let { sessionId ->
@@ -131,26 +212,29 @@ fun ChatScreen(
                 )
             } else {
                 ChatMessageList(
-                    messages = state.messages,
+                    messages = state.visibleMessages,
                     streamingPartTexts = state.streamingPartTexts,
                     streamingReasoningPart = state.streamingReasoningPart,
                     isLoading = state.isLoadingMessages,
                     messageLimit = state.messageLimit,
                     repository = viewModel.repository,
                     workspaceDirectory = state.currentSession?.directory,
+                    completedTurnActivities = completedTurnActivities,
                     onLoadMore = { viewModel.loadMoreMessages() },
                     onFileClick = onNavigateToFiles,
+                    onMarkdownLinkClick = ::handleAssistantMarkdownLink,
                     onForkFromMessage = { messageId ->
                         state.currentSessionId?.let { sessionId ->
                             viewModel.forkSession(sessionId, messageId)
                         }
                     },
+                    onEditFromMessage = viewModel::editFromMessage,
                     isTtsPlaying = state.isTtsPlaying,
                     ttsIsPaused = state.ttsIsPaused,
                     ttsReadingMessageId = state.ttsReadingMessageId,
                     onPlayMessage = viewModel::playMessage,
                     onResumeTts = viewModel::resumeTts,
-                    onStopTts = viewModel::stopTts
+                    onStopTts = viewModel::stopTts,
                 )
             }
 
@@ -159,7 +243,20 @@ fun ChatScreen(
                     modifier = Modifier.padding(16.dp),
                     action = {
                         TextButton(onClick = { viewModel.clearError() }) {
-                            Text("Dismiss")
+                            Text(stringResource(R.string.common_dismiss))
+                        }
+                    }
+                ) {
+                    Text(error)
+                }
+            }
+
+            linkError?.let { error ->
+                Snackbar(
+                    modifier = Modifier.padding(16.dp),
+                    action = {
+                        TextButton(onClick = { linkError = null }) {
+                            Text(stringResource(R.string.common_dismiss))
                         }
                     }
                 ) {
@@ -168,18 +265,32 @@ fun ChatScreen(
             }
         }
 
-        if (state.currentSessionId != null) {
-            if (state.ttsReadingMessageId != null) {
-                TtsPlaybackBar(
-                    messageId = state.ttsReadingMessageId,
-                    isPaused = state.ttsIsPaused,
-                    speechRate = state.ttsSpeechRate,
-                    onPause = viewModel::pauseTts,
-                    onResume = viewModel::resumeTts,
-                    onStop = viewModel::stopTts,
-                    onSpeechRateChange = viewModel::setTtsSpeechRate,
-                )
+        previewRequest?.let { request ->
+            if (request.hostProfileId != state.currentHostProfileId ||
+                request.sessionId != state.currentSessionId ||
+                request.workspaceDirectory != state.currentSession?.directory
+            ) {
+                LaunchedEffect(request, state.currentHostProfileId, state.currentSessionId, state.currentSession?.directory) {
+                    previewRequest = null
+                    linkError = "Workspace changed; reopen the link from the current session."
+                }
+            } else {
+                Dialog(
+                    onDismissRequest = { previewRequest = null },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        FilesScreen(
+                            pathToShow = request.path,
+                            sessionDirectory = request.workspaceDirectory,
+                            onCloseFile = { previewRequest = null }
+                        )
+                    }
+                }
             }
+        }
+
+        if (state.currentSessionId != null) {
             ChatInputBar(
                 text = state.inputText,
                 isBusy = currentSessionIsRunning,
@@ -191,8 +302,11 @@ fun ChatScreen(
                 isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
                 agentActivityText = currentActivity?.text,
                 agentStartedAtMillis = currentActivity?.startedAtMillis,
+                imageAttachments = state.imageAttachments,
                 onTextChange = viewModel::setInputText,
                 onSend = { viewModel.sendMessage() },
+                onAddImages = { imagePickerLauncher.launch("image/*") },
+                onRemoveImage = viewModel::removeImageAttachment,
                 onAbort = { viewModel.abortSession() },
                 onAbortSpeech = { viewModel.abortSpeechRecognition() },
                 onRetrySpeech = { viewModel.retryPreservedSpeechAudio() },
@@ -215,20 +329,35 @@ fun ChatScreen(
             )
         }
 
+        if (state.ttsReadingMessageId != null) {
+            TtsPlaybackBar(
+                messageId = state.ttsReadingMessageId,
+                isPaused = state.ttsIsPaused,
+                speechRate = state.ttsSpeechRate,
+                onPause = viewModel::pauseTts,
+                onResume = viewModel::resumeTts,
+                onStop = viewModel::stopTts,
+                onSpeechRateChange = viewModel::setTtsSpeechRate,
+            )
+        }
+
         state.speechError?.let { speechError ->
             AlertDialog(
                 onDismissRequest = { viewModel.clearSpeechError() },
-                title = { Text("Speech Recognition") },
+                title = { Text(stringResource(R.string.settings_speech_recognition)) },
                 text = { Text(speechError) },
                 confirmButton = {
                     TextButton(onClick = { viewModel.clearSpeechError() }) {
-                        Text("OK")
+                        Text(stringResource(R.string.common_ok))
                     }
                 }
             )
         }
 
-        state.pendingPermissions.firstOrNull()?.let { permission ->
+        state.pendingPermissions
+            .filter { it.sessionId == state.currentSessionId }
+            .firstOrNull()
+            ?.let { permission ->
             ChatPermissionCard(
                 permission = permission,
                 onRespond = { response ->
@@ -250,6 +379,13 @@ fun ChatScreen(
     }
 }
 
+private data class WorkspacePreviewRequest(
+    val path: String,
+    val hostProfileId: String?,
+    val sessionId: String?,
+    val workspaceDirectory: String
+)
+
 private data class CurrentSessionActivity(
     val text: String,
     val startedAtMillis: Long?,
@@ -261,9 +397,11 @@ private fun currentSessionActivity(
     messages: List<MessageWithParts>,
     streamingReasoningPart: Part?,
     streamingPartTexts: Map<String, String>,
+    sendTimestamp: Long? = null,
 ): CurrentSessionActivity? {
     val sid = sessionId ?: return null
-    val startedAt = messages.lastOrNull { it.info.sessionId == sid && it.info.isUser }?.info?.time?.created
+    val userStartedAt = messages.lastOrNull { it.info.sessionId == sid && it.info.isUser }?.info?.time?.created
+    val startedAt = userStartedAt ?: sendTimestamp
     val text = bestSessionActivityText(sid, status, messages, streamingReasoningPart, streamingPartTexts)
     return CurrentSessionActivity(text = text, startedAtMillis = startedAt)
 }

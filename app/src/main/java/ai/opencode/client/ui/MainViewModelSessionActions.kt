@@ -1,12 +1,7 @@
 package ai.opencode.client.ui
 
-import ai.opencode.client.data.api.PromptRequest
-import ai.opencode.client.data.model.FileAttachment
+import ai.opencode.client.data.model.ComposerImageAttachment
 import ai.opencode.client.data.model.Message
-import ai.opencode.client.data.model.MessageWithParts
-import ai.opencode.client.data.model.AgentInfo
-import ai.opencode.client.data.model.ConfigProvider
-import ai.opencode.client.data.model.ProvidersResponse
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.repository.OpenCodeRepository
@@ -38,24 +33,29 @@ internal fun launchLoadSessions(
         repository.getSessions(limit)
             .onSuccess { sessions ->
                 state.update {
-                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(sessions, it.sessions)
+                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(
+                        sessions,
+                        it.sessions,
+                        it.currentSessionId
+                    )
                     it.copy(
                         sessions = mergedSessions,
-                        hasMoreSessions = mergedSessions.size >= limit,
+                        hasMoreSessions = sessions.size >= limit,
                         isLoadingMoreSessions = false,
                         isRefreshingSessions = false
                     )
                 }
                 val currentId = state.value.currentSessionId
-                val hasCurrentSession = currentId != null && sessions.any { it.id == currentId }
+                val refreshedSessions = state.value.sessions
+                val hasCurrentSession = currentId != null && refreshedSessions.any { it.id == currentId }
                 when {
-                    currentId == null && sessions.isNotEmpty() -> onSelectSession(sessions.first().id)
+                    currentId == null && refreshedSessions.isNotEmpty() -> onSelectSession(refreshedSessions.first().id)
                     hasCurrentSession -> {
                         onLoadSessionStatus()
                         onLoadMessages(currentId!!)
                     }
-                    sessions.isNotEmpty() -> {
-                        onSelectSession(sessions.first().id)
+                    refreshedSessions.isNotEmpty() -> {
+                        onSelectSession(refreshedSessions.first().id)
                     }
                     else -> {
                         state.update { it.copy(currentSessionId = null, messages = emptyList()) }
@@ -100,20 +100,25 @@ internal fun launchLoadMoreSessions(
                     return@onSuccess
                 }
                 state.update {
-                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(sessions, it.sessions)
+                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(
+                        sessions,
+                        it.sessions,
+                        it.currentSessionId
+                    )
                     it.copy(
                         sessions = mergedSessions,
                         loadedSessionLimit = nextLimit,
-                        hasMoreSessions = mergedSessions.size >= nextLimit,
+                        hasMoreSessions = sessions.size >= nextLimit,
                         isLoadingMoreSessions = false
                     )
                 }
                 val currentId = state.value.currentSessionId
-                val hasCurrentSession = currentId != null && sessions.any { it.id == currentId }
+                val refreshedSessions = state.value.sessions
+                val hasCurrentSession = currentId != null && refreshedSessions.any { it.id == currentId }
                 when {
-                    currentId == null && sessions.isNotEmpty() -> onSelectSession(sessions.first().id)
+                    currentId == null && refreshedSessions.isNotEmpty() -> onSelectSession(refreshedSessions.first().id)
                     hasCurrentSession -> Unit
-                    sessions.isNotEmpty() -> onSelectSession(sessions.first().id)
+                    refreshedSessions.isNotEmpty() -> onSelectSession(refreshedSessions.first().id)
                     else -> state.update { it.copy(currentSessionId = null, messages = emptyList()) }
                 }
             }
@@ -161,6 +166,8 @@ internal fun selectSessionState(
         it.copy(
             currentSessionId = sessionId,
             messages = emptyList(),
+            streamingPartTexts = emptyMap(),
+            streamingReasoningPart = null,
             messageLimit = 30,
             inputText = restoredDraft
         )
@@ -173,7 +180,8 @@ internal fun launchLoadMessages(
     state: MutableStateFlow<AppState>,
     sessionId: String,
     resetLimit: Boolean = true,
-    settingsManager: SettingsManager? = null
+    settingsManager: SettingsManager? = null,
+    onMessagesLoaded: (() -> Unit)? = null
 ) {
     scope.launch {
         state.update { it.copy(isLoadingMessages = true) }
@@ -181,38 +189,25 @@ internal fun launchLoadMessages(
         repository.getMessages(sessionId, limit)
             .onSuccess { messages ->
                 if (sessionId == state.value.currentSessionId) {
-                    val healthUpdate = extractLatestAssistantHealth(messages)
-                    val mergedHealth = mergeModelHealth(state.value.modelHealth, healthUpdate)
                     val lastAssistant = messages.lastOrNull { it.info.isAssistant }
                     val inferredModelIndex = lastAssistant?.info?.resolvedModel?.let { model ->
-                        state.value.availableModels.indexOfFirst {
+                        ModelPresets.list.indexOfFirst {
                             it.providerId == model.providerId && it.modelId == model.modelId
                         }.takeIf { it >= 0 }
                     }
                     val inferredAgentName = lastAssistant?.info?.agent
-                    val rawModelIndex = settingsManager?.getModelForSession(sessionId) ?: inferredModelIndex
-                    val models = state.value.availableModels
-                    val maxIdx = (models.size - 1).coerceAtLeast(0)
-                    val modelIndex = rawModelIndex?.coerceIn(0, maxIdx)
+                    val modelIndex = settingsManager?.getModelForSession(sessionId) ?: inferredModelIndex
                     val agentName = settingsManager?.getAgentForSession(sessionId) ?: inferredAgentName
-                    val displayModels = resolveAvailableModels(ModelPresets.list, state.value.providers)
-                    val remappedIndex = remapSelectedModelIndex(
-                        previousList = models,
-                        newList = displayModels,
-                        previousIndex = modelIndex ?: state.value.selectedModelIndex
-                    )
                     state.update {
                         it.copy(
                             messages = messages,
                             messageLimit = limit,
                             isLoadingMessages = false,
-                            selectedModelIndex = remappedIndex.coerceIn(0, (displayModels.size - 1).coerceAtLeast(0)),
-                            selectedAgentName = agentName ?: it.selectedAgentName,
-                            modelHealth = mergedHealth,
-                            availableModels = displayModels
+                            selectedModelIndex = modelIndex ?: it.selectedModelIndex,
+                            selectedAgentName = agentName ?: it.selectedAgentName
                         )
                     }
-                    settingsManager?.let { persistModelHealth(it, mergedHealth) }
+                    onMessagesLoaded?.invoke()
                 } else {
                     state.update { it.copy(isLoadingMessages = false) }
                 }
@@ -231,6 +226,7 @@ internal fun launchLoadMessages(
             }
 
         // Best-effort: load session todos after messages (matches iOS behavior).
+        // Fails silently in test mocks where the endpoint isn't set up.
         try {
             repository.getSessionTodos(sessionId)
                 .onSuccess { todos ->
@@ -292,25 +288,21 @@ internal fun launchLoadProviders(
     scope: CoroutineScope,
     repository: OpenCodeRepository,
     state: MutableStateFlow<AppState>,
-    settingsManager: SettingsManager,
     onNonFatalError: (String, Throwable?) -> Unit
 ) {
     scope.launch {
         repository.getProviders()
             .onSuccess { providers ->
-                val prev = state.value
-                val newList = resolveAvailableModels(ModelPresets.list, providers)
-                val newIndex = remapSelectedModelIndex(
-                    prev.availableModels,
-                    newList,
-                    prev.selectedModelIndex
-                )
-                settingsManager.selectedModelIndex = newIndex
-                state.update {
-                    it.copy(
+                state.update { current ->
+                    val models = resolveAvailableModels(ModelPresets.list, providers)
+                    val nextIndex = remapSelectedModelIndex(
+                        previousList = current.availableModels,
+                        newList = models,
+                        previousIndex = current.selectedModelIndex,
+                    )
+                    current.copy(
                         providers = providers,
-                        availableModels = newList,
-                        selectedModelIndex = newIndex
+                        selectedModelIndex = nextIndex,
                     )
                 }
             }
@@ -457,102 +449,25 @@ internal fun launchSendMessage(
     state: MutableStateFlow<AppState>,
     sessionId: String,
     text: String,
+    attachments: List<ComposerImageAttachment> = emptyList(),
     agent: String,
     model: Message.ModelInfo?,
-    attachments: List<FileAttachment> = emptyList(),
-    sessionDirectory: String? = null,
-    workspaceDirectory: String = "",
-    providers: ProvidersResponse? = null,
-    agents: List<AgentInfo> = emptyList(),
     onRefreshMessages: (String, Boolean) -> Unit,
-    onRefreshSessions: () -> Unit = {},
+    onRefreshSessions: () -> Unit,
     onSuccess: (() -> Unit)? = null,
-    onDiagnostic: (RequestDiagnosticEntry) -> Unit,
-    onRequestState: (AsyncRequestState?) -> Unit,
-    onError: (String) -> Unit
+    onComplete: (() -> Unit)? = null
 ) {
     scope.launch {
-        val parts = buildMessageParts(text, attachments)
-        val enableAsyncTracking = providers?.providers?.isNotEmpty() == true || agents.isNotEmpty()
-        val effectiveDirectory = sessionDirectory?.ifBlank { null } ?: workspaceDirectory.ifBlank { null }
-        val request = AsyncRequestState(
-            sessionId = sessionId,
-            agent = agent,
-            model = model,
-            phase = AsyncRequestPhase.QUEUED
-        )
-        onRequestState(request)
-        onDiagnostic(
-            RequestDiagnosticEntry(
-                sessionId = sessionId,
-                requestId = request.requestId,
-                phase = AsyncRequestPhase.QUEUED,
-                agent = agent,
-                providerId = model?.providerId,
-                modelId = model?.modelId,
-                message = "Queued prompt_async request"
-            )
-        )
-        val preflight = runSendPreflight(
-            model = model,
-            agentName = agent,
-            providers = providers,
-            agents = agents,
-            directory = effectiveDirectory
-        )
-        if (!preflight.ok) {
-            val failure = preflight.failure!!
-            onRequestState(request.copy(
-                phase = AsyncRequestPhase.FAILED,
-                errorCode = failure.code,
-                errorMessage = failure.message
-            ))
-            onDiagnostic(
-                RequestDiagnosticEntry(
-                    sessionId = sessionId,
-                    requestId = request.requestId,
-                    phase = AsyncRequestPhase.FAILED,
-                    agent = agent,
-                    providerId = model?.providerId,
-                    modelId = model?.modelId,
-                    code = failure.code,
-                            category = classifyFailureCategory(failure.message),
-                    message = failure.message
-                )
-            )
-            onError(failure.message)
-            return@launch
-        }
-        val baselineMessages = repository.getMessages(sessionId).getOrDefault(emptyList())
-        val baselineAssistantCount = baselineMessages.count { it.info.isAssistant }
-        repository.sendMessage(sessionId, parts, agent, model, effectiveDirectory)
+        repository.sendMessage(sessionId, text, agent, model, attachments = attachments)
             .onSuccess {
                 state.update {
                     it.copy(
                         inputText = "",
-                        pendingAttachments = emptyList(),
                         error = null,
                         sessions = bumpSessionUpdated(it.sessions, sessionId, System.currentTimeMillis()),
                         sessionStatuses = it.sessionStatuses + (sessionId to SessionStatus(type = "busy"))
                     )
                 }
-                onRequestState(
-                    request.copy(
-                        phase = AsyncRequestPhase.ACCEPTED_204,
-                        lastProgressAtMs = System.currentTimeMillis()
-                    )
-                )
-                onDiagnostic(
-                    RequestDiagnosticEntry(
-                        sessionId = sessionId,
-                        requestId = request.requestId,
-                        phase = AsyncRequestPhase.ACCEPTED_204,
-                        agent = agent,
-                        providerId = model?.providerId,
-                        modelId = model?.modelId,
-                        message = "prompt_async accepted (204)"
-                    )
-                )
                 onSuccess?.invoke()
                 onRefreshSessions()
                 onRefreshMessages(sessionId, true)
@@ -561,283 +476,10 @@ internal fun launchSendMessage(
                     onRefreshSessions()
                     onRefreshMessages(sessionId, false)
                 }
-                if (!enableAsyncTracking) {
-                    onRequestState(null)
-                } else {
-                    launch {
-                        trackAsyncCompletion(
-                            repository = repository,
-                            sessionId = sessionId,
-                            request = request,
-                            baselineAssistantCount = baselineAssistantCount,
-                            onDiagnostic = onDiagnostic,
-                            onRequestState = onRequestState,
-                            onError = onError
-                        )
-                    }
-                }
             }
             .onFailure { error ->
-                val msg = errorMessageOrFallback(error, "Failed to send message")
-                onRequestState(
-                    request.copy(
-                        phase = AsyncRequestPhase.FAILED,
-                        errorCode = RequestErrorCode.SESSION_STUCK,
-                        errorMessage = msg
-                    )
-                )
-                onDiagnostic(
-                    RequestDiagnosticEntry(
-                        sessionId = sessionId,
-                        requestId = request.requestId,
-                        phase = AsyncRequestPhase.FAILED,
-                        agent = agent,
-                        providerId = model?.providerId,
-                        modelId = model?.modelId,
-                        code = RequestErrorCode.SESSION_STUCK,
-                        category = classifyFailureCategory(msg),
-                        message = msg
-                    )
-                )
-                onError(msg)
+                state.update { it.copy(error = errorMessageOrFallback(error, "Failed to send message")) }
             }
+        onComplete?.invoke()
     }
-}
-
-private fun buildMessageParts(
-    text: String,
-    attachments: List<FileAttachment>
-): List<PromptRequest.PartInput> {
-    val parts = mutableListOf<PromptRequest.PartInput>()
-    
-    if (text.isNotBlank()) {
-        parts.add(PromptRequest.PartInput.text(text))
-    }
-    
-    attachments.forEach { attachment ->
-        val base64 = attachment.base64Content ?: return@forEach
-        parts.add(PromptRequest.PartInput.file(
-            mime = attachment.mime,
-            filename = attachment.filename,
-            url = "data:${attachment.mime};base64,$base64"
-        ))
-    }
-    
-    return parts
-}
-
-internal fun runSendPreflight(
-    model: Message.ModelInfo?,
-    agentName: String,
-    providers: ProvidersResponse?,
-    agents: List<AgentInfo>,
-    directory: String?
-): SendPreflightResult {
-    val providerList = providers?.providers.orEmpty()
-    if (model != null && providerList.isNotEmpty()) {
-        val provider = providerList.find { it.id == model.providerId }
-        if (provider == null) {
-            return SendPreflightResult(
-                ok = false,
-                failure = SendPreflightFailure(
-                    code = RequestErrorCode.INVALID_MODEL,
-                    message = "Provider '${model.providerId}' is not available on server."
-                )
-            )
-        }
-        val providerModel = provider.models[model.modelId]
-        if (providerModel == null) {
-            return SendPreflightResult(
-                ok = false,
-                failure = SendPreflightFailure(
-                    code = RequestErrorCode.INVALID_MODEL,
-                    message = "Model '${model.providerId}/${model.modelId}' is not available."
-                )
-            )
-        }
-        if (!isProviderModelSelectable(providerModel)) {
-            return SendPreflightResult(
-                ok = false,
-                failure = SendPreflightFailure(
-                    code = RequestErrorCode.INVALID_MODEL,
-                    message = "Model '${model.providerId}/${model.modelId}' is not active."
-                )
-            )
-        }
-    }
-    if (agents.isNotEmpty()) {
-        val selectedAgent = agents.find { it.name == agentName }
-            ?: return SendPreflightResult(
-                ok = false,
-                failure = SendPreflightFailure(
-                    code = RequestErrorCode.INVALID_AGENT,
-                    message = "Agent '$agentName' does not exist on server."
-                )
-            )
-        if (selectedAgent.requiresDirectory() && directory.isNullOrBlank()) {
-            return SendPreflightResult(
-                ok = false,
-                failure = SendPreflightFailure(
-                    code = RequestErrorCode.MISSING_DIRECTORY,
-                    message = "Agent '$agentName' requires a workspace directory."
-                )
-            )
-        }
-    }
-    return SendPreflightResult(ok = true)
-}
-
-private fun mergeModelHealth(
-    current: Map<String, ModelHealth>,
-    update: ModelHealthUpdate?
-): Map<String, ModelHealth> {
-    if (update == null) return current
-    return current + (update.key to update.health)
-}
-
-private data class ModelHealthUpdate(
-    val key: String,
-    val health: ModelHealth
-)
-
-private fun extractLatestAssistantHealth(messages: List<MessageWithParts>): ModelHealthUpdate? {
-    val assistant = messages.lastOrNull { it.info.isAssistant } ?: return null
-    val model = assistant.info.resolvedModel ?: return null
-    val key = "${model.providerId}/${model.modelId}"
-    val error = assistant.info.error?.message?.toString()
-    val text = assistant.parts.firstOrNull { it.isText }?.text?.trim().orEmpty()
-    val health = when {
-        !error.isNullOrBlank() -> ModelHealth(
-            healthy = false,
-            updatedAtMs = System.currentTimeMillis(),
-            reason = error
-        )
-        text.isNotBlank() -> ModelHealth(
-            healthy = true,
-            updatedAtMs = System.currentTimeMillis(),
-            reason = null
-        )
-        else -> return null
-    }
-    return ModelHealthUpdate(key = key, health = health)
-}
-
-private suspend fun trackAsyncCompletion(
-    repository: OpenCodeRepository,
-    sessionId: String,
-    request: AsyncRequestState,
-    baselineAssistantCount: Int,
-    onDiagnostic: (RequestDiagnosticEntry) -> Unit,
-    onRequestState: (AsyncRequestState?) -> Unit,
-    onError: (String) -> Unit
-) {
-    var current = request.copy(phase = AsyncRequestPhase.RUNNING, lastProgressAtMs = System.currentTimeMillis())
-    onRequestState(current)
-    onDiagnostic(
-        RequestDiagnosticEntry(
-            sessionId = sessionId,
-            requestId = request.requestId,
-            phase = AsyncRequestPhase.RUNNING,
-            agent = request.agent,
-            providerId = request.model?.providerId,
-            modelId = request.model?.modelId,
-            message = "Waiting for assistant progress"
-        )
-    )
-    val startedAt = System.currentTimeMillis()
-    while (System.currentTimeMillis() - startedAt < MainViewModelTimings.requestMaxTrackMs) {
-        delay(MainViewModelTimings.requestTrackPollMs)
-        val messages = repository.getMessages(sessionId).getOrDefault(emptyList())
-        val assistantCount = messages.count { it.info.isAssistant }
-        val latestAssistant = messages.lastOrNull { it.info.isAssistant }
-        val assistantError = latestAssistant?.info?.error?.message
-        if (!assistantError.isNullOrBlank()) {
-            onRequestState(
-                current.copy(
-                    phase = AsyncRequestPhase.FAILED,
-                    errorCode = RequestErrorCode.SESSION_STUCK,
-                    errorMessage = assistantError
-                )
-            )
-            onDiagnostic(
-                RequestDiagnosticEntry(
-                    sessionId = sessionId,
-                    requestId = request.requestId,
-                    phase = AsyncRequestPhase.FAILED,
-                    agent = request.agent,
-                    providerId = request.model?.providerId,
-                    modelId = request.model?.modelId,
-                    code = RequestErrorCode.SESSION_STUCK,
-                    category = classifyFailureCategory(assistantError),
-                    message = assistantError
-                )
-            )
-            onError(assistantError)
-            return
-        }
-        val hasAssistantProgress = assistantCount > baselineAssistantCount
-        if (hasAssistantProgress && current.phase != AsyncRequestPhase.FIRST_ASSISTANT_SEEN) {
-            current = current.copy(
-                phase = AsyncRequestPhase.FIRST_ASSISTANT_SEEN,
-                lastProgressAtMs = System.currentTimeMillis()
-            )
-            onRequestState(current)
-            onDiagnostic(
-                RequestDiagnosticEntry(
-                    sessionId = sessionId,
-                    requestId = request.requestId,
-                    phase = AsyncRequestPhase.FIRST_ASSISTANT_SEEN,
-                    agent = request.agent,
-                    providerId = request.model?.providerId,
-                    modelId = request.model?.modelId,
-                    message = "Assistant response detected"
-                )
-            )
-        }
-        val statuses = repository.getSessionStatus().getOrDefault(emptyMap())
-        val status = statuses[sessionId]
-        val idle = status?.isIdle == true
-        if (hasAssistantProgress && idle) {
-            onRequestState(current.copy(phase = AsyncRequestPhase.COMPLETED))
-            onDiagnostic(
-                RequestDiagnosticEntry(
-                    sessionId = sessionId,
-                    requestId = request.requestId,
-                    phase = AsyncRequestPhase.COMPLETED,
-                    agent = request.agent,
-                    providerId = request.model?.providerId,
-                    modelId = request.model?.modelId,
-                    message = "Request completed"
-                )
-            )
-            return
-        }
-    }
-    val stalledMsg = "Request accepted but no assistant progress within timeout window."
-    onRequestState(
-        current.copy(
-            phase = AsyncRequestPhase.STALLED,
-            errorCode = RequestErrorCode.ASYNC_ACCEPTED_NO_PROGRESS,
-            errorMessage = stalledMsg
-        )
-    )
-    onDiagnostic(
-        RequestDiagnosticEntry(
-            sessionId = sessionId,
-            requestId = request.requestId,
-            phase = AsyncRequestPhase.STALLED,
-            agent = request.agent,
-            providerId = request.model?.providerId,
-            modelId = request.model?.modelId,
-            code = RequestErrorCode.ASYNC_ACCEPTED_NO_PROGRESS,
-            category = RequestFailureCategory.TIMEOUT,
-            message = stalledMsg
-        )
-    )
-    onError(stalledMsg)
-}
-
-internal fun AgentInfo.requiresDirectory(): Boolean {
-    if (native == true) return false
-    return mode == "subagent"
 }

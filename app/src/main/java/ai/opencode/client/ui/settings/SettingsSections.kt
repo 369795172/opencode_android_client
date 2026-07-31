@@ -1,5 +1,6 @@
 package ai.opencode.client.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,45 +14,126 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import ai.opencode.client.BuildConfig
+import ai.opencode.client.R
 import ai.opencode.client.ui.AIBuilderSettings
+import com.yage.voiceflowkit.VoiceFlowRecordingStrategy
 import ai.opencode.client.ui.AppState
+import ai.opencode.client.data.model.HostProfile
+import ai.opencode.client.data.model.HostTransport
+import ai.opencode.client.util.LanguageMode
 import ai.opencode.client.util.ThemeMode
+
+@Composable
+internal fun ConnectionProfileSection(
+    profile: HostProfile,
+    isTesting: Boolean,
+    state: AppState,
+    testResult: TestResult?,
+    onTestConnection: () -> Unit,
+    onManageProfiles: () -> Unit
+) {
+    SectionHeader(title = stringResource(R.string.settings_connection_profile))
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(profile.displayName, style = MaterialTheme.typography.titleMedium)
+                    Text(profile.connectionSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(
+                    if (profile.transport == HostTransport.SSH_TUNNEL) stringResource(R.string.host_profile_ssh_tunnel) else stringResource(R.string.host_profile_direct),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onTestConnection, enabled = !isTesting) {
+                    if (isTesting) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.settings_test_connection))
+                }
+                OutlinedButton(onClick = onManageProfiles) {
+                    Text(stringResource(R.string.settings_manage_profiles))
+                }
+            }
+        }
+    }
+
+    testResult?.let { ResultCard(result = it) }
+
+    if (state.isConnected) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(stringResource(R.string.settings_connected), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            state.serverVersion?.let { version ->
+                Text(" (v$version)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+        }
+    }
+}
 
 @Composable
 internal fun ServerConnectionSection(
     serverUrl: String,
-    workspaceDirectory: String,
     username: String,
     password: String,
     showPassword: Boolean,
@@ -59,19 +141,18 @@ internal fun ServerConnectionSection(
     state: AppState,
     testResult: TestResult?,
     onServerUrlChange: (String) -> Unit,
-    onWorkspaceDirectoryChange: (String) -> Unit,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onTogglePasswordVisibility: () -> Unit,
     onTestConnection: () -> Unit,
     onSave: () -> Unit
 ) {
-    SectionHeader(title = "Server Connection")
+    SectionHeader(title = stringResource(R.string.settings_server_connection))
 
     OutlinedTextField(
         value = serverUrl,
         onValueChange = onServerUrlChange,
-        label = { Text("Server URL") },
+        label = { Text(stringResource(R.string.settings_server_url)) },
         placeholder = { Text("http://localhost:4096") },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
@@ -81,21 +162,9 @@ internal fun ServerConnectionSection(
     Spacer(modifier = Modifier.height(12.dp))
 
     OutlinedTextField(
-        value = workspaceDirectory,
-        onValueChange = onWorkspaceDirectoryChange,
-        label = { Text("Workspace Directory (optional)") },
-        placeholder = { Text("/path/on/server/workspace") },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) }
-    )
-
-    Spacer(modifier = Modifier.height(12.dp))
-
-    OutlinedTextField(
         value = username,
         onValueChange = onUsernameChange,
-        label = { Text("Username (optional)") },
+        label = { Text(stringResource(R.string.settings_username_optional)) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
@@ -106,7 +175,7 @@ internal fun ServerConnectionSection(
     OutlinedTextField(
         value = password,
         onValueChange = onPasswordChange,
-        label = { Text("Password (optional)") },
+        label = { Text(stringResource(R.string.settings_password_optional)) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
@@ -114,7 +183,7 @@ internal fun ServerConnectionSection(
             IconButton(onClick = onTogglePasswordVisibility) {
                 Icon(
                     if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = if (showPassword) "Hide password" else "Show password"
+                    contentDescription = if (showPassword) stringResource(R.string.settings_hide_password) else stringResource(R.string.settings_show_password)
                 )
             }
         },
@@ -138,14 +207,14 @@ internal fun ServerConnectionSection(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
             }
-            Text("Test Connection")
+            Text(stringResource(R.string.settings_test_connection))
         }
 
         OutlinedButton(
             onClick = onSave,
             enabled = serverUrl.isNotBlank()
         ) {
-            Text("Save")
+            Text(stringResource(R.string.settings_save))
         }
     }
 
@@ -162,7 +231,7 @@ internal fun ServerConnectionSection(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Connected",
+                stringResource(R.string.settings_connected),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -181,11 +250,15 @@ internal fun ServerConnectionSection(
 @Composable
 internal fun AppearanceSection(
     themeMode: ThemeMode,
-    onThemeSelected: (ThemeMode) -> Unit
+    languageMode: LanguageMode,
+    onThemeSelected: (ThemeMode) -> Unit,
+    onLanguageSelected: (LanguageMode) -> Unit
 ) {
-    SectionHeader(title = "Appearance")
+    SectionHeader(title = stringResource(R.string.settings_appearance))
 
     val modes = ThemeMode.values()
+    Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.labelMedium)
+    Spacer(modifier = Modifier.height(8.dp))
     SingleChoiceSegmentedButtonRow(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -208,13 +281,92 @@ internal fun AppearanceSection(
             ) {
                 Text(
                     when (mode) {
-                        ThemeMode.LIGHT -> "Light"
-                        ThemeMode.DARK -> "Dark"
-                        ThemeMode.SYSTEM -> "System"
+                        ThemeMode.LIGHT -> stringResource(R.string.settings_theme_light)
+                        ThemeMode.DARK -> stringResource(R.string.settings_theme_dark)
+                        ThemeMode.SYSTEM -> stringResource(R.string.settings_follow_system)
                     }
                 )
             }
         }
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.labelMedium)
+    Spacer(modifier = Modifier.height(8.dp))
+    val languages = LanguageMode.values()
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        languages.forEachIndexed { index, mode ->
+            SegmentedButton(
+                selected = languageMode == mode,
+                onClick = { onLanguageSelected(mode) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = languages.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = MaterialTheme.colorScheme.primary,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                    activeBorderColor = MaterialTheme.colorScheme.primary,
+                    inactiveContainerColor = MaterialTheme.colorScheme.surface,
+                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    inactiveBorderColor = MaterialTheme.colorScheme.outline
+                )
+            ) {
+                Text(
+                    when (mode) {
+                        LanguageMode.SYSTEM -> stringResource(R.string.settings_follow_system)
+                        LanguageMode.ENGLISH -> stringResource(R.string.settings_language_english)
+                        LanguageMode.CHINESE -> stringResource(R.string.settings_language_chinese)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AIUsageDashboardSection(
+    state: AppState,
+    dashboardUrl: String,
+    saveMessage: String? = null,
+    onUrlChange: (String) -> Unit,
+    onTestConnection: () -> Unit,
+    onSave: () -> Unit
+) {
+    SectionHeader(title = stringResource(R.string.settings_ai_usage_dashboard))
+    Text(
+        stringResource(R.string.settings_ai_usage_description),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    OutlinedTextField(
+        value = dashboardUrl,
+        onValueChange = onUrlChange,
+        label = { Text(stringResource(R.string.settings_ai_usage_url)) },
+        modifier = Modifier.fillMaxWidth().testTag("settings.ai_usage.url"),
+        singleLine = true,
+        leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) }
+    )
+    Spacer(modifier = Modifier.height(16.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = onTestConnection,
+            enabled = dashboardUrl.isNotBlank() && !state.isLoadingAIUsage
+        ) {
+            if (state.isLoadingAIUsage) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(stringResource(R.string.settings_test_connection))
+        }
+        OutlinedButton(onClick = onSave) {
+            Text(stringResource(R.string.settings_save))
+        }
+    }
+    when {
+        saveMessage != null -> ResultCard(TestResult(success = true, message = saveMessage))
+        state.aiUsageError != null -> ResultCard(TestResult(success = false, message = state.aiUsageError))
+        state.aiUsageQuotaSnapshot != null -> ResultCard(
+            TestResult(success = true, message = stringResource(R.string.settings_connected_successfully))
+        )
     }
 }
 
@@ -225,22 +377,23 @@ internal fun SpeechRecognitionSection(
     aiBuilderToken: String,
     aiBuilderCustomPrompt: String,
     aiBuilderTerminology: String,
+    aiBuilderRecordingStrategy: String,
     showAIBuilderToken: Boolean,
     saveMessage: String? = null,
     onBaseUrlChange: (String) -> Unit,
     onTokenChange: (String) -> Unit,
     onPromptChange: (String) -> Unit,
     onTerminologyChange: (String) -> Unit,
+    onRecordingStrategyChange: (String) -> Unit,
     onToggleTokenVisibility: () -> Unit,
-    onTestConnection: () -> Unit,
     onSave: () -> Unit
 ) {
-    SectionHeader(title = "Speech Recognition")
+    SectionHeader(title = stringResource(R.string.settings_speech_recognition))
 
     OutlinedTextField(
         value = aiBuilderBaseURL,
         onValueChange = onBaseUrlChange,
-        label = { Text("AI Builder Base URL") },
+        label = { Text(stringResource(R.string.settings_ai_builder_base_url)) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) }
@@ -251,7 +404,7 @@ internal fun SpeechRecognitionSection(
     OutlinedTextField(
         value = aiBuilderToken,
         onValueChange = onTokenChange,
-        label = { Text("AI Builder Token") },
+        label = { Text(stringResource(R.string.settings_ai_builder_token)) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         visualTransformation = if (showAIBuilderToken) VisualTransformation.None else PasswordVisualTransformation(),
@@ -259,7 +412,7 @@ internal fun SpeechRecognitionSection(
             IconButton(onClick = onToggleTokenVisibility) {
                 Icon(
                     if (showAIBuilderToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = if (showAIBuilderToken) "Hide token" else "Show token"
+                    contentDescription = if (showAIBuilderToken) stringResource(R.string.settings_hide_token) else stringResource(R.string.settings_show_token)
                 )
             }
         },
@@ -268,51 +421,110 @@ internal fun SpeechRecognitionSection(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    OutlinedTextField(
-        value = aiBuilderCustomPrompt,
-        onValueChange = onPromptChange,
-        label = { Text("Custom Prompt") },
-        modifier = Modifier.fillMaxWidth(),
-        minLines = 3,
-        maxLines = 6
+    Text(
+        text = stringResource(R.string.settings_recording_strategy),
+        style = MaterialTheme.typography.labelLarge,
     )
+    Spacer(modifier = Modifier.height(8.dp))
+    val strategies = listOf(
+        VoiceFlowRecordingStrategy.OPENAI_REALTIME to R.string.settings_recording_strategy_openai,
+        VoiceFlowRecordingStrategy.GROK_BATCH to R.string.settings_recording_strategy_grok,
+    )
+    val selected = VoiceFlowRecordingStrategy.fromRaw(aiBuilderRecordingStrategy)
+    var showStrategyHelp by remember { mutableStateOf(false) }
+    SingleChoiceSegmentedButtonRow(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        strategies.forEachIndexed { index, (strategy, labelRes) ->
+            SegmentedButton(
+                selected = selected == strategy,
+                onClick = { onRecordingStrategyChange(strategy.name) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = strategies.size),
+            ) {
+                Text(stringResource(labelRes))
+            }
+        }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.Info,
+            contentDescription = stringResource(R.string.settings_recording_strategy_dialog_title),
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .size(18.dp)
+                .clickable { showStrategyHelp = true },
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = stringResource(R.string.settings_recording_strategy_help),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable { showStrategyHelp = true },
+        )
+    }
+    if (showStrategyHelp) {
+        AlertDialog(
+            onDismissRequest = { showStrategyHelp = false },
+            title = { Text(stringResource(R.string.settings_recording_strategy_dialog_title)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.settings_recording_strategy_dialog_body),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showStrategyHelp = false }) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+        )
+    }
+    if (selected == VoiceFlowRecordingStrategy.OPENAI_REALTIME) {
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedTextField(
+            value = aiBuilderCustomPrompt,
+            onValueChange = onPromptChange,
+            label = { Text(stringResource(R.string.settings_custom_prompt)) },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+            maxLines = 6
+        )
+    }
 
     Spacer(modifier = Modifier.height(12.dp))
 
     OutlinedTextField(
         value = aiBuilderTerminology,
         onValueChange = onTerminologyChange,
-        label = { Text("Terminology") },
-        placeholder = { Text("comma-separated terms") },
+        label = { Text(stringResource(R.string.settings_terminology)) },
+        placeholder = { Text(stringResource(R.string.settings_terminology_placeholder)) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true
     )
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    // Save auto-tests the connection; no separate Test button. The result card
+    // below shows success/failure from the live probe, so users never have to
+    // remember to "test after save" — and never lose a prior "connected" state
+    // by merely saving unchanged credentials.
+    Button(
+        onClick = onSave,
+        enabled = aiBuilderBaseURL.isNotBlank() && !state.isTestingAIBuilderConnection,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Button(
-            onClick = onTestConnection,
-            enabled = aiBuilderBaseURL.isNotBlank() && !state.isTestingAIBuilderConnection
-        ) {
-            if (state.isTestingAIBuilderConnection) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-            Text("Test Connection")
-        }
-
-        OutlinedButton(
-            onClick = onSave,
-            enabled = aiBuilderBaseURL.isNotBlank()
-        ) {
-            Text("Save")
+        if (state.isTestingAIBuilderConnection) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(stringResource(R.string.settings_save_testing))
+        } else {
+            Text(stringResource(R.string.settings_save))
         }
     }
 
@@ -325,12 +537,103 @@ internal fun SpeechRecognitionSection(
             result = TestResult(
                 success = state.aiBuilderConnectionOK,
                 message = if (state.aiBuilderConnectionOK) {
-                    "Connected successfully"
+                    stringResource(R.string.settings_connected_successfully)
                 } else {
-                    state.aiBuilderConnectionError ?: "Connection failed"
+                    state.aiBuilderConnectionError ?: stringResource(R.string.settings_connection_failed)
                 }
             )
         )
+    }
+}
+
+@Composable
+internal fun NfcExperimentalSection(
+    enabled: Boolean,
+    prompt: String,
+    autoSend: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onPromptChange: (String) -> Unit,
+    onAutoSendChange: (Boolean) -> Unit,
+    onWriteToTag: () -> Unit
+) {
+    SectionHeader(title = stringResource(R.string.nfc_section_title))
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.nfc_quick_prompt), style = MaterialTheme.typography.bodyLarge)
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.testTag("nfc.enabled_switch")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = prompt,
+                onValueChange = onPromptChange,
+                label = { Text(stringResource(R.string.nfc_prompt_label)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("nfc.prompt_input"),
+                minLines = 3,
+                maxLines = 8,
+                enabled = enabled
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            val promptBytes = prompt.toByteArray(Charsets.UTF_8).size
+            Text(
+                text = "$promptBytes / ${ai.opencode.client.util.SettingsManager.NFC_PROMPT_MAX_BYTES} bytes",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (promptBytes > ai.opencode.client.util.SettingsManager.NFC_PROMPT_MAX_BYTES) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.testTag("nfc.byte_counter")
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.nfc_auto_send), style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = autoSend,
+                    onCheckedChange = onAutoSendChange,
+                    modifier = Modifier.testTag("nfc.auto_send_switch"),
+                    enabled = enabled
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = onWriteToTag,
+                enabled = enabled && prompt.isNotBlank() && promptBytes <= ai.opencode.client.util.SettingsManager.NFC_PROMPT_MAX_BYTES,
+                modifier = Modifier.testTag("nfc.write_button")
+            ) {
+                Text(stringResource(R.string.nfc_write_to_tag))
+            }
+        }
     }
 }
 
@@ -393,15 +696,9 @@ internal fun TtsPlaybackSection(
         style = MaterialTheme.typography.bodyLarge
     )
     Text(
-        "OPPO Find N5: install Google 文字转语音 from Play Store, then set it as default and download the Chinese voice pack.",
+        "Install a TTS engine and download a Chinese voice pack if needed.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline
-    )
-    Text(
-        "Path: 设置 → 系统与更新 → 无障碍 → 文字转语音输出 → 首选引擎 → Google 文字转语音",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.outline,
-        modifier = Modifier.padding(top = 4.dp)
     )
     OutlinedButton(
         onClick = onOpenSystemTtsSettings,
@@ -413,15 +710,14 @@ internal fun TtsPlaybackSection(
 
 @Composable
 internal fun AboutSection() {
-    SectionHeader(title = "About")
-    val appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+    SectionHeader(title = stringResource(R.string.settings_about))
 
     Text(
         "OpenCode Android Client",
         style = MaterialTheme.typography.bodyLarge
     )
     Text(
-        "Version $appVersion",
+        "Version 1.0",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline
     )
@@ -429,45 +725,14 @@ internal fun AboutSection() {
     Spacer(modifier = Modifier.height(8.dp))
 
     Text(
-        "A native Android client for OpenCode AI coding agent.",
+        stringResource(R.string.settings_about_description),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline
     )
 }
 
 @Composable
-internal fun DiagnosticsSection(
-    onCopyDiagnostics: () -> Unit,
-    copiedMessage: String?
-) {
-    SectionHeader(title = "Diagnostics")
-    Text(
-        "Copy async request diagnostics to clipboard for debugging model/agent/subagent failures.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.outline
-    )
-    Spacer(modifier = Modifier.height(12.dp))
-    OutlinedButton(onClick = onCopyDiagnostics) {
-        Icon(
-            Icons.Default.ContentCopy,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text("Copy Diagnostics")
-    }
-    copiedMessage?.let {
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = it,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
+internal fun SectionHeader(title: String) {
     Text(
         title,
         style = MaterialTheme.typography.titleMedium
@@ -531,12 +796,14 @@ internal fun buildAIBuilderSettings(
     baseURL: String,
     token: String,
     customPrompt: String,
-    terminology: String
+    terminology: String,
+    recordingStrategy: String = VoiceFlowRecordingStrategy.OPENAI_REALTIME.name,
 ): AIBuilderSettings {
     return AIBuilderSettings(
         baseURL = baseURL,
         token = token,
         customPrompt = customPrompt,
-        terminology = terminology
+        terminology = terminology,
+        recordingStrategy = recordingStrategy,
     )
 }

@@ -20,7 +20,7 @@
 
 纯逻辑测试，不需要 Android runtime。位置 `app/src/test/`，框架 JUnit4 + Mockk + Turbine + OkHttp MockWebServer。
 
-这一层已经成熟（18 个文件，约 214 个 case）。tool call 的读写分类逻辑就在这层测——`ToolCardClassifierTest` 覆盖 `ToolCardClassifier` 把 read/write/edit/patch 分流成文件操作、其余收进合并行的逻辑。ViewModel、工具函数、消息选择、session 树等纯逻辑也都在这层。
+这一层已经成熟（19 个文件，约 220 个 case）。tool call 的读写分类逻辑就在这层测——`ToolCardClassifierTest` 覆盖 `ToolCardClassifier` 把 read/write/edit/patch 分流成文件操作、其余收进合并行的逻辑。ViewModel、工具函数、消息选择、session 树等纯逻辑也都在这层。NFC Quick Prompt 的触发逻辑（enable 检查、pending action 设置、auto-send vs fill-only）在 `NfcQuickPromptTest` 中覆盖。
 
 跑：
 
@@ -160,4 +160,69 @@ LLM-driven 层的 agent 能驱动真实 app、可能触发真实工具。按博�
 - Repository / API：`OpenCodeRepository` 的请求构造、错误处理；`OpenCodeApi` 端点的契约（可用 MockWebServer）。
 - 现有 `OpenCodeIntegrationTest` 做的是 HTTP 层健康检查（health、getSessions、getAgents），不碰 UI，归在这一类。
 
-细节待后续补充。
+## Host Profiles + SSH Tunnel 测试策略（Phase 8）
+
+Host Profiles 和 SSH Tunnel 的测试目标不是证明某个真实 VPS 永远可达，而是证明 Android 与 iOS 的连接 contract 稳定：profile JSON 兼容、secret 不泄露、transport resolve 正确、tunnel 生命周期可恢复、UI 能让用户完成配置和诊断。真实 SSH 环境只作为 smoke test，不能成为默认回归的单点依赖。
+
+### Unit：profile contract 和连接状态机
+
+位置仍在 `app/src/test/`。这些测试每次 commit 都要跑。
+
+需要新增：
+
+1. `HostProfileImportExportTest`：覆盖 Direct 和 SSH Tunnel 的 iOS 兼容 JSON。断言 `transport` 使用 `direct` / `sshTunnel`，Direct export 输出 `serverURL`，SSH export 输出 `ssh.host/port/username/remotePort`，并且不输出 private key、Basic Auth password、known host fingerprint、local port、lastUsedAt。
+2. `HostProfileMigrationTest`：从旧 `server_url / username / password` 迁移出默认 Direct profile，保留当前 server URL 和 Basic Auth，设置 `current_host_profile_id`。重复迁移必须幂等。
+3. `HostProfileStoreTest`：覆盖新增、编辑、复制、删除、切换 current profile、禁止删除最后一个 profile、lastUsedAt 更新。
+4. `KnownHostStoreTest`：覆盖 `host:port` 归一化、首次保存、fingerprint match、fingerprint mismatch、reset trusted host。同 gateway 多 profile 应共享同一 fingerprint。
+5. `SSHKeyManagerTest`：覆盖 device-level key 的生成/读取/轮换、OpenSSH public key 字符串格式、JSch 可读取 private key、export 不包含 private key。public key 必须是 `ssh-ed25519 ... opencode-android`，与 private-host 的 `authorized_keys` 约束一致。无法在 JVM 上稳定跑 Android Keystore 时，用接口隔离 crypto provider，并对格式化逻辑做 JVM 单测。
+6. `ConnectionResolverTest`：Direct profile 返回原始 URL；SSH profile 调用 fake `TunnelManager.ensureStarted()` 并返回 local URL；SSH config 变化时触发 tunnel restart；Basic Auth 透传到 repository。
+7. `ConnectionDebounceTest`：验证 SSH config 修改后不会被旧的 30 秒 health debounce 拦住。Debounce 只作用于同一 resolved connection 的重复 health check，不作用于新 tunnel readiness。
+
+`TunnelManager` 本体需要用接口隔离 JSch：生产代码依赖 `SshPortForwarder`，测试用 fake forwarder 模拟 success、auth failure、host key mismatch、local port occupied、remote health failure。JVM 单测不连接真实 SSH。
+
+### Component：Host Profiles UI 和错误状态
+
+位置 `app/src/androidTest/`，使用 `createComposeRule()` + 假数据，不启动真实 app、不连 server。
+
+需要新增 component tests：
+
+1. `HostProfilesScreenInstrumentedTest`：空列表不应出现；至少有一个 default profile；current profile 有明确 selected 状态；Direct 和 SSH rows 显示不同 summary。点击 row 打开 detail，不直接切换 current profile。
+2. `HostProfileEditorInstrumentedTest`：Direct mode 展示 Server URL 和 Basic Auth；SSH mode 展示 gateway host、SSH port、username、remotePort，并隐藏用户不可编辑的 local tunnel URL。SSH editor 可以提供 `Copy Device Public Key` 快捷动作，但不展示或编辑 key 内容。
+3. `HostProfileValidationInstrumentedTest`：空 host、非正 port、空 username、非正 remotePort、空 Direct URL 都给 inline error，Save disabled 或保存失败提示明确。
+4. `HostProfileImportExportInstrumentedTest`：import JSON dialog 能粘贴 iOS export；invalid JSON 显示错误；export sheet 显示 JSON，并提供 Copy action。
+5. `SSHKeyActionsInstrumentedTest`：Host Profiles 列表页展示全局 Device Key section；Copy device public key 入口存在；copy 成功有 snackbar 或短暂 copied 状态。Rotate key 必须先显示确认弹窗，确认文案说明需要更新服务器授权，用户确认后才生成新 key 并复制新 public key。
+6. `HostProfileDetailInstrumentedTest`：SSH profile detail 展示 gateway 字段、`Use This Host`、`Test Connection`、`Edit`、`Copy Config JSON`、`Copy Device Public Key`；Direct profile detail 不显示 public key action。
+6. `KnownHostMismatchInstrumentedTest`：host key mismatch state 显示 expected/got fingerprint，默认阻断连接，提供 `Reset trusted host`，不提供继续忽略校验的按钮。
+
+所有可由 LLM-driven 层识别的关键控件必须有 content description；所有 component 层要断言的结构必须有 stable testTag。命名建议：`host.profile.row.<id>`、`host.profile.current`、`host.editor.transport.direct`、`host.editor.transport.ssh`、`ssh.publicKey.copy`、`ssh.knownHost.reset`。
+
+### Integration-UI：不默认依赖真实 SSH
+
+默认 integration-UI 不连接真实 SSH gateway。原因是真实 SSH 环境需要私钥授权、host key、网络和 gateway 进程，失败原因太多，会让回归结果不可解释。
+
+默认 integration 覆盖两条路径：
+
+1. Direct profile + MockWebServer 或本地 OpenCode server：验证切换 profile 后 repository 使用对应 base URL，health 成功后加载 sessions/SSE。
+2. SSH profile + fake TunnelManager：fake tunnel 返回 `http://127.0.0.1:<port>`，后面接 MockWebServer health。这样能验证 ViewModel、repository 和 UI 的连接编排，不依赖 SSH。
+
+真实 SSH smoke test 只在显式配置环境变量时运行，未配置则 skip：
+
+```text
+OPENCODE_ANDROID_SSH_HOST
+OPENCODE_ANDROID_SSH_PORT
+OPENCODE_ANDROID_SSH_USERNAME
+OPENCODE_ANDROID_SSH_PRIVATE_KEY
+OPENCODE_ANDROID_SSH_REMOTE_PORT
+```
+
+真实 smoke 只验证 `/global/health` 和 SSE 建连，不发送会写文件的 prompt。它用于发布前人工验证，不进入每次 commit 的默认门槛。
+
+### LLM-driven-UI：验证用户能不能自己走通
+
+新增 prompt 放在 `docs/ui_test_prompts/`，目标是用户任务而不是固定点击路径：
+
+1. `host_profiles_create_direct.md`：从 Settings 进入 Host Profiles，创建 Direct profile，设为 current，返回 Chat 后看到连接状态。
+2. `host_profiles_import_ssh.md`：导入一段 iOS SSH profile JSON，确认列表中出现 SSH profile，详情页显示 gateway summary 和 public key copy action。
+3. `host_profiles_ssh_error_recovery.md`：面对 host key mismatch 或 auth failure，用户能读懂问题、找到 reset trusted host 或 copy public key 的恢复动作。
+
+这层不触发真实 write prompt。它主要检查信息架构和文案是否让第一次配置 SSH 的用户知道下一步该做什么。

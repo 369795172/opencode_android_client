@@ -17,7 +17,7 @@ class AppStateTest {
         assertFalse(state.isConnecting)
         assertNull(state.serverVersion)
         assertTrue(state.sessions.isEmpty())
-        assertEquals(100, state.loadedSessionLimit)
+        assertEquals(400, state.loadedSessionLimit)
         assertTrue(state.hasMoreSessions)
         assertFalse(state.isLoadingMoreSessions)
         assertNull(state.currentSessionId)
@@ -27,8 +27,7 @@ class AppStateTest {
         assertFalse(state.isLoadingMessages)
         assertTrue(state.agents.isEmpty())
         assertEquals("build", state.selectedAgentName)
-        assertEquals(0, state.selectedModelIndex)
-        assertEquals(ModelPresets.list, state.availableModels)
+        assertEquals(2, state.selectedModelIndex)
         assertNull(state.providers)
         assertTrue(state.pendingPermissions.isEmpty())
         assertEquals("", state.inputText)
@@ -160,27 +159,27 @@ class AppStateTest {
 
         assertEquals(ModelPresets.list.size, models.size)
         assertEquals(ModelPresets.list, models)
-        assertEquals("Opus", models[0].displayName)
-        assertEquals("claude-cli", models[0].providerId)
-        assertEquals("claude-opus-4.6", models[0].modelId)
-        assertEquals("GPT-5.4", models[3].displayName)
-        assertEquals("openai", models[3].providerId)
-        assertEquals("gpt-5.4", models[3].modelId)
+        assertEquals("GLM-4.7", models[0].displayName)
+        assertEquals("zai-coding-plan", models[0].providerId)
+        assertEquals("glm-4.7", models[0].modelId)
+        assertEquals("GPT-5.6 Sol", models[1].displayName)
+        assertEquals("openai", models[1].providerId)
+        assertEquals("gpt-5.6-sol", models[1].modelId)
+        assertFalse(models.any { it.providerId == "openai" && it.modelId == "gpt-5.6-sol-pro" })
+        assertTrue(models.any {
+            it.displayName == "GPT-5.6 Sol Fast" && it.providerId == "openai" && it.modelId == "gpt-5.6-sol-fast"
+        })
+        assertTrue(models.any {
+            it.displayName == "GPT-5.6 Terra Fast" && it.providerId == "openai" && it.modelId == "gpt-5.6-terra-fast"
+        })
     }
 
     @Test
-    fun `availableModels defaults to presets until explicitly filtered`() {
+    fun `availableModels independent of providers`() {
         val stateWithProviders = AppState(providers = makeProviders(Triple("openai", "gpt-4", "GPT-4")))
         val stateWithoutProviders = AppState(providers = null)
         assertEquals(stateWithProviders.availableModels, stateWithoutProviders.availableModels)
         assertEquals(ModelPresets.list, stateWithProviders.availableModels)
-    }
-
-    @Test
-    fun `availableModels can be set explicitly`() {
-        val custom = listOf(AppState.ModelOption("Custom", "openai", "gpt-4"))
-        val state = AppState(availableModels = custom)
-        assertEquals(custom, state.availableModels)
     }
 
     private fun makeContextUsageState(

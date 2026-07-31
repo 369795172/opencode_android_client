@@ -1,7 +1,9 @@
 package ai.opencode.client
 
 import ai.opencode.client.data.model.*
+import ai.opencode.client.data.api.PromptRequest
 import ai.opencode.client.ui.AppState
+import ai.opencode.client.util.migrateLegacyModelIndex
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
@@ -15,6 +17,7 @@ class ModelTests {
         ignoreUnknownKeys = true
         isLenient = true
         coerceInputValues = true
+        encodeDefaults = true
     }
 
     @Test
@@ -38,6 +41,29 @@ class ModelTests {
         assertEquals(session.id, decoded.id)
         assertEquals(session.directory, decoded.directory)
         assertEquals(session.title, decoded.title)
+    }
+
+    @Test
+    fun `Session decodes revert metadata`() {
+        val decoded = json.decodeFromString<Session>(
+            """
+            {
+              "id": "s1",
+              "directory": "/tmp/project",
+              "revert": {
+                "messageID": "msg-2",
+                "partID": "part-1",
+                "snapshot": "snap",
+                "diff": "diff"
+              }
+            }
+            """.trimIndent()
+        )
+
+        assertEquals("msg-2", decoded.revert?.messageId)
+        assertEquals("part-1", decoded.revert?.partId)
+        assertEquals("snap", decoded.revert?.snapshot)
+        assertEquals("diff", decoded.revert?.diff)
     }
 
     @Test
@@ -116,6 +142,50 @@ class ModelTests {
         
         val patchPart = Part(id = "p4", type = "patch")
         assertTrue(patchPart.isPatch)
+    }
+
+    @Test
+    fun `Part decodes image file attachments`() {
+        val part = json.decodeFromString<Part>(
+            """
+            {
+              "id": "p-file",
+              "type": "file",
+              "mime": "image/jpeg",
+              "filename": "photo.jpg",
+              "url": "data:image/jpeg;base64,abc123",
+              "source": "attachment"
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(part.isFile)
+        assertTrue(part.isImageAttachment)
+        assertEquals("photo.jpg", part.filename)
+        assertEquals("data:image/jpeg;base64,abc123", part.url)
+    }
+
+    @Test
+    fun `PromptRequest serializes mixed text and image file parts`() {
+        val request = PromptRequest(
+            parts = listOf(
+                PromptRequest.PartInput(type = "text", text = "describe this"),
+                PromptRequest.PartInput(
+                    type = "file",
+                    mime = "image/jpeg",
+                    filename = "photo.jpg",
+                    url = "data:image/jpeg;base64,abc123"
+                )
+            ),
+            agent = "build"
+        )
+
+        val encoded = json.encodeToString(request)
+
+        assertTrue(encoded.contains("\"type\":\"text\""))
+        assertTrue(encoded.contains("\"type\":\"file\""))
+        assertTrue(encoded.contains("\"mime\":\"image/jpeg\""))
+        assertTrue(encoded.contains("\"url\":\"data:image/jpeg;base64,abc123\""))
     }
 
     @Test
@@ -259,8 +329,30 @@ class ModelTests {
     }
 
     @Test
+    fun `ModelOption shortName distinguishes GPT Sol Fast`() {
+        assertEquals("GPT-F", modelOption("GPT-5.6 Sol Fast").shortName)
+    }
+
+    @Test
+    fun `ModelOption shortName distinguishes GPT Terra Fast`() {
+        assertEquals("GPT-TF", modelOption("GPT-5.6 Terra Fast").shortName)
+    }
+
+    @Test
+    fun `removed GPT Sol Pro preset indices migrate without changing other slots`() {
+        assertEquals(1, migrateLegacyModelIndex(6))
+        assertEquals(6, migrateLegacyModelIndex(7))
+        assertEquals(2, migrateLegacyModelIndex(2))
+    }
+
+    @Test
     fun `ModelOption shortName returns Grok for Grok models`() {
         assertEquals("Grok", modelOption("Grok 3").shortName)
+    }
+
+    @Test
+    fun `ModelOption shortName returns OGLM-5_2 for Ollama GLM 5_2`() {
+        assertEquals("OGLM-5.2", modelOption("Ollama GLM 5.2").shortName)
     }
 
     @Test

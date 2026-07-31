@@ -115,6 +115,18 @@ class OpenCodeRepositoryTest {
     }
 
     @Test
+    fun `getSession requests session by id`() = runBlocking {
+        val session = Session(id = "ses_target", directory = "/project", title = "Target")
+        server.enqueue(jsonResponse(json.encodeToString(session)))
+
+        val result = repository.getSession(session.id)
+
+        assertTrue(result.isSuccess)
+        assertEquals(session, result.getOrThrow())
+        assertEquals("/session/ses_target", server.takeRequest().path)
+    }
+
+    @Test
     fun `getAgents returns list`() = runBlocking {
         val agents = listOf(
             AgentInfo(
@@ -281,7 +293,7 @@ class OpenCodeRepositoryTest {
 
         val result = repository.sendMessage(
             sessionId = "session-1",
-            parts = listOf(PromptRequest.PartInput.text("hello repo")),
+            text = "hello repo",
             agent = "review",
             model = Message.ModelInfo(providerId = "openai", modelId = "gpt-4")
         )
@@ -306,7 +318,7 @@ class OpenCodeRepositoryTest {
 
         val result = repository.sendMessage(
             sessionId = "session-1",
-            parts = listOf(PromptRequest.PartInput.text("hello without model")),
+            text = "hello without model",
             agent = "build",
             model = null
         )
@@ -328,7 +340,7 @@ class OpenCodeRepositoryTest {
 
         val result = repository.sendMessage(
             sessionId = "session-1",
-            parts = listOf(PromptRequest.PartInput.text("hello"))
+            text = "hello"
         )
 
         assertTrue(result.isFailure)

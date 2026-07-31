@@ -59,8 +59,13 @@ internal fun remapSelectedModelIndex(
     if (newList.isEmpty()) return 0
     val safePrev = previousIndex.coerceIn(0, (previousList.size - 1).coerceAtLeast(0))
     val selected = previousList.getOrNull(safePrev) ?: return 0
-    val idx = newList.indexOfFirst {
+    val exact = newList.indexOfFirst {
         it.providerId == selected.providerId && it.modelId == selected.modelId
     }
-    return if (idx >= 0) idx else 0
+    if (exact >= 0) return exact
+    // Keep the curated slot when the pinned version moves (e.g. GLM 5.2 → 4.7 after FUP).
+    val bySlot = newList.indexOfFirst {
+        it.displayName == selected.displayName && it.providerId == selected.providerId
+    }
+    return if (bySlot >= 0) bySlot else 0
 }

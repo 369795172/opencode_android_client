@@ -1,5 +1,9 @@
 package ai.opencode.client.ui.chat
 
+import android.content.ClipData
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,21 +25,22 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,18 +61,27 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
+import ai.opencode.client.R
 import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.Part
 import ai.opencode.client.data.model.TodoItem
@@ -76,12 +90,9 @@ import ai.opencode.client.ui.theme.markdownTypographyCompact
 import ai.opencode.client.ui.util.DataUriImageTransformer
 import ai.opencode.client.ui.util.HttpImageHolder
 import ai.opencode.client.ui.util.MarkdownImageResolver
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
+import ai.opencode.client.ui.files.WorkspaceLinkMarkdown
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun ChatMessageList(
@@ -92,15 +103,18 @@ internal fun ChatMessageList(
     messageLimit: Int,
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
+    completedTurnActivities: List<TurnActivity>,
     onLoadMore: () -> Unit,
     onFileClick: (String) -> Unit,
+    onMarkdownLinkClick: (String) -> Unit,
     onForkFromMessage: (String) -> Unit,
+    onEditFromMessage: (String) -> Unit,
     isTtsPlaying: Boolean = false,
     ttsIsPaused: Boolean = false,
     ttsReadingMessageId: String? = null,
     onPlayMessage: (String) -> Unit = {},
     onResumeTts: () -> Unit = {},
-    onStopTts: () -> Unit = {}
+    onStopTts: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val layoutInfo = listState.layoutInfo
@@ -144,6 +158,37 @@ internal fun ChatMessageList(
         if (shouldLoadMore.value) onLoadMore()
     }
 
+    // Interleave completed turn activity rows after each assistant turn, matching iOS.
+    val interleaved = remember(messages, completedTurnActivities) {
+        if (completedTurnActivities.isEmpty()) {
+            messages.map { ChatItem.Message(it) }
+        } else {
+            val activityByUserId = completedTurnActivities.associateBy { it.id }
+            val items = mutableListOf<ChatItem>()
+            var currentUserId: String? = null
+            var seenAssistantForCurrentUser = false
+            for (message in messages) {
+                if (message.info.isUser) {
+                    if (currentUserId != null && seenAssistantForCurrentUser) {
+                        activityByUserId[currentUserId]?.let { items.add(ChatItem.Activity(it)) }
+                    }
+                    currentUserId = message.info.id
+                    seenAssistantForCurrentUser = false
+                    items.add(ChatItem.Message(message))
+                } else if (message.info.isAssistant) {
+                    if (currentUserId != null) seenAssistantForCurrentUser = true
+                    items.add(ChatItem.Message(message))
+                } else {
+                    items.add(ChatItem.Message(message))
+                }
+            }
+            if (currentUserId != null && seenAssistantForCurrentUser) {
+                activityByUserId[currentUserId]?.let { items.add(ChatItem.Activity(it)) }
+            }
+            items
+        }
+    }
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -163,21 +208,31 @@ internal fun ChatMessageList(
                 }
             }
         }
-        items(messages.reversed(), key = { it.info.id }) { message ->
-            MessageRow(
-                message = message,
-                streamingPartTexts = streamingPartTexts,
-                repository = repository,
-                workspaceDirectory = workspaceDirectory,
-                onFileClick = onFileClick,
-                onForkFromMessage = onForkFromMessage,
-                isTtsPlaying = isTtsPlaying,
-                ttsIsPaused = ttsIsPaused,
-                ttsReadingMessageId = ttsReadingMessageId,
-                onPlayMessage = onPlayMessage,
-                onResumeTts = onResumeTts,
-                onStopTts = onStopTts
-            )
+        items(interleaved.reversed(), key = {
+            when (it) {
+                is ChatItem.Message -> it.message.info.id
+                is ChatItem.Activity -> "activity-${it.activity.id}"
+            }
+        }) { item ->
+            when (item) {
+                is ChatItem.Message -> MessageRow(
+                    message = item.message,
+                    streamingPartTexts = streamingPartTexts,
+                    repository = repository,
+                    workspaceDirectory = workspaceDirectory,
+                    onFileClick = onFileClick,
+                    onMarkdownLinkClick = onMarkdownLinkClick,
+                    onForkFromMessage = onForkFromMessage,
+                    onEditFromMessage = onEditFromMessage,
+                    isTtsPlaying = isTtsPlaying,
+                    ttsIsPaused = ttsIsPaused,
+                    ttsReadingMessageId = ttsReadingMessageId,
+                    onPlayMessage = onPlayMessage,
+                    onResumeTts = onResumeTts,
+                    onStopTts = onStopTts,
+                )
+                is ChatItem.Activity -> TurnActivityRow(activity = item.activity)
+            }
         }
         if (isLoading && messages.size >= messageLimit) {
             item(key = "load-more-indicator") {
@@ -206,6 +261,13 @@ internal fun ChatMessageList(
     }
 }
 
+internal fun copyableMessageText(parts: List<Part>): String = parts
+    .asSequence()
+    .filter { it.isText }
+    .mapNotNull { it.text }
+    .filter { it.isNotEmpty() }
+    .joinToString("\n\n")
+
 @Composable
 private fun MessageRow(
     message: MessageWithParts,
@@ -213,16 +275,20 @@ private fun MessageRow(
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
     onFileClick: (String) -> Unit,
+    onMarkdownLinkClick: (String) -> Unit,
     onForkFromMessage: (String) -> Unit,
-    isTtsPlaying: Boolean,
-    ttsIsPaused: Boolean,
-    ttsReadingMessageId: String?,
-    onPlayMessage: (String) -> Unit,
-    onResumeTts: () -> Unit,
-    onStopTts: () -> Unit
+    onEditFromMessage: (String) -> Unit,
+    isTtsPlaying: Boolean = false,
+    ttsIsPaused: Boolean = false,
+    ttsReadingMessageId: String? = null,
+    onPlayMessage: (String) -> Unit = {},
+    onResumeTts: () -> Unit = {},
+    onStopTts: () -> Unit = {},
 ) {
     val isUser = message.info.isUser
-    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
+    val copyableText = remember(message.parts) { copyableMessageText(message.parts) }
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         // No "OpenCode" speaker title — the user's blue left bar vs the
@@ -288,24 +354,25 @@ private fun MessageRow(
                     repository = repository,
                     workspaceDirectory = workspaceDirectory,
                     onFileClick = onFileClick,
+                    onMarkdownLinkClick = onMarkdownLinkClick,
                     modifier = Modifier.fillMaxWidth()
                 )
                 i += 1
             }
         }
-        if (!isUser) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                message.info.resolvedModel?.let { model ->
-                    Text(
-                        text = "${model.providerId}/${model.modelId}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (!isUser) message.info.resolvedModel?.let { model ->
+                Text(
+                    text = "${model.providerId}/${model.modelId}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            if (!isUser) {
                 val isThisMessageReading = ttsReadingMessageId == message.info.id
                 IconButton(
                     onClick = {
@@ -315,7 +382,7 @@ private fun MessageRow(
                             else -> onPlayMessage(message.info.id)
                         }
                     },
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = when {
@@ -332,44 +399,59 @@ private fun MessageRow(
                         modifier = Modifier.size(16.dp)
                     )
                 }
-                Box {
-                    var showMenu by remember { mutableStateOf(false) }
-                    IconButton(
-                        onClick = { showMenu = true },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More options",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
+            }
+            Box {
+                var showMenu by remember { mutableStateOf(false) }
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.chat_more_options),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_copy_message)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null
+                            )
+                        },
+                        enabled = copyableText.isNotEmpty(),
+                        onClick = {
+                            coroutineScope.launch {
+                                clipboard.setClipEntry(
+                                    ClipEntry(ClipData.newPlainText("message", copyableText))
+                                )
+                            }
+                            showMenu = false
+                        }
+                    )
+                    if (isUser) {
                         DropdownMenuItem(
-                            text = { Text("Copy message") },
+                            text = { Text(stringResource(R.string.chat_edit_from_here)) },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Default.ContentCopy,
+                                    imageVector = Icons.Default.Edit,
                                     contentDescription = null
                                 )
                             },
                             onClick = {
                                 showMenu = false
-                                val textToCopy = message.parts
-                                    .filter { it.isText }
-                                    .mapNotNull { it.text }
-                                    .joinToString("\n")
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("message", textToCopy))
-                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                onEditFromMessage(message.info.id)
                             }
                         )
+                    } else {
                         DropdownMenuItem(
-                            text = { Text("Fork from here") },
+                            text = { Text(stringResource(R.string.chat_fork_from_here)) },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.CallSplit,
@@ -396,6 +478,7 @@ private fun PartView(
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
     onFileClick: (String) -> Unit,
+    onMarkdownLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     when {
@@ -404,12 +487,83 @@ private fun PartView(
             isUser = isUser,
             modifier = modifier,
             repository = repository,
-            workspaceDirectory = workspaceDirectory
+            workspaceDirectory = workspaceDirectory,
+            onMarkdownLinkClick = onMarkdownLinkClick
         )
         part.isReasoning -> ReasoningCard(streamingTextOverride ?: part.text ?: "", part.toolReason, false, modifier)
+        part.isImageAttachment -> ImageFilePart(part, modifier)
+        part.isFile -> FileAttachmentPart(part, modifier)
         part.isTool -> ToolCard(part, onFileClick, modifier)
         part.isPatch && part.filePathsForNavigationFiltered.isNotEmpty() -> PatchCard(part.filePathsForNavigationFiltered, onFileClick, modifier)
     }
+}
+
+@Composable
+private fun ImageFilePart(part: Part, modifier: Modifier = Modifier.fillMaxWidth()) {
+    val imageBitmap = remember(part.url) {
+        part.url?.decodeDataUriImage()?.asImageBitmap()
+    }
+    if (imageBitmap == null) {
+        FileAttachmentPart(part, modifier)
+        return
+    }
+    Column(modifier = modifier.padding(vertical = 4.dp)) {
+        Image(
+            bitmap = imageBitmap,
+            contentDescription = part.filename ?: "Attached image",
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp)),
+            contentScale = ContentScale.FillWidth
+        )
+        part.filename?.let { filename ->
+            Text(
+                text = filename,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FileAttachmentPart(part: Part, modifier: Modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Description,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = part.filename ?: part.mime ?: "Attached file",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun String.decodeDataUriImage(): android.graphics.Bitmap? {
+    val marker = ";base64,"
+    val markerIndex = indexOf(marker)
+    if (!startsWith("data:image/") || markerIndex < 0) return null
+    return runCatching {
+        val bytes = Base64.decode(substring(markerIndex + marker.length), Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
 }
 
 /**
@@ -628,7 +782,8 @@ private fun TextPart(
     isUser: Boolean,
     modifier: Modifier = Modifier.fillMaxWidth(),
     repository: OpenCodeRepository? = null,
-    workspaceDirectory: String? = null
+    workspaceDirectory: String? = null,
+    onMarkdownLinkClick: (String) -> Unit = {}
 ) {
     val innerModifier = modifier.padding(12.dp)
     if (isUser) {
@@ -660,6 +815,7 @@ private fun TextPart(
                 text = text,
                 repository = repository,
                 workspaceDirectory = workspaceDirectory,
+                onMarkdownLinkClick = onMarkdownLinkClick,
                 modifier = innerModifier
             )
         } else {
@@ -678,6 +834,7 @@ private fun ResolvedMarkdownText(
     text: String,
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
+    onMarkdownLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var resolvedText by remember(text, workspaceDirectory) { mutableStateOf<String?>(null) }
@@ -699,11 +856,10 @@ private fun ResolvedMarkdownText(
 
     SelectionContainer {
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-            Markdown(
+            WorkspaceLinkMarkdown(
                 content = resolvedText ?: normalizedText,
-                typography = markdownTypographyCompact(),
                 modifier = modifier,
-                imageTransformer = DataUriImageTransformer
+                onLinkClick = onMarkdownLinkClick
             )
         }
     }
@@ -863,7 +1019,7 @@ private fun ToolCard(
                         IconButton(onClick = { onFileClick(firstFile) }, modifier = Modifier.size(28.dp)) {
                             Icon(
                                 Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Show in Files",
+                                contentDescription = stringResource(R.string.files_show_in_files),
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -939,7 +1095,7 @@ private fun ToolCard(
                                 IconButton(onClick = { onFileClick(path) }, modifier = Modifier.size(28.dp)) {
                                     Icon(
                                         Icons.AutoMirrored.Filled.OpenInNew,
-                                        contentDescription = "Show in Files",
+                                        contentDescription = stringResource(R.string.files_show_in_files),
                                         modifier = Modifier.size(18.dp),
                                         tint = MaterialTheme.colorScheme.primary
                                     )
@@ -993,7 +1149,7 @@ private fun PatchCard(
                         IconButton(onClick = { onFileClick(path) }, modifier = Modifier.size(28.dp)) {
                             Icon(
                                 Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Show in Files",
+                                contentDescription = stringResource(R.string.files_show_in_files),
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -1002,5 +1158,51 @@ private fun PatchCard(
                 }
             }
         }
+    }
+}
+
+private sealed class ChatItem {
+    data class Message(val message: MessageWithParts) : ChatItem()
+    data class Activity(val activity: TurnActivity) : ChatItem()
+}
+
+@Composable
+private fun TurnActivityRow(activity: TurnActivity) {
+    val nowMillis by produceState(initialValue = System.currentTimeMillis(), activity.isRunning, activity.endedAtMillis) {
+        if (activity.isRunning) {
+            while (true) {
+                value = System.currentTimeMillis()
+                kotlinx.coroutines.delay(1_000)
+            }
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            if (activity.isRunning) Icons.Default.Schedule else Icons.Default.CheckCircle,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = activity.text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = activity.elapsedString(nowMillis),
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
     }
 }

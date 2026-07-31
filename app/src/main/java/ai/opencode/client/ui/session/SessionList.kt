@@ -28,6 +28,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -53,14 +55,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import ai.opencode.client.R
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.ui.theme.StopRed
@@ -77,16 +82,19 @@ private fun formatRelativeTime(updatedMs: Long): String = DateUtils.getRelativeT
 ).toString()
 
 @Composable
-private fun sessionStatusLabel(status: SessionStatus?): String? = when {
+private fun sessionStatusLabel(status: SessionStatus?, attentionCount: Int): String? = when {
+    attentionCount > 1 -> "${stringResource(R.string.sessions_status_need_attention)} · $attentionCount"
+    attentionCount == 1 -> stringResource(R.string.sessions_status_need_attention)
     status == null -> null
-    status.isBusy -> "Running"
-    status.isRetry -> "Retrying"
-    status.isIdle -> "Idle"
+    status.isBusy -> stringResource(R.string.sessions_status_running)
+    status.isRetry -> stringResource(R.string.sessions_status_retrying)
+    status.isIdle -> stringResource(R.string.sessions_status_idle)
     else -> null
 }
 
 @Composable
-private fun sessionStatusColor(status: SessionStatus?): Color = when {
+private fun sessionStatusColor(status: SessionStatus?, attentionCount: Int): Color = when {
+    attentionCount > 0 -> StopRed
     status?.isBusy == true -> MaterialTheme.colorScheme.primary
     status?.isRetry == true -> MaterialTheme.colorScheme.tertiary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -106,6 +114,7 @@ private fun SwipeRevealRow(
     displayName: String,
     updatedTime: Long? = null,
     status: SessionStatus? = null,
+    attentionCount: Int = 0,
     onSelect: () -> Unit,
     depth: Int = 0,
     hasChildren: Boolean = false,
@@ -129,7 +138,7 @@ private fun SwipeRevealRow(
         positionalThreshold = { total: Float -> total * 0.5f }
     )
 
-    Box(modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
+    Box(modifier = Modifier.fillMaxWidth().wrapContentHeight().clipToBounds()) {
         SwipeActionBackground(
             isArchived = isArchived,
             backgroundColor = swipeRevealBackgroundColor,
@@ -164,11 +173,11 @@ private fun SwipeRevealRow(
                     }
                 )
                 .clickable(onClick = onSelect)
-                .padding(start = (12 + depth * 24).dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = (depth * 24).dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (hasChildren && onToggleCollapse != null) {
-                IconButton(onClick = onToggleCollapse, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onToggleCollapse, modifier = Modifier.size(48.dp)) {
                     Icon(
                         if (isCollapsed) Icons.Default.ChevronRight else Icons.Default.KeyboardArrowDown,
                         contentDescription = if (isCollapsed) "Expand" else "Collapse",
@@ -176,15 +185,15 @@ private fun SwipeRevealRow(
                     )
                 }
             } else {
-                Spacer(modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.size(48.dp))
             }
-            Column(modifier = Modifier.weight(1f, fill = false)) {
+            Column(modifier = Modifier.weight(1f, fill = false).offset(x = (-12).dp)) {
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                     color = titleColor
                 )
-                if (updatedTime != null || status != null) {
+                if (updatedTime != null || status != null || attentionCount > 0) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (updatedTime != null) {
                             Text(
@@ -193,14 +202,18 @@ private fun SwipeRevealRow(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        if (status != null && updatedTime != null) {
+                        if ((status != null || attentionCount > 0) && updatedTime != null) {
                             Text("  ", style = MaterialTheme.typography.bodySmall)
                         }
-                        if (status != null) {
+                        if (status != null || attentionCount > 0) {
                             Text(
-                                text = sessionStatusLabel(status) ?: "",
+                                text = sessionStatusLabel(status, attentionCount) ?: "",
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                                color = if (isArchived) MaterialTheme.colorScheme.onSurfaceVariant else sessionStatusColor(status)
+                                color = if (isArchived && attentionCount == 0) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    sessionStatusColor(status, attentionCount)
+                                }
                             )
                         }
                     }
@@ -234,11 +247,11 @@ private fun BoxScope.SwipeActionBackground(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     if (isArchived) Icons.Default.Restore else Icons.Default.Archive,
-                    contentDescription = if (isArchived) "Restore session" else "Archive session",
+                    contentDescription = if (isArchived) stringResource(R.string.sessions_restore) else stringResource(R.string.sessions_archive),
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    if (isArchived) "Restore" else "Archive",
+                    if (isArchived) stringResource(R.string.sessions_restore) else stringResource(R.string.sessions_archive),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -255,10 +268,10 @@ private fun BoxScope.SwipeActionBackground(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Delete session",
+                    contentDescription = stringResource(R.string.sessions_delete),
                     tint = StopRed,
                 )
-                Text("Delete", style = MaterialTheme.typography.labelSmall, color = StopRed)
+                Text(stringResource(R.string.sessions_delete), style = MaterialTheme.typography.labelSmall, color = StopRed)
             }
         }
     }
@@ -270,6 +283,7 @@ fun SessionList(
     sessions: List<Session>,
     currentSessionId: String?,
     sessionStatuses: Map<String, SessionStatus> = emptyMap(),
+    attentionSessionIds: List<String> = emptyList(),
     hasMoreSessions: Boolean = false,
     isLoadingMoreSessions: Boolean = false,
     isRefreshingSessions: Boolean = false,
@@ -282,12 +296,20 @@ fun SessionList(
     onToggleSessionExpanded: (String) -> Unit = {},
     onLoadMoreSessions: () -> Unit = {},
     onRefreshSessions: () -> Unit = {},
-    onOpenSettings: (() -> Unit)? = null
+    onOpenSettings: (() -> Unit)? = null,
+    onCollapseSessions: (() -> Unit)? = null
 ) {
+    val attentionCounts = remember(sessions, attentionSessionIds) {
+        attentionCountsBySession(sessions, attentionSessionIds)
+    }
     val activeSessions = remember(sessions) { sessions.filter { !it.isArchived } }
     val archivedSessions = remember(sessions) { sessions.filter { it.isArchived } }
-    val activeTree = remember(activeSessions) { buildSessionTree(activeSessions) }
-    val archivedTree = remember(archivedSessions) { buildSessionTree(archivedSessions) }
+    val activeTree = remember(activeSessions, attentionCounts) {
+        prioritizeAttention(buildSessionTree(activeSessions), attentionCounts)
+    }
+    val archivedTree = remember(archivedSessions, attentionCounts) {
+        prioritizeAttention(buildSessionTree(archivedSessions), attentionCounts)
+    }
     val activeRows = remember(activeTree, expandedSessionIds) { flattenVisibleTree(activeTree, expandedSessionIds) }
     var archivedExpanded by remember { mutableStateOf(false) }
     val archivedRows = remember(archivedTree, expandedSessionIds, archivedExpanded) {
@@ -312,20 +334,32 @@ fun SessionList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Sessions", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.sessions_title), style = MaterialTheme.typography.titleSmall)
                 Spacer(modifier = Modifier.weight(1f))
                 if (isLoadingMoreSessions) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else if (hasMoreSessions) {
-                    TextButton(onClick = onLoadMoreSessions) { Text("Load older") }
+                    TextButton(onClick = onLoadMoreSessions) { Text(stringResource(R.string.sessions_load_older)) }
                 }
-                TextButton(onClick = onCreateSession) { Text("New") }
+                IconButton(onClick = onCreateSession, modifier = Modifier.size(44.dp)) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = stringResource(R.string.sessions_new),
+                        modifier = Modifier.size(28.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
                 if (onOpenSettings != null) {
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.nav_settings))
+                    }
+                }
+                if (onCollapseSessions != null) {
+                    IconButton(onClick = onCollapseSessions) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.sessions_hide))
                     }
                 }
             }
@@ -344,10 +378,10 @@ fun SessionList(
                     .testTag("session_list")
             ) {
                 item(key = "active_header") {
-                    SessionSectionHeader(title = "Active", isExpanded = true, onClick = {})
+                    SessionSectionHeader(title = stringResource(R.string.sessions_active), isExpanded = true, onClick = {})
                 }
                 if (activeRows.isEmpty()) {
-                    item(key = "active_empty") { EmptySectionRow("No active sessions") }
+                    item(key = "active_empty") { EmptySectionRow(stringResource(R.string.sessions_no_active)) }
                 }
                 itemsIndexed(activeRows, key = { _, (node, _) -> node.session.id }) { index, (node, depth) ->
                     SessionRowItem(
@@ -356,6 +390,7 @@ fun SessionList(
                         index = index,
                         currentSessionId = currentSessionId,
                         sessionStatuses = sessionStatuses,
+                        attentionCounts = attentionCounts,
                         listIsScrolling = listState.isScrollInProgress,
                         expandedSessionIds = expandedSessionIds,
                         isArchived = false,
@@ -370,13 +405,13 @@ fun SessionList(
 
                 item(key = "archived_header") {
                     SessionSectionHeader(
-                        title = "Archived",
+                        title = stringResource(R.string.sessions_archived),
                         isExpanded = archivedExpanded,
                         onClick = { archivedExpanded = !archivedExpanded }
                     )
                 }
                 if (archivedExpanded && archivedRows.isEmpty()) {
-                    item(key = "archived_empty") { EmptySectionRow("No archived sessions") }
+                    item(key = "archived_empty") { EmptySectionRow(stringResource(R.string.sessions_no_archived)) }
                 }
                 itemsIndexed(archivedRows, key = { _, (node, _) -> node.session.id }) { index, (node, depth) ->
                     SessionRowItem(
@@ -385,6 +420,7 @@ fun SessionList(
                         index = index,
                         currentSessionId = currentSessionId,
                         sessionStatuses = sessionStatuses,
+                        attentionCounts = attentionCounts,
                         listIsScrolling = listState.isScrollInProgress,
                         expandedSessionIds = expandedSessionIds,
                         isArchived = true,
@@ -418,7 +454,7 @@ private fun SessionSectionHeader(title: String, isExpanded: Boolean, onClick: ()
         )
         Icon(
             if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.ChevronRight,
-            contentDescription = if (isExpanded) "Collapse $title" else "Expand $title",
+            contentDescription = if (isExpanded) stringResource(R.string.sessions_collapse, title) else stringResource(R.string.sessions_expand, title),
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -442,6 +478,7 @@ private fun SessionRowItem(
     index: Int,
     currentSessionId: String?,
     sessionStatuses: Map<String, SessionStatus>,
+    attentionCounts: Map<String, Int>,
     listIsScrolling: Boolean,
     expandedSessionIds: Set<String>,
     isArchived: Boolean,
@@ -481,6 +518,7 @@ private fun SessionRowItem(
             displayName = session.displayName,
             updatedTime = session.time?.updated,
             status = sessionStatuses[session.id],
+            attentionCount = attentionCounts.getOrDefault(session.id, 0),
             onSelect = { onSelectSession(session.id) },
             depth = depth,
             hasChildren = hasChildren,

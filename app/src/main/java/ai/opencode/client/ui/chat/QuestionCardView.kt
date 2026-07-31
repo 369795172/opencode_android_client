@@ -3,8 +3,6 @@ package ai.opencode.client.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -21,9 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import ai.opencode.client.R
 import ai.opencode.client.data.model.QuestionOption
 import ai.opencode.client.data.model.QuestionRequest
 
@@ -33,8 +32,6 @@ fun QuestionCardView(
     onReply: (List<List<String>>, onError: () -> Unit) -> Unit,
     onReject: () -> Unit
 ) {
-    val configuration = LocalConfiguration.current
-
     val count = question.questions.size
 
     // Guard: empty questions list — show dismissible placeholder
@@ -55,8 +52,8 @@ fun QuestionCardView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("(No questions)", style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onReject) { Text("Dismiss") }
+                Text(stringResource(R.string.question_empty), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onReject) { Text(stringResource(R.string.question_dismiss)) }
             }
         }
         return
@@ -197,22 +194,12 @@ fun QuestionCardView(
             containerColor = accent.copy(alpha = 0.07f)
         )
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            // Prefer parent constraints when bounded; otherwise fall back to full screen height in dp.
-            val boundedHeight = minOf(maxHeight, configuration.screenHeightDp.dp)
-            // Approximate space for header, progress, question text, hint, button row, and padding.
-            val reservedInsideCard = 220.dp
-            val upperCap = maxOf(80.dp, boundedHeight * 0.5f)
-            val maxOptionsHeight = (boundedHeight - reservedInsideCard)
-                .coerceAtLeast(0.dp)
-                .coerceIn(80.dp, upperCap)
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -226,13 +213,13 @@ fun QuestionCardView(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Question",
+                    text = stringResource(R.string.question_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = accent
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = "${currentTab + 1} of ${question.questions.size}",
+                    text = stringResource(R.string.question_of, currentTab + 1, question.questions.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -268,17 +255,14 @@ fun QuestionCardView(
 
             // Hint text
             Text(
-                text = if (currentQuestion.allowMultiple) "Select one or more options" else "Select one option",
+                text = if (currentQuestion.allowMultiple) stringResource(R.string.question_multi_hint) else stringResource(R.string.question_single_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Options — cap height and scroll so footer actions stay on screen
+            // Options
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = maxOptionsHeight)
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 currentQuestion.options.forEach { option ->
@@ -340,7 +324,7 @@ fun QuestionCardView(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Type your own answer",
+                                text = stringResource(R.string.question_type_own_answer),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = if (isCustomActiveNow) accent else MaterialTheme.colorScheme.onSurface
                             )
@@ -351,11 +335,11 @@ fun QuestionCardView(
                             OutlinedTextField(
                                 value = customText,
                                 onValueChange = { customTexts[currentTab] = it },
-                                label = { Text("Type your answer...") },
+                                label = { Text(stringResource(R.string.question_custom_placeholder)) },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                 keyboardActions = KeyboardActions(onDone = { commitCustom() }),
-                                modifier = Modifier.fillMaxWidth().imePadding()
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
@@ -371,7 +355,7 @@ fun QuestionCardView(
                     onClick = onReject,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Dismiss")
+                    Text(stringResource(R.string.question_dismiss))
                 }
 
                 if (currentTab > 0) {
@@ -379,7 +363,7 @@ fun QuestionCardView(
                         onClick = { back() },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Back")
+                        Text(stringResource(R.string.question_back))
                     }
                 }
 
@@ -395,10 +379,9 @@ fun QuestionCardView(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     } else {
-                        Text(if (currentTab >= question.questions.size - 1) "Submit" else "Next")
+                        Text(if (currentTab >= question.questions.size - 1) stringResource(R.string.question_submit) else stringResource(R.string.question_next))
                     }
                 }
-            }
             }
         }
     }
