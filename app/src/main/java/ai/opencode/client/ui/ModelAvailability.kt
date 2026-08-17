@@ -69,3 +69,38 @@ internal fun remapSelectedModelIndex(
     }
     return if (bySlot >= 0) bySlot else 0
 }
+
+internal fun resolvePersistedModelIndex(
+    models: List<AppState.ModelOption>,
+    providerId: String?,
+    modelId: String?,
+    legacyIndex: Int,
+): Int {
+    if (models.isEmpty()) return 0
+    if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
+        val exact = models.indexOfFirst {
+            it.providerId == providerId && it.modelId == modelId
+        }
+        if (exact >= 0) return exact
+        val byProvider = models.indexOfFirst { it.providerId == providerId }
+        if (byProvider >= 0) return byProvider
+    }
+    return legacyIndex.coerceIn(0, models.lastIndex)
+}
+
+internal fun isPinnedModel(
+    pinned: List<AppState.ModelOption>,
+    option: AppState.ModelOption,
+): Boolean = pinned.any { it.providerId == option.providerId && it.modelId == option.modelId }
+
+internal fun flattenProviderModels(providers: ProvidersResponse?): List<AppState.ModelOption> {
+    return providers?.providers.orEmpty().flatMap { provider ->
+        provider.models.map { (key, model) ->
+            AppState.ModelOption(
+                displayName = model.name?.takeIf { it.isNotBlank() } ?: key,
+                providerId = provider.id,
+                modelId = model.id.ifBlank { key },
+            )
+        }
+    }
+}

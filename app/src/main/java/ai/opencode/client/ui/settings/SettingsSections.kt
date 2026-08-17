@@ -322,6 +322,51 @@ internal fun AppearanceSection(
 }
 
 @Composable
+internal fun ModelsSection(
+    pinnedCount: Int,
+    isSyncing: Boolean,
+    syncMessage: String?,
+    onManageModels: () -> Unit,
+    onSyncFromWorkspace: () -> Unit,
+) {
+    SectionHeader(title = stringResource(R.string.settings_models))
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                stringResource(R.string.settings_models_pinned_count, pinnedCount),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onManageModels) {
+                    Text(stringResource(R.string.settings_manage_models))
+                }
+                OutlinedButton(onClick = onSyncFromWorkspace, enabled = !isSyncing) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.settings_sync_models))
+                }
+            }
+            syncMessage?.let { message ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 internal fun AIUsageDashboardSection(
     state: AppState,
     dashboardUrl: String,

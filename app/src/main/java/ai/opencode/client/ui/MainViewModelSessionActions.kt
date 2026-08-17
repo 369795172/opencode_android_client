@@ -191,12 +191,18 @@ internal fun launchLoadMessages(
                 if (sessionId == state.value.currentSessionId) {
                     val lastAssistant = messages.lastOrNull { it.info.isAssistant }
                     val inferredModelIndex = lastAssistant?.info?.resolvedModel?.let { model ->
-                        ModelPresets.list.indexOfFirst {
+                        state.value.availableModels.indexOfFirst {
                             it.providerId == model.providerId && it.modelId == model.modelId
                         }.takeIf { it >= 0 }
                     }
                     val inferredAgentName = lastAssistant?.info?.agent
-                    val modelIndex = settingsManager?.getModelForSession(sessionId) ?: inferredModelIndex
+                    val savedRef = settingsManager?.getModelForSession(sessionId)
+                    val savedIndex = savedRef?.let { ref ->
+                        state.value.availableModels.indexOfFirst {
+                            it.providerId == ref.providerId && it.modelId == ref.modelId
+                        }.takeIf { it >= 0 }
+                    }
+                    val modelIndex = savedIndex ?: inferredModelIndex
                     val agentName = settingsManager?.getAgentForSession(sessionId) ?: inferredAgentName
                     state.update {
                         it.copy(
@@ -288,18 +294,20 @@ internal fun launchLoadProviders(
     scope: CoroutineScope,
     repository: OpenCodeRepository,
     state: MutableStateFlow<AppState>,
+    settingsManager: SettingsManager,
     onNonFatalError: (String, Throwable?) -> Unit
 ) {
     scope.launch {
         repository.getProviders()
             .onSuccess { providers ->
                 state.update { current ->
-                    val models = resolveAvailableModels(ModelPresets.list, providers)
+                    val models = resolveAvailableModels(current.pinnedModels, providers)
                     val nextIndex = remapSelectedModelIndex(
                         previousList = current.availableModels,
                         newList = models,
                         previousIndex = current.selectedModelIndex,
                     )
+                    persistSelectedModel(settingsManager, models.getOrNull(nextIndex), nextIndex)
                     current.copy(
                         providers = providers,
                         selectedModelIndex = nextIndex,

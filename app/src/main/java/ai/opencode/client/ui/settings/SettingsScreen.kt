@@ -68,6 +68,7 @@ fun SettingsScreen(
     val context = LocalContext.current
 
     var showHostProfiles by remember { mutableStateOf(false) }
+    var showModelManager by remember { mutableStateOf(false) }
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<TestResult?>(null) }
     var aiBuilderBaseURL by remember { mutableStateOf(savedAIBuilder.baseURL) }
@@ -132,6 +133,16 @@ fun SettingsScreen(
         return
     }
 
+    if (showModelManager) {
+        ModelManagerSheet(
+            allModels = state.allProviderModels,
+            pinnedModels = state.pinnedModels,
+            onPin = viewModel::pinModel,
+            onUnpin = viewModel::unpinModel,
+            onDismiss = { showModelManager = false },
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         if (onBack != null) {
             TopAppBar(
@@ -170,6 +181,16 @@ fun SettingsScreen(
                 languageMode = state.languageMode,
                 onThemeSelected = viewModel::setThemeMode,
                 onLanguageSelected = viewModel::setLanguageMode
+            )
+
+            SettingsSectionDivider()
+
+            ModelsSection(
+                pinnedCount = state.pinnedModels.size,
+                isSyncing = state.isSyncingModels,
+                syncMessage = state.modelSyncMessage,
+                onManageModels = { showModelManager = true },
+                onSyncFromWorkspace = viewModel::syncModelsFromWorkspace,
             )
 
             SettingsSectionDivider()

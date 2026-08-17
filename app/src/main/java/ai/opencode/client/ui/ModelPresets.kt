@@ -1,8 +1,8 @@
 package ai.opencode.client.ui
 
 /**
- * Curated model presets for the model selector, matching iOS implementation.
- * Only these models are shown in the dropdown instead of the full API list.
+ * First-launch seed for the pinned model list.
+ * Runtime selection uses SettingsManager.pinnedModels (JSON), not this constant.
  */
 object ModelPresets {
     val list: List<AppState.ModelOption> = listOf(

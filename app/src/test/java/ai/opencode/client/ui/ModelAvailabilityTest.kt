@@ -254,6 +254,48 @@ class ModelAvailabilityTest {
     }
 
     @Test
+    fun `remapSelectedModelIndex keeps slot when modelId changes but displayName matches`() {
+        val old = listOf(
+            AppState.ModelOption("GLM", "zai-coding-plan", "glm-5.2"),
+            AppState.ModelOption("GPT", "openai", "gpt-5.6-sol")
+        )
+        val newList = listOf(
+            AppState.ModelOption("GLM", "zai-coding-plan", "glm-4.7"),
+            AppState.ModelOption("GPT", "openai", "gpt-5.6-sol")
+        )
+        assertEquals(0, remapSelectedModelIndex(old, newList, 0))
+    }
+
+    @Test
+    fun `resolvePersistedModelIndex prefers providerId and modelId over legacy index`() {
+        val models = listOf(
+            AppState.ModelOption("A", "openai", "gpt-a"),
+            AppState.ModelOption("B", "zai", "glm-b")
+        )
+        assertEquals(1, resolvePersistedModelIndex(models, "zai", "glm-b", 0))
+        assertEquals(0, resolvePersistedModelIndex(models, null, null, 0))
+        assertEquals(1, resolvePersistedModelIndex(models, null, null, 99))
+        assertEquals(1, resolvePersistedModelIndex(models, "zai", "missing", 0))
+    }
+
+    @Test
+    fun `resolveAvailableModels accepts a dynamic pinned list`() {
+        val dynamic = listOf(
+            AppState.ModelOption("Custom", "openai", "gpt-5.4")
+        )
+        val providers = ProvidersResponse(
+            providers = listOf(
+                ConfigProvider(
+                    id = "openai",
+                    models = mapOf("gpt-5.4" to ProviderModel(id = "gpt-5.4", status = "active"))
+                )
+            )
+        )
+        val out = resolveAvailableModels(dynamic, providers)
+        assertEquals(dynamic, out)
+    }
+
+    @Test
     fun `isProviderModelSelectable accepts active and null status`() {
         assertTrue(isProviderModelSelectable(ProviderModel(status = null)))
         assertTrue(isProviderModelSelectable(ProviderModel(status = "active")))
