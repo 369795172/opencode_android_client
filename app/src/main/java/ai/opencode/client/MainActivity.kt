@@ -86,11 +86,12 @@ sealed class Screen(
 val screens = listOf(Screen.Chat, Screen.Files, Screen.Settings)
 
 // Debug-only Intent extra keys for injecting connection credentials at launch,
-// so automated UI tests can connect to a server without driving the Settings UI.
+// so automated UI tests / glasses bootstrap can connect without driving Settings.
 // Read only when BuildConfig.DEBUG is true (see onCreate).
 private const val EXTRA_TEST_SERVER_URL = "test_server_url"
 private const val EXTRA_TEST_USERNAME = "test_username"
 private const val EXTRA_TEST_PASSWORD = "test_password"
+private const val EXTRA_TEST_PROFILE_NAME = "test_profile_name"
 
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @AndroidEntryPoint
@@ -125,7 +126,8 @@ class MainActivity : AppCompatActivity() {
                         mainViewModel.configureServer(
                             url = testUrl,
                             username = intent?.getStringExtra(EXTRA_TEST_USERNAME),
-                            password = intent?.getStringExtra(EXTRA_TEST_PASSWORD)
+                            password = intent?.getStringExtra(EXTRA_TEST_PASSWORD),
+                            profileName = intent?.getStringExtra(EXTRA_TEST_PROFILE_NAME),
                         )
                     }
                 }

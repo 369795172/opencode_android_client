@@ -168,6 +168,39 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `configureServer syncs direct host profile and basic auth password`() = runTest {
+        val existing = HostProfile.defaultDirect("http://server.test")
+        every { hostProfileStore.currentProfile() } returns existing
+        every { hostProfileStore.profiles() } returns listOf(existing)
+        every { hostProfileStore.save(any()) } just runs
+        every { settingsManager.setBasicAuthPassword(any(), any()) } just runs
+        every { settingsManager.currentHostProfileId = any() } just runs
+
+        val viewModel = createViewModel()
+        viewModel.configureServer(
+            url = "https://host.ts.net:4096",
+            username = "opencode",
+            password = "s3cret",
+            profileName = "Glasses",
+        )
+
+        verify {
+            settingsManager.serverUrl = "https://host.ts.net:4096"
+            settingsManager.username = "opencode"
+            settingsManager.password = "s3cret"
+            settingsManager.setBasicAuthPassword(existing.id, "s3cret")
+            hostProfileStore.save(match {
+                it.id == existing.id &&
+                    it.name == "Glasses" &&
+                    it.serverUrl == "https://host.ts.net:4096" &&
+                    it.basicAuth?.username == "opencode" &&
+                    it.basicAuth?.passwordId == existing.id
+            })
+            repository.configure("https://host.ts.net:4096", "opencode", "s3cret")
+        }
+    }
+
+    @Test
     fun `deep link stays pending until connected`() = runTest {
         val viewModel = createViewModel()
 

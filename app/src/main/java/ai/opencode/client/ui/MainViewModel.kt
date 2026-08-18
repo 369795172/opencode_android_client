@@ -469,11 +469,57 @@ class MainViewModel @Inject constructor(
         _state.update { it.copy(aiUsageDashboardUrl = settingsManager.aiUsageDashboardUrl) }
     }
 
-    fun configureServer(url: String, username: String? = null, password: String? = null) {
-        settingsManager.serverUrl = url
-        settingsManager.username = username
-        settingsManager.password = password
-        repository.configure(url, username, password)
+    /**
+     * Debug/bootstrap entry: persist connection into both legacy keys and the
+     * current Host Profile. [testConnection] always reloads from HostProfileStore,
+     * so writing only legacy prefs would be overwritten on the next health check.
+     */
+    fun configureServer(
+        url: String,
+        username: String? = null,
+        password: String? = null,
+        profileName: String? = null,
+    ) {
+        val trimmedUrl = url.trim()
+        require(trimmedUrl.isNotEmpty()) { "server URL is required" }
+        val trimmedUser = username?.trim()?.takeIf { it.isNotEmpty() }
+        val trimmedPass = password?.takeIf { it.isNotBlank() }
+        val trimmedName = profileName?.trim()?.takeIf { it.isNotEmpty() }
+
+        settingsManager.serverUrl = trimmedUrl
+        settingsManager.username = trimmedUser
+        settingsManager.password = trimmedPass
+
+        val current = hostProfileStore.currentProfile()
+        val target = if (current.transport == HostTransport.DIRECT) {
+            current
+        } else {
+            HostProfile(
+                name = trimmedName ?: "Bootstrap",
+                transport = HostTransport.DIRECT,
+                serverUrl = trimmedUrl,
+            )
+        }
+        val basicAuth = trimmedUser?.let { BasicAuthConfig(username = it, passwordId = target.id) }
+        val updated = target.copy(
+            name = trimmedName ?: target.name,
+            serverUrl = trimmedUrl,
+            basicAuth = basicAuth,
+            lastUsedAt = System.currentTimeMillis(),
+        )
+        if (basicAuth != null) {
+            settingsManager.setBasicAuthPassword(updated.id, trimmedPass)
+        } else {
+            settingsManager.setBasicAuthPassword(updated.id, null)
+        }
+        hostProfileStore.save(updated)
+        if (updated.id != current.id) {
+            hostProfileStore.select(updated.id)
+        } else {
+            settingsManager.currentHostProfileId = updated.id
+        }
+        repository.configure(trimmedUrl, trimmedUser, trimmedPass)
+        refreshHostProfileState()
     }
 
     fun getHostProfiles(): List<HostProfile> = hostProfileStore.profiles()

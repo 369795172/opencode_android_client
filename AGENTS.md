@@ -28,3 +28,18 @@ export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 
 - Do not run `connectedDebugAndroidTest`, install, or launch debug builds on a physical Android phone unless explicitly asked. Physical devices may contain the user's active app settings and credentials; installing test builds can overwrite them.
 - For UI/instrumented tests, use an emulator only. If both emulator and physical devices are connected, target the emulator explicitly with `ANDROID_SERIAL=<emulator-id>` or an equivalent Gradle/adb device selection.
+
+## Glasses bootstrap (ADB)
+
+For IME-less glasses (or any device you name by serial), install the personal debug APK and inject a Direct Host Profile via debug Intent extras:
+
+```bash
+cd projects/opencode-android
+./scripts/glasses_bootstrap.sh -s <glasses-serial> \
+  --profile ./scripts/glasses_profile.example.json \
+  --password-env OPENCODE_SERVER_PASSWORD
+```
+
+- Requires debug APK (`ai.opencode.client`); refuses to auto-pick a device (must pass `-s` / `ANDROID_SERIAL`).
+- Example profile: `scripts/glasses_profile.example.json` (leave `password` empty and pass `--password-env`).
+- App side: `MainActivity` extras `test_server_url` / `test_username` / `test_password` / `test_profile_name` → `MainViewModel.configureServer` (syncs Host Profile + EncryptedSharedPreferences).
