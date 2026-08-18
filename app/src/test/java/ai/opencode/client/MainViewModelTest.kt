@@ -26,6 +26,7 @@ import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.ui.ModelPresets
 import ai.opencode.client.ui.session.buildSessionTree
 import ai.opencode.client.util.SettingsManager
+import ai.opencode.client.util.SelectedModelRef
 import ai.opencode.client.util.ThemeMode
 import com.yage.voiceflowkit.VoiceFlowClient
 import com.yage.voiceflowkit.VoiceFlowMicrophone
@@ -1310,7 +1311,13 @@ class MainViewModelTest {
 
         viewModel.selectModel(2)
 
-        verify { settingsManager.setModelForSession("s1", 2) }
+        val selected = ModelPresets.list[2]
+        verify {
+            settingsManager.setModelForSession(
+                "s1",
+                SelectedModelRef(selected.providerId, selected.modelId)
+            )
+        }
     }
 
     @Test
@@ -1350,8 +1357,12 @@ class MainViewModelTest {
                 )
             )
         )
+        val saved = ModelPresets.list[3]
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
-        every { settingsManager.getModelForSession("session-1") } returns 3
+        every { settingsManager.getModelForSession("session-1") } returns SelectedModelRef(
+            saved.providerId,
+            saved.modelId
+        )
 
         val viewModel = createViewModel()
         updateState(viewModel) { it.copy(currentSessionId = "session-1") }
@@ -1634,6 +1645,71 @@ class MainViewModelTest {
         )
 
         assertEquals(listOf("question-2"), viewModel.state.value.pendingQuestions.map { it.id })
+    }
+
+    @Test
+    fun `availableModels uses pinned list instead of compile-time presets`() = runTest {
+        val custom = listOf(AppState.ModelOption("Custom", "openai", "gpt-custom"))
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(pinnedModels = custom) }
+
+        assertEquals(custom, viewModel.state.value.availableModels)
+    }
+
+    @Test
+    fun `pinModel appends and persists json`() = runTest {
+        val extra = AppState.ModelOption("New", "openai", "gpt-new")
+        val viewModel = createViewModel()
+
+        viewModel.pinModel(extra)
+
+        assertTrue(viewModel.state.value.pinnedModels.any { it.modelId == "gpt-new" })
+        verify { settingsManager.pinnedModels = match { it.contains("gpt-new") } }
+    }
+
+    @Test
+    fun `unpinModel removes matching provider and model id`() = runTest {
+        val first = ModelPresets.list.first()
+        val viewModel = createViewModel()
+
+        viewModel.unpinModel(first)
+
+        assertTrue(
+            viewModel.state.value.pinnedModels.none {
+                it.providerId == first.providerId && it.modelId == first.modelId
+            }
+        )
+    }
+
+    @Test
+    fun `syncModelsFromWorkspace replaces pinned list`() = runTest {
+        val synced = listOf(AppState.ModelOption("Workspace", "openai", "gpt-workspace"))
+        coEvery { repository.getFileContent("contexts/model_presets.json") } returns Result.success(
+            ai.opencode.client.data.model.FileContent(
+                type = "text",
+                content = ai.opencode.client.ui.ModelPresetSync.encode(synced)
+            )
+        )
+        val viewModel = createViewModel()
+
+        viewModel.syncModelsFromWorkspace()
+        advanceUntilIdle()
+
+        assertEquals(synced, viewModel.state.value.pinnedModels)
+        assertEquals("Synced 1 models from workspace", viewModel.state.value.modelSyncMessage)
+    }
+
+    @Test
+    fun `syncModelsFromWorkspace keeps current list when file is missing`() = runTest {
+        coEvery { repository.getFileContent(any()) } returns Result.failure(IllegalStateException("missing"))
+        val viewModel = createViewModel()
+        val before = viewModel.state.value.pinnedModels
+
+        viewModel.syncModelsFromWorkspace()
+        advanceUntilIdle()
+
+        assertEquals(before, viewModel.state.value.pinnedModels)
+        assertEquals("Model preset file missing or invalid", viewModel.state.value.modelSyncMessage)
     }
 
     @org.junit.After

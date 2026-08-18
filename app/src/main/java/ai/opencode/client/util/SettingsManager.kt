@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
+import ai.opencode.client.ui.ModelPresets
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -41,6 +43,18 @@ class SettingsManager @Inject constructor(
     var hostProfilesJson: String?
         get() = encryptedPrefs.getString(KEY_HOST_PROFILES, null)
         set(value) = encryptedPrefs.edit().putString(KEY_HOST_PROFILES, value).apply()
+
+    var pinnedModels: String
+        get() = encryptedPrefs.getString(KEY_PINNED_MODELS, "") ?: ""
+        set(value) = encryptedPrefs.edit().putString(KEY_PINNED_MODELS, value).apply()
+
+    var selectedModelProviderId: String?
+        get() = encryptedPrefs.getString(KEY_MODEL_PROVIDER_ID, null)
+        set(value) = encryptedPrefs.edit().putString(KEY_MODEL_PROVIDER_ID, value).apply()
+
+    var selectedModelId: String?
+        get() = encryptedPrefs.getString(KEY_MODEL_ID, null)
+        set(value) = encryptedPrefs.edit().putString(KEY_MODEL_ID, value).apply()
 
     var currentHostProfileId: String?
         get() = encryptedPrefs.getString(KEY_CURRENT_HOST_PROFILE_ID, null)
@@ -191,23 +205,24 @@ class SettingsManager @Inject constructor(
         encryptedPrefs.edit().putString(KEY_SESSION_DRAFTS, Json.encodeToString(map)).apply()
     }
 
-    fun getModelForSession(sessionId: String): Int? {
+    fun getModelForSession(sessionId: String): SelectedModelRef? {
         val json = encryptedPrefs.getString(KEY_SESSION_MODELS, null) ?: return null
-        return try {
-            Json.decodeFromString<Map<String, String>>(json)[sessionId]?.toIntOrNull()
+        val raw = try {
+            Json.decodeFromString<Map<String, String>>(json)[sessionId]
         } catch (e: Exception) {
             null
-        }
+        } ?: return null
+        return parseSessionModelRef(raw)
     }
 
-    fun setModelForSession(sessionId: String, modelIndex: Int) {
+    fun setModelForSession(sessionId: String, model: SelectedModelRef) {
         val json = encryptedPrefs.getString(KEY_SESSION_MODELS, null)
         val map: MutableMap<String, String> = try {
             json?.let { Json.decodeFromString<Map<String, String>>(it).toMutableMap() } ?: mutableMapOf()
         } catch (e: Exception) {
             mutableMapOf()
         }
-        map[sessionId] = modelIndex.toString()
+        map[sessionId] = Json.encodeToString(model)
         encryptedPrefs.edit().putString(KEY_SESSION_MODELS, Json.encodeToString(map)).apply()
     }
 
@@ -249,6 +264,9 @@ class SettingsManager @Inject constructor(
         private const val KEY_KNOWN_HOSTS = "ssh_known_hosts_json"
         private const val KEY_SESSION_ID = "session_id"
         private const val KEY_MODEL_INDEX = "model_index"
+        private const val KEY_PINNED_MODELS = "pinned_models_json"
+        private const val KEY_MODEL_PROVIDER_ID = "selected_model_provider_id"
+        private const val KEY_MODEL_ID = "selected_model_id"
         private const val KEY_MODEL_PRESET_SCHEMA_VERSION = "model_preset_schema_version"
         private const val KEY_AGENT_NAME = "agent_name"
         private const val KEY_THEME = "theme"
@@ -280,6 +298,29 @@ internal fun migrateLegacyModelIndex(index: Int): Int = when (index) {
     6 -> 1 // Removed GPT-5.6 Sol Pro now falls back to regular Sol.
     7 -> 6 // GPT-5.6 Sol Fast shifted left by one slot.
     else -> index
+}
+
+@Serializable
+data class SelectedModelRef(
+    val providerId: String,
+    val modelId: String,
+)
+
+internal fun parseSessionModelRef(raw: String): SelectedModelRef? {
+    raw.toIntOrNull()?.let { index ->
+        val preset = ModelPresets.list.getOrNull(migrateLegacyModelIndex(index))
+        return preset?.let { SelectedModelRef(it.providerId, it.modelId) }
+    }
+    return try {
+        Json.decodeFromString<SelectedModelRef>(raw)
+    } catch (_: Exception) {
+        val parts = raw.split('\t', limit = 2)
+        if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+            SelectedModelRef(parts[0], parts[1])
+        } else {
+            null
+        }
+    }
 }
 
 enum class ThemeMode {

@@ -8,7 +8,7 @@ OpenCode 的原生 Android 客户端，用于远程连接 OpenCode 服务端、�
 
 - **Chat**：发送消息、切换模型和 Agent、查看 AI 回复与工具调用（Markdown 渲染、Patch diff、Todo 列表）
 - **Files**：文件树浏览、git 状态标记、代码与 Markdown 预览
-- **Settings**：服务器连接配置、Basic Auth 认证、主题切换（Light / Dark / System）
+- **Settings**：服务器连接配置、Basic Auth 认证、主题切换（Light / Dark / System）、动态模型管理（pin/unpin，以及从工作区 `contexts/model_presets.json` 同步）
 - **Usage limits**：可选 AI Usage Dashboard 配置和 provider quota 查看
 - **语音输入**：通过 AI Builder WebSocket API 实时语音转写
 - **平板适配**：手机底部 Tab 导航，平板三栏布局（文件 / 预览 / Chat）

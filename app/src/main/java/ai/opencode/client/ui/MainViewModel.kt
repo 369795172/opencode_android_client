@@ -12,6 +12,7 @@ import ai.opencode.client.ssh.SSHKeyManager
 import ai.opencode.client.ssh.TunnelManager
 import ai.opencode.client.ssh.TunnelResult
 import ai.opencode.client.util.SettingsManager
+import ai.opencode.client.util.SelectedModelRef
 import ai.opencode.client.util.LanguageMode
 import ai.opencode.client.util.OpenCodeDeepLink
 import ai.opencode.client.util.OpenCodeDeepLinkParseResult
@@ -74,6 +75,7 @@ data class AppState(
     val agents: List<AgentInfo> = emptyList(),
     val selectedAgentName: String = "build",
     val selectedModelIndex: Int = 2,
+    val pinnedModels: List<ModelOption> = ModelPresets.list,
     val providers: ProvidersResponse? = null,
     val pendingPermissions: List<PermissionRequest> = emptyList(),
     val pendingQuestions: List<QuestionRequest> = emptyList(),
@@ -119,7 +121,9 @@ data class AppState(
     val aiUsageQuotaSnapshot: AIUsageQuotaSnapshot? = null,
     val isLoadingAIUsage: Boolean = false,
     val isRefreshingAIUsage: Boolean = false,
-    val aiUsageError: String? = null
+    val aiUsageError: String? = null,
+    val isSyncingModels: Boolean = false,
+    val modelSyncMessage: String? = null
 ) {
     data class NfcPendingAction(val prompt: String, val autoSend: Boolean)
     data class ModelOption(
@@ -221,6 +225,7 @@ data class AppState(
         val languageMode: LanguageMode = LanguageMode.SYSTEM,
         val selectedModelIndex: Int = 2,
         val selectedAgentName: String = "build",
+        val pinnedModels: List<ModelOption> = ModelPresets.list,
         val availableModels: List<ModelOption> = ModelPresets.list,
         val contextUsage: ContextUsage? = null,
         val agents: List<AgentInfo> = emptyList(),
@@ -291,6 +296,7 @@ data class AppState(
             languageMode = languageMode,
             selectedModelIndex = selectedModelIndex,
             selectedAgentName = selectedAgentName,
+            pinnedModels = pinnedModels,
             availableModels = availableModels,
             contextUsage = contextUsage,
             agents = agents,
@@ -316,9 +322,12 @@ data class AppState(
     val visibleAgents: List<AgentInfo>
         get() = agents.filter { it.isVisible }
 
-    /** Curated model list (filtered like iOS), not the full API response. */
+    /** Pinned models that exist and are selectable on the connected server. */
     val availableModels: List<ModelOption>
-        get() = resolveAvailableModels(ModelPresets.list, providers)
+        get() = resolveAvailableModels(pinnedModels, providers)
+
+    val allProviderModels: List<ModelOption>
+        get() = flattenProviderModels(providers)
 
     val selectedAIUsageQuota: AIUsageQuota?
         get() {
@@ -1228,7 +1237,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun loadProviders() {
-        launchLoadProviders(hostRuntimeScope, repository, _state) { message, error ->
+        launchLoadProviders(hostRuntimeScope, repository, _state, settingsManager) { message, error ->
             reportNonFatalIssue(TAG, message, error)
         }
     }
@@ -1417,10 +1426,82 @@ class MainViewModel @Inject constructor(
     }
 
     fun selectModel(index: Int) {
-        val clamped = index.coerceIn(0, ModelPresets.list.size - 1)
-        settingsManager.selectedModelIndex = clamped
+        val models = _state.value.availableModels
+        val last = (models.size - 1).coerceAtLeast(0)
+        val clamped = index.coerceIn(0, last)
+        persistSelectedModel(settingsManager, models.getOrNull(clamped), clamped)
         _state.update { it.copy(selectedModelIndex = clamped) }
-        _state.value.currentSessionId?.let { settingsManager.setModelForSession(it, clamped) }
+        val selected = models.getOrNull(clamped)
+        if (selected != null) {
+            _state.value.currentSessionId?.let {
+                settingsManager.setModelForSession(it, SelectedModelRef(selected.providerId, selected.modelId))
+            }
+        }
+    }
+
+    fun pinModel(option: AppState.ModelOption) {
+        val current = _state.value.pinnedModels
+        if (isPinnedModel(current, option)) return
+        replacePinnedModels(current + option)
+    }
+
+    fun unpinModel(option: AppState.ModelOption) {
+        val next = _state.value.pinnedModels.filterNot {
+            it.providerId == option.providerId && it.modelId == option.modelId
+        }
+        replacePinnedModels(next)
+    }
+
+    fun syncModelsFromWorkspace() {
+        hostRuntimeScope.launch {
+            _state.update { it.copy(isSyncingModels = true, modelSyncMessage = null) }
+            repository.getFileContent(ModelPresetSync.WORKSPACE_PATH)
+                .onSuccess { file ->
+                    val parsed = file.text?.let { ModelPresetSync.parse(it) }
+                    if (parsed.isNullOrEmpty()) {
+                        _state.update {
+                            it.copy(
+                                isSyncingModels = false,
+                                modelSyncMessage = "Model preset file missing or invalid",
+                            )
+                        }
+                    } else {
+                        replacePinnedModels(parsed)
+                        _state.update {
+                            it.copy(
+                                isSyncingModels = false,
+                                modelSyncMessage = "Synced ${parsed.size} models from workspace",
+                            )
+                        }
+                    }
+                }
+                .onFailure {
+                    _state.update {
+                        it.copy(
+                            isSyncingModels = false,
+                            modelSyncMessage = "Model preset file missing or invalid",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun clearModelSyncMessage() {
+        _state.update { it.copy(modelSyncMessage = null) }
+    }
+
+    private fun replacePinnedModels(pinned: List<AppState.ModelOption>) {
+        settingsManager.pinnedModels = ModelPresetSync.encode(pinned)
+        _state.update { current ->
+            val models = resolveAvailableModels(pinned, current.providers)
+            val nextIndex = remapSelectedModelIndex(
+                previousList = current.availableModels,
+                newList = models,
+                previousIndex = current.selectedModelIndex,
+            )
+            persistSelectedModel(settingsManager, models.getOrNull(nextIndex), nextIndex)
+            current.copy(pinnedModels = pinned, selectedModelIndex = nextIndex)
+        }
     }
 
     fun setThemeMode(mode: ThemeMode) {

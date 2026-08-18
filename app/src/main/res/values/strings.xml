@@ -18,6 +18,12 @@
     <string name="settings_disconnected">Disconnected</string>
     <string name="settings_test_connection">Test Connection</string>
     <string name="settings_manage_profiles">Manage Profiles</string>
+    <string name="settings_models">Models</string>
+    <string name="settings_models_pinned_count">%d pinned models in the selector</string>
+    <string name="settings_manage_models">Manage models</string>
+    <string name="settings_manage_models_hint">Pin models to show them in the chat selector. Unpin to hide them.</string>
+    <string name="settings_manage_models_empty">Connect to a server to load available models.</string>
+    <string name="settings_sync_models">Sync from workspace</string>
     <string name="settings_save">Save</string>
     <string name="settings_save_testing">Save &amp; test…</string>
     <string name="settings_saved">Settings saved</string>

@@ -10,6 +10,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+internal fun persistSelectedModel(
+    settingsManager: SettingsManager,
+    option: AppState.ModelOption?,
+    index: Int
+) {
+    if (option != null) {
+        settingsManager.selectedModelProviderId = option.providerId
+        settingsManager.selectedModelId = option.modelId
+    }
+    settingsManager.selectedModelIndex = index
+}
+
 internal fun applySavedSettings(
     repository: OpenCodeRepository,
     settingsManager: SettingsManager,
@@ -25,18 +37,26 @@ internal fun applySavedSettings(
         password = password
     )
 
-    val savedModelIndex = settingsManager.selectedModelIndex
-    val clampedModelIndex = savedModelIndex.coerceIn(0, ModelPresets.list.size - 1)
-    if (clampedModelIndex != savedModelIndex) {
-        settingsManager.selectedModelIndex = clampedModelIndex
+    val loaded = ModelPresetSync.loadOrSeed(settingsManager.pinnedModels)
+    if (loaded.shouldPersist) {
+        settingsManager.pinnedModels = ModelPresetSync.encode(loaded.models)
     }
+    val models = resolveAvailableModels(loaded.models, null)
+    val selectedIndex = resolvePersistedModelIndex(
+        models = models,
+        providerId = settingsManager.selectedModelProviderId,
+        modelId = settingsManager.selectedModelId,
+        legacyIndex = settingsManager.selectedModelIndex,
+    )
+    persistSelectedModel(settingsManager, models.getOrNull(selectedIndex), selectedIndex)
 
     state.update {
         it.copy(
             currentSessionId = settingsManager.currentSessionId,
             hostProfiles = hostProfileStore.profiles(),
             currentHostProfileId = currentProfile.id,
-            selectedModelIndex = clampedModelIndex,
+            pinnedModels = loaded.models,
+            selectedModelIndex = selectedIndex,
             selectedAgentName = settingsManager.selectedAgentName ?: "build",
             themeMode = settingsManager.themeMode,
             languageMode = settingsManager.languageMode
