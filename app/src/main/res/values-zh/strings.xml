@@ -23,6 +23,7 @@
     <string name="settings_manage_models">管理模型</string>
     <string name="settings_manage_models_hint">固定后会出现在聊天模型下拉框中，取消固定即下架。</string>
     <string name="settings_manage_models_empty">连接服务器后可加载全部模型。</string>
+    <string name="settings_manage_models_provider_summary">%1$d 个模型 · %2$d 个已固定</string>
     <string name="settings_sync_models">从工作区同步模型清单</string>
     <string name="settings_save">保存</string>
     <string name="settings_save_testing">保存并测试…</string>

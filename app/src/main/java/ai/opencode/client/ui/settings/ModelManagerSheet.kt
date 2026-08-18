@@ -1,5 +1,7 @@
 package ai.opencode.client.ui.settings
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,13 +12,22 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -36,6 +47,12 @@ internal fun ModelManagerSheet(
     onDismiss: () -> Unit,
 ) {
     val grouped = allModels.groupBy { it.providerId }
+    var selectedProvider by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = selectedProvider != null) {
+        selectedProvider = null
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         LazyColumn(
             modifier = Modifier
@@ -45,17 +62,34 @@ internal fun ModelManagerSheet(
                 .testTag("model.manager.sheet")
         ) {
             item {
-                Text(
-                    stringResource(R.string.settings_manage_models),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    stringResource(R.string.settings_manage_models_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+                if (selectedProvider == null) {
+                    Text(
+                        stringResource(R.string.settings_manage_models),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.settings_manage_models_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    val providerTitle = selectedProvider
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { selectedProvider = null }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.common_back),
+                                modifier = Modifier.testTag("model.manager.back"),
+                            )
+                        }
+                        Text(
+                            providerTitle.orEmpty(),
+                            style = MaterialTheme.typography.headlineSmall,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
             if (grouped.isEmpty()) {
                 item {
@@ -66,16 +100,47 @@ internal fun ModelManagerSheet(
                     Spacer(modifier = Modifier.height(24.dp))
                 }
             } else {
-                grouped.forEach { (providerId, models) ->
-                    item(key = "header-$providerId") {
-                        Text(
-                            providerId,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
+                val provider = selectedProvider?.let { grouped[it] }
+                if (provider == null) {
+                    val pinnedCountByProvider = pinnedModels.groupingBy { it.providerId }.eachCount()
+                    val sortedProviders = grouped.entries.sortedWith(
+                        compareByDescending<Map.Entry<String, List<AppState.ModelOption>>> { pinnedCountByProvider[it.key] ?: 0 }
+                            .thenBy { it.key },
+                    )
+                    sortedProviders.forEach { (providerId, models) ->
+                        item(key = "provider-$providerId") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedProvider = providerId }
+                                    .padding(vertical = 12.dp)
+                                    .testTag("model.manager.provider"),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                    Text(providerId, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        stringResource(
+                                            R.string.settings_manage_models_provider_summary,
+                                            models.size,
+                                            pinnedCountByProvider[providerId] ?: 0,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            HorizontalDivider()
+                        }
                     }
-                    items(models, key = { "${it.providerId}/${it.modelId}" }) { model ->
+                } else {
+                    items(provider, key = { "${it.providerId}/${it.modelId}" }) { model ->
                         val pinned = isPinnedModel(pinnedModels, model)
                         Row(
                             modifier = Modifier
@@ -99,11 +164,6 @@ internal fun ModelManagerSheet(
                                 },
                             )
                         }
-                    }
-                    item(key = "divider-$providerId") {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider()
-                        Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
             }
