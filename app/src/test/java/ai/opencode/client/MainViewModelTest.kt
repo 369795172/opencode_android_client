@@ -1742,7 +1742,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertEquals(before, viewModel.state.value.pinnedModels)
-        assertEquals("Model preset file missing or invalid", viewModel.state.value.modelSyncMessage)
+        assertEquals("Sync failed: missing", viewModel.state.value.modelSyncMessage)
     }
 
     @org.junit.After

@@ -53,6 +53,36 @@ class ModelPresetSyncTest {
     }
 
     @Test
+    fun `parse reads workspace file schema with models wrapper`() {
+        val json = """
+            {
+              "schema_version": 1,
+              "generated_at": "2026-08-18T00:00:00Z",
+              "models": [
+                {
+                  "display_name": "glm-5.2",
+                  "provider_id": "zai-coding-plan",
+                  "model_id": "glm-5.2"
+                },
+                {
+                  "display_name": "gpt-5-4",
+                  "provider_id": "openai",
+                  "model_id": "gpt-5.4"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsed = ModelPresetSync.parse(json)
+        assertEquals(
+            listOf(
+                AppState.ModelOption("glm-5.2", "zai-coding-plan", "glm-5.2"),
+                AppState.ModelOption("gpt-5-4", "openai", "gpt-5.4"),
+            ),
+            parsed,
+        )
+    }
+
+    @Test
     fun `loadOrSeed uses ModelPresets when stored json is empty`() {
         val loaded = ModelPresetSync.loadOrSeed("")
         assertEquals(ModelPresets.list, loaded.models)

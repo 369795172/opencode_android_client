@@ -13,6 +13,13 @@ internal data class ModelPresetJson(
     @SerialName("model_id_prefix") val modelIdPrefix: String? = null,
 )
 
+@Serializable
+internal data class ModelPresetFileJson(
+    @SerialName("schema_version") val schemaVersion: Int? = null,
+    @SerialName("generated_at") val generatedAt: String? = null,
+    @SerialName("models") val models: List<ModelPresetJson> = emptyList(),
+)
+
 internal object ModelPresetSync {
     const val WORKSPACE_PATH = "contexts/model_presets.json"
 
@@ -38,7 +45,12 @@ internal object ModelPresetSync {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) return null
         return try {
-            json.decodeFromString<List<ModelPresetJson>>(trimmed).map { dto ->
+            val dtos: List<ModelPresetJson> = when (trimmed.firstOrNull()) {
+                '{' -> json.decodeFromString<ModelPresetFileJson>(trimmed).models
+                '[' -> json.decodeFromString<List<ModelPresetJson>>(trimmed)
+                else -> return null
+            }
+            dtos.takeIf { it.isNotEmpty() }?.map { dto ->
                 AppState.ModelOption(
                     displayName = dto.displayName,
                     providerId = dto.providerId,

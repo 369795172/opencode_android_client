@@ -1521,11 +1521,11 @@ class MainViewModel @Inject constructor(
                         }
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     _state.update {
                         it.copy(
                             isSyncingModels = false,
-                            modelSyncMessage = "Model preset file missing or invalid",
+                            modelSyncMessage = "Sync failed: ${error.message ?: "network error"}",
                         )
                     }
                 }
