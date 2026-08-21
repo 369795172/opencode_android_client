@@ -114,9 +114,14 @@ app/src/main/java/ai/opencode/client/
 
 ## 文档
 
-- `docs/PRD.md` — 产品需求
-- `docs/RFC.md` — 技术方案
-- `docs/speech_recognition.md` — 语音转写设计
+- `AGENTS.md` — Agent 治理入口（构建、红线、What NOT to do）
+- `docs/PRD.md` — 产品需求（非目标与可勾选成功标准）
+- `docs/RFC.md` — 技术方案与 Key Decisions（Why X, not Y）
+- `docs/design.md` — Quiet Tech 视觉与交互规格
+- `docs/test.md` — 测试分层与 fail-closed 门禁
+- `docs/working.md` — Changelog 与 Lessons Learned
+
+AI agent 先读 `AGENTS.md`，再读 `docs/PRD.md` 和 `docs/RFC.md`。
 
 ## 姊妹项目
 

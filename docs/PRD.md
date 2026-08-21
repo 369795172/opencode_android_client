@@ -9,7 +9,7 @@
 | **产品名称** | OpenCode Android Client |
 | **状态** | v1.4 (SSH Host Profiles parity planning) |
 | **创建日期** | 2026-02 |
-| **最后更新** | 2026-06-21 |
+| **最后更新** | 2026-08-21 |
 | **参考** | iOS Client PRD |
 
 ---
@@ -17,6 +17,8 @@
 ## 摘要
 
 OpenCode Android Client 是 OpenCode AI 编程助手的原生 Android 客户端，让开发者可以在手机/平板上远程监控 AI 工作进度、发送指令、审查代码变更。
+
+**用户问题**：离开电脑时，如何让 OpenCode 把关键决策浮出水面供审查，并在方向偏了时用语音快速纠偏，而不把手机变成第二台 IDE？
 
 ---
 
@@ -33,6 +35,22 @@ OpenCode Android Client 是一个面向 OpenCode 服务端的原生 Android 远�
 ### 1.1 它不是什么
 
 这个 App 不试图做以下事情：在手机上编辑代码、在手机上运行 OpenCode server、替代完整的 Web UI。它的价值在于"AI 在干活的任何时刻掏出手机，阅读它刚刚完成的 Markdown 分析报告或者代码改动，觉得方向不对就立刻通过语音让它换一条路"这种场景。
+
+#### 非目标（硬边界）
+
+砍错任一条都会翻车。这些不是 future work 列表，是当前产品拒绝去做的事。Future 栏（通知 / Foreground Service / 超百条 Session 优化）见「实现规划」，进成功标准之前不得当已交付能力验收。
+
+| # | 非目标 | 砍掉 vs 保留 |
+|---|--------|----------------|
+| N1 | 不在手机上编辑代码、不引入语法高亮 | 砍掉：变成第二 IDE，和 Steer「审决策不审代码美学」冲突。保留：手机窄屏可读性与 tokenizer 性能问题继续存在。 |
+| N2 | 不在手机上运行 OpenCode server，不引入本地推理 / 本地 filesystem / shell | 砍掉：设备变成工作区主机，安全面与电池预算爆炸。保留：App 继续只做远程控制。 |
+| N3 | 不替代完整 Web UI | 砍掉：要在手机上复刻桌面配置（Provider 密钥、MCP、workspace）。保留：重配置仍在电脑端完成。 |
+| N4 | Files Tab 不做主工作流体验堆砌 | 砍掉：文件树成为主入口，Chat 卡片跳转被稀释。保留：Files 只作兜底，稳定可靠即可。 |
+| N5 | 后台不保持 SSE；当前成功标准不含推送 / Foreground Service | 砍掉：后台长连接被系统杀掉且耗电；过早做通知会把 Phase 8 tunnel 生命周期与 FGS 绑死。保留：回前台 REST 全量同步 + 重建 SSE。 |
+| N6 | 不优化「超过百条消息」的大型 Session | 砍掉：过早做虚拟化/分页架构。保留：按当前「不预期超百条」使用。 |
+| N7 | SSH 不用系统 VPN、不用 Termux/OpenSSH、不为连上而关闭 host key 校验 | 砍掉：要么变成整机代理，要么静默接受 MITM。保留：app 内 local forward + TOFU。 |
+| N8 | NFC：不支持熄屏触发、多 tag 身份、iOS、tag 加密、从服务器拉 prompt | 砍掉：实验能力膨胀成账号/同步系统。保留：亮屏、单 tag、明文、本机 prompt。 |
+| N9 | Session deep link 不自动切 Host，不携带凭证 / query / 绝对路径，不定位 message，不发送 prompt / 批准权限 / 执行 tool | 砍掉：链接成为远程控制协议。保留：只读导航，当前 Host 验证成功才切换。 |
 
 ### 1.2 核心交互范式
 
@@ -311,12 +329,15 @@ Session 搜索继续由 Agent 和 semantic-search 负责，客户端不建设搜
 
 ## 非功能需求
 
-| 指标 | 要求 |
-|------|------|
-| 首屏加载 | < 3 秒（弱网） |
-| 消息延迟 | SSE 事件 < 500ms 渲染 |
-| 电池消耗 | 后台不保持连接，前台正常耗电 |
-| 离线支持 | 断线时显示缓存内容，不崩溃 |
+数字约束必须带测量点与适用域。域外不套用该阈值（实证：无条件墙钟 SLA 会被长耗时路径踩碎）。
+
+| 指标 | 要求 | 测量点 | 适用域 |
+|------|------|--------|--------|
+| 首屏加载 | < 3 秒 | `GET /global/health` 2xx 起，到 Chat session 列表首帧 | `GET /session?limit=100` 且 RTT < 400ms（「弱网」口径）。更大分页、更高 RTT、或进程内第一次 WebView/Chromium 初始化，不套用 3s。 |
+| 消息延迟 | SSE 事件 < 500ms 渲染 | OkHttp `EventSource.onEvent` 起，到 Compose 提交该 delta | 单条 text/reasoning delta ≤ 4KB。大 patch、图片 payload、或网络 RTT 本身，不计入 500ms。 |
+| 语音转写墙钟 | 不设无条件秒级上限 | 以 PCM cache replay 成功并写入输入框为准 | 完成时间随录音时长伸缩。建连慢 / 断线走 cache replay，不以固定 2s 作为失败判据。 |
+| 电池消耗 | 后台不保持连接，前台正常耗电 | App 进入后台后 SSE（及 SSH tunnel）断开 | 前台监控模式；后台保活 / FGS 不在当前成功标准。 |
+| 离线支持 | 断线时显示缓存内容，不崩溃 | 断开网络后仍能看见已加载的 session/消息 | 不承诺离线发送或离线补历史。失败路径：显示 Disconnected / 错误，不静默改走未配置的云 API。 |
 
 ---
 
@@ -363,16 +384,21 @@ Session 搜索继续由 Agent 和 semantic-search 负责，客户端不建设搜
 
 ---
 
-## 成功指标
+## 成功标准
 
-1. 能够稳定连接 OpenCode Server（局域网/公网）
-2. 消息发送、接收、流式显示正常
-3. 权限审批流程完整
-4. 文件预览、Markdown / 图片渲染可用
-5. 平板三栏布局体验流畅
-6. Chat 在监控模式下自动跟随，在历史查看模式下不强制跳到底部
-7. 语音输入在 WebSocket 建连慢、发送失败或心跳发现连接关闭时仍能通过本地 PCM cache 恢复并完成转写
-8. Android 与 iOS 在 Host Profiles、SSH Tunnel、import/export JSON 和连接诊断上达到功能对等
+每条可独立勾选。验证方式写在条目内。数字阈值的适用域见「非功能需求」；域外不套用该阈值。
+
+- [ ] **Direct / Tailscale 连接**：Settings 填写 HTTP(S) URL（localhost、`127.0.0.1`、emulator `10.0.2.2`、或 `*.ts.net`）与可选 Basic Auth，Test Connection 在 `/global/health` 2xx 后显示 connected。验证：手动 Test Connection；JVM `OpenCodeRepositoryTest` 的 configure + MockWebServer health。
+- [ ] **首屏 session 列表**：health 成功后 Chat 展示 session 列表，从 health 2xx 到列表首帧 < 3s（适用域：`limit=100` 且 RTT < 400ms）。验证：连本地 server 后冷打开 Chat；`MainViewModelTest` 覆盖 session 加载状态迁移。
+- [ ] **发送 / 接收 / 流式**：`POST /session/{id}/prompt_async` 后 SSE `message.part.updated` 增量渲染 text/reasoning；busy 时仍可排队发送。验证：`MainViewModelTest` 发送成功/失败与 SSE streaming；`ChatInputBarInstrumentedTest` busy 时 send 可点。
+- [ ] **SSE 渲染延迟**：单条 ≤ 4KB 的 text/reasoning delta，从 `onEvent` 到 Compose 提交 < 500ms（不含网络 RTT）。验证：前台监控模式下观察打字机效果无肉眼卡顿；回归靠现有 SSE 增量单测守状态机，不靠墙钟断言网络。
+- [ ] **权限审批**：pending permission 卡片展示 Allow / Reject，调用 `POST /session/{id}/permissions/{permissionId}` 后卡片消失。验证：`MainViewModelTest` 的 `respondPermission` / `loadPendingPermissions`；Chat 里 permission 卡片手动走一趟。
+- [ ] **文件预览**：文本等宽 + 行号；Markdown 默认 Web Preview，失败或大文件可退 Native / Source；图片 fit / 双击放大 / 拖动 / 系统分享。验证：`FilePreviewUtilsTest`、`MarkdownImageResolverTest`；Files 打开 `.md` 与一张图。
+- [ ] **平板三栏**：`WindowWidthSizeClass.Expanded` 下 Sessions / Files / Chat 三栏；折叠后 Files 与 Chat 平分，且 Files 顶栏有 `Show sessions`。验证：`SessionListInstrumentedTest` collapse callback；emulator 平板宽度目视。
+- [ ] **Chat 自动跟随**：列表停在底部（`reverseLayout` 索引 0）时新消息/tool/stream 跟到底；用户滚离底部后不强制跳转。验证：Chat 停留底部发一条；滚到历史再等流式，位置保持。
+- [ ] **语音 PCM 恢复**：点击麦克风后立即采集 PCM16 mono 24kHz；WebSocket 建连慢、发送失败或心跳发现关闭时，从 cache offset 0 replay 后仍能得到转写并写入输入框。失败路径保留已可见的 partial，不回滚成空。验证：`SpeechRecognitionTest`；断 Wi-Fi 或杀 WS 后 Stop / Retry this segment。墙钟随录音时长伸缩，不设无条件 2s。
+- [ ] **Host Profiles + SSH contract（Phase 8 交付时勾选）**：Direct / SSH Tunnel 两种 transport；export JSON 不含 private key / Basic Auth password / known host / local port；fingerprint 变化时阻断并提供 reset，不提供「继续忽略」。验证：`docs/test.md` Phase 8 unit 清单（import/export、migration、TOFU、debounce 键为 resolved connection）。当前规划中，未落地不得勾选。
+- [ ] **断线不崩溃**：断开网络后已加载内容仍可见，状态为 Disconnected，不 crash、不静默改走未配置的云 API。验证：关 Wi-Fi 后停留在已打开的 session。
 
 ---
 

@@ -226,3 +226,34 @@ OPENCODE_ANDROID_SSH_REMOTE_PORT
 3. `host_profiles_ssh_error_recovery.md`：面对 host key mismatch 或 auth failure，用户能读懂问题、找到 reset trusted host 或 copy public key 的恢复动作。
 
 这层不触发真实 write prompt。它主要检查信息架构和文案是否让第一次配置 SSH 的用户知道下一步该做什么。
+
+## Fail-closed 门禁
+
+失败即不能合入。警告、skip、人工「看起来没问题」都不能当通过。本文件只写命令与口径，不写测试代码本体。
+
+### 每次 commit：确定性单测
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew testDebugUnitTest
+```
+
+必须退出码 0。CI（`.github/workflows/ci.yml`）对 `master` 的 push/PR 跑同一命令；红则不能合。
+
+### 公开发布 / push 前：隐私扫描（public fork）
+
+```bash
+rg -n "api[_-]?key|BEGIN (RSA |OPENSSH )?PRIVATE KEY|password\s*=\s*['\"][^'\"]+['\"]" \
+  --glob '!.env.example' --glob '!**/build/**' --glob '!**/.gradle/**' .
+```
+
+必须零命中。`.env` 已 gitignore，不得把真实凭证、私人邮箱、内网主机名写进已跟踪文件。命中即 fail-closed，不当 warning。
+
+### connected 层：未配置即 skip，不当 fail
+
+`./gradlew connectedDebugAndroidTest` 在未配置 `.env` / 服务不可达时 skip，并在 logcat 写明原因。Skip 不是绿，只是「本环境不跑」；缺凭证不得把 integration 标成通过。
+
+### 物理设备：默认禁止
+
+未点名物理机 serial 时，禁止 `connectedDebugAndroidTest`、debug install、启动 debug 构建。物理机视为生产态凭证存储。有多设备时必须 `ANDROID_SERIAL=<emulator-id>`。
