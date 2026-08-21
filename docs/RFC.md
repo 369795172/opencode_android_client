@@ -10,7 +10,7 @@
 | **标题** | OpenCode Android Client 技术方案 |
 | **状态** | Accepted + Phase 8 SSH Host Profiles Draft |
 | **创建日期** | 2026-02 |
-| **最后更新** | 2026-06-21 |
+| **最后更新** | 2026-08-21 |
 | **PRD 引用** | [PRD.md](PRD.md) |
 
 ---
@@ -85,6 +85,70 @@ Android 9+ 默认禁止明文流量。`network_security_config.xml` 设置 base-
 | sshj | Java | 活跃 | ★★★★ |
 
 **推荐 mwiede/JSch**：Android 端只需要 SSH client + local port forwarding，不需要完整 SSH server/subsystem。mwiede/JSch 是 JSch 的维护 fork，API 面小，接入成本低，适合 Phase 8 先完成 iOS feature parity。Apache Mina SSHD 功能完整，但体积、配置、线程池和 forwarding filter 复杂度更高，作为 JSch 在 key format 或 Android crypto 上遇到阻塞时的替代方案。sshj 保留为备选，不作为第一实现。
+
+### 2.3 Key Decisions（Why X, not Y）
+
+每条决策内联否案。前提变化时先问「Y 的否决理由还成立吗」，再改结论。历史条目若当时未记否案，补推断并标明依据；无法还原处标「决策考古缺口」。
+
+#### Why 原生 Jetpack Compose，不用 WebView 套 OpenCode Web UI，也不用 Flutter？
+
+Steer 需要原生 SSE、EncryptedSharedPreferences、NFC tag dispatch、PCM 录音与系统分享。WebView 套 Web UI 会把桌面信息架构整个搬上手机，和「轻量阅读 + 语音纠偏」冲突，也无法干净处理 `RECORD_AUDIO` 与 Android 后台限制。不用 Flutter：iOS 已是 SwiftUI 原生客户端，产品要对等的是交互与视觉（Quiet Tech），不是共享渲染引擎。Kotlin + Compose 是 Android 上与 SwiftUI 最接近的官方栈。
+
+#### Why OkHttp + Retrofit，不用 Ktor？
+
+需要成熟的 OkHttp `EventSource` 做 `/global/event` SSE，以及 Retrofit 对 OpenCode REST 的接口生成。Ktor 在多平台更自然，但本项目只做 Android，且立项时 Android SSE 生态与拦截器/Basic Auth 习惯都在 OkHttp 上。若未来要 Kotlin Multiplatform 再评估 Ktor，不作为当前替换条件。
+
+#### Why Kotlinx Serialization，不用 Gson / Moshi？
+
+OpenCode 响应含大量可空字段，需要 `explicitNulls = false` 省略 null，避免 `prompt_async` 因多余 null 出 204/后台不生成。Gson 是 Java 时代默认，Kotlin null safety 弱；Moshi 可用，但与 Kotlin Serialization 编译期 codec 重复。选定 Kotlinx 后，JSON payload（含 Web Preview 注入）统一走 serializer，不手写字符串拼接。
+
+#### Why Hilt，不用 Koin 或手写单例？
+
+`MainViewModel`、`OpenCodeRepository`、`SettingsManager` 需要 Activity/Application 生命周期感知的官方注入。Koin 能用但非 Android 官方推荐；手写单例会让 Repository lazy re-init、测试替换 fake 变难（已在 code review 里为 Repository 可变 rebuild 付过代价）。Hilt + KSP 与 `androidx.hilt.navigation.compose` 对齐。
+
+#### Why EncryptedSharedPreferences + Keystore，不用明文 SharedPreferences，也不把所有 secret 做成 non-exportable Keystore key？
+
+Basic Auth 密码、AI Builder token、草稿、per-session 模型选择、NFC prompt 都是字符串 secret，官方配对是 MasterKey + EncryptedSharedPreferences。明文 prefs 在 public 客户端不可接受。Phase 8 的 SSH 私钥第一版需要 JSch 能读取的 OpenSSH 文件，因此设备级 encrypted storage 导出 public key；non-exportable Android Keystore key 留作后续增强，不在 v1 用「更安全」堵死 JSch。Rotate key 必须先确认并提示更新服务器授权，不对旧 RSA key 自动迁移。
+
+#### Why mwiede/JSch 做 app 内 local forward，不用系统 VPN、Termux/OpenSSH、Mina SSHD、sshj？
+
+SSH Tunnel 只转发 OpenCode HTTP/SSE 到 `127.0.0.1:<localPort>`，不是整机代理。系统 VPN 改变设备网络身份，超出产品边界。Termux/OpenSSH 依赖外部 APK 与用户 shell。Mina SSHD 体积与 forwarding filter 过重。sshj 作为备选。JSch 在 key format 或 Android crypto 阻塞时才切 Mina。Host key 走 TOFU：fingerprint 变化则阻断，不提供「继续忽略校验」。
+
+#### Why Host Profiles，不用单一全局 `serverUrl`，也不把 Tailscale/HTTPS 当成唯一远程方案？
+
+用户有多套 OpenCode 环境（本机、VPS、眼镜 Direct）。单一全局 URL 无法切换、无法与 iOS import/export JSON 对齐。Tailscale 仍是合法 Direct 路径（`*.ts.net` HTTP 豁免），但不是唯一远程手段；SSH Tunnel 覆盖「只有 SSH gateway、没有 tailnet」的环境。Repository/SSE/Files 只消费 resolved loopback/Direct URL，不各自感知 SSH。
+
+#### Why 后台断开 SSE（及 tunnel），不用后台长连接或当前阶段的 Foreground Service？
+
+Android 会限制后台网络；保活 SSE 既耗电又不可靠。回前台走 `ensureStarted()`（若 SSH）+ REST 全量同步 + 重建 SSE。Foreground Service / 持续通知能解决 `question`/permission 空转，但会把 tunnel 生命周期与通知权限绑在一起；PRD 已把它放在 Future，不进 Phase 8 成功标准。不为了「连着」在后台挂着 tunnel。
+
+#### Why 点击即录 PCM16 + 本地 cache replay，不用「等 WebSocket ready 再录音」，也不把停录后 M4A 上传当主路径？
+
+建连和 `session_ready` 常慢于用户开口，等 ready 再录会丢掉句首。PCM cache 从 offset 0 replay，优先保证语音不丢。停录后 M4A 解码上传是早期路径，已对齐 iOS realtime；Grok STT 作为可选 batch 策略存在，但不替换「立即 PCM capture」这条主路径。失败路径保留用户已看见的 partial transcript，不回滚成录音前快照（除非没有任何 partial）。
+
+#### Why 文件预览无语法高亮，Files Tab 只做兜底，不用手机代码编辑器？
+
+重度时间约 60% 在读 Markdown 报告，约 5% 在 Files Tab。主路径是 Chat 里 tool/patch 卡片跳转。语法高亮要 tokenizer 与窄屏性能，和「审决策理由与产物」目标不对齐。iOS 同样保持等宽纯文本 + 行号。高亮是 future enhancement，不是当前缺口。
+
+#### Why Markdown Web Preview 用 bundled `markdown-it` + DOMPurify，不用运行时从网络拉 JS，也不只用 Compose Native renderer？
+
+AI 内部写作已使用 HTML-in-Markdown、CSS 卡片、inline SVG、`details`。Compose Native renderer 盖不住这些，所以默认 Web Preview，Native/Source 作回退。JS 只来自 `app/src/main/assets/web_preview/`，不从网络加载；workspace 图片预解析成 data URI，WebView 不直接读工作区文件。`<script>`/`iframe`/`form`/`on*`/`javascript:` 禁止。大文件先过 60_000 / 单行 5_000 确认 gate。
+
+#### Why session deep link 只在当前 Host 用 `GET /session/:id` 验证，不自动切 Host、不执行 action？
+
+`opencode://session/<id>` 是跨端只读导航。自动切 Host 或携带 URL/凭证会把链接变成远程控制协议。发送 prompt、批准权限、执行 tool 都是写操作，V1 拒绝。目标不在当前 100 条窗口时 upsert 完整 Session，失败则保留原上下文。
+
+#### Why NFC Quick Prompt 保持 Experimental：亮屏、明文、单 tag、30s debounce，不做熄屏/加密/多 tag/iOS？
+
+Android `NDEF_DISCOVERED` 要求亮屏；tag 容量小（NTAG215 用户可用约 504 字节，prompt 上限 480）。加密与多 tag 身份会引入密钥分发。iOS 没有对等的后台 tag 读。debounce 是因为 tag 贴着天线时系统会反复 dispatch。Intent 只在 `onCreate` / `onNewIntent` 处理，禁止放进 Compose body。
+
+#### Why 模型选择按 session 存 Int 索引，不存 `{providerID}/{modelID}` 字符串？（决策考古缺口：立项时的否案文档缺失）
+
+当前实现对齐当时的 `ModelPresets.list` 下标，列表原地替换同一槽位时可平滑迁移（如 index 6：Kimi → GLM）。插入或重排会错位。更稳的契约是 canonical `providerID/modelID`（iOS 已用字符串）。在预设表再出现插入/删除前，新代码应改存 canonical ID；本条否案「为什么当初不用字符串」无法从仓库还原，记为考古缺口，从当下起新决策按纪律记。
+
+#### Why Chat 列表 `reverseLayout = true` 且跟随底部，不用始终滚到最新？
+
+监控模式需要新 delta 自动出现在底部；阅读历史时强制跟随会打断审查。`reverseLayout` 下视觉顶部是高索引，「加载更早消息」必须按视觉坐标探测，不能用正向列表的 `lastVisible`。分页从自动滚触发改为显式 `Load older`，避免 Archived 折叠时为不可见历史连续分页。
 
 ---
 

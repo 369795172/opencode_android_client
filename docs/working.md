@@ -1,5 +1,13 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-08-21 — scaffold v2 retrofit（文档纪律，不改运行时）
+
+- 按 rootgrove `workflow_project_scaffold.md` v2 Retrofit（§7）收敛治理层：补 `AGENTS.md` 的 What NOT to do、working.md 更新强制、Key Decisions 摘要；README 与 AGENTS 互指。
+- PRD：非目标收成硬边界表；成功标准改为可勾选（验证方式 + 阈值）；数字约束补测量点与适用域（避免无条件墙钟 SLA）。
+- RFC：新增 §2.3 Key Decisions，每条「Why X, not Y」；模型索引持久化一条标为决策考古缺口。
+- test.md：补 fail-closed 门禁命令（单测、隐私扫描、connected skip、禁物理机安装）。
+- 不新开文档，不改运行时代码。Gate A/B 只审本轮被修订的非目标、成功标准与否案。
+
 ## 2026-07-30 — Dual recording strategies + Save auto-test (open PR, do not merge)
 
 - 分支 `feat/dual-recording-strategies`：Settings 增加 OpenAI Realtime / Grok STT picker；Chat 录音 Start 时 snapshot strategy。
@@ -620,3 +628,20 @@ iOS/Android feature parity 调研完成，确认以下体验层差异需要对�
 - **send/stop 顺序**：send 始终在**上**、stop 仅 busy 时叠在**下**（修掉了曾经 busy 时渲染两个 stop 的 bug）。send 始终可发——无需先终止再发送。
 - **stop 红定版**：Material 默认 error 红 `#B3261E` 又深又闷，改 `StopRed #E5484D`（提亮、纯度略降，近 iOS 系统红），录音态 mic 也用此红。
 - **测试环境**：API 36 模拟器上 espresso `3.6.1` 触发 `InputManager.getInstance` `NoSuchMethodException`（旧版 espresso 与 Android 16 注入不兼容）。升级 `espressoCore 3.6.1 → 3.7.0` 修复。**全部 15 个 instrumented test 在 emulator-5554 通过**（`am instrument` 限定设备，不装真机以免破坏 credential）；单元测试 + `assembleDebug` 通过。
+
+---
+
+## Lessons Learned
+
+可迁移原则，不是单次踩坑流水账。跨项目重复出现的再考虑晋升 workspace skill。
+
+- Intent 与副作用放在 Activity 生命周期（`onCreate` / `onNewIntent`），不放进 Compose recomposition；否则一次重组就会变成一次业务动作。
+- 平台「跳过系统检查」的 NFC/蓝牙 API 是 ROM 相关行为，不可当作可移植默认；foreground dispatch 的 PendingIntent 必须新构造，不能复用 Activity 自身 intent。
+- 监控的是 endpoint 行为包络（进程内第一次 Chromium 初始化 vs 每次 Markdown render），不是症状标签（「黑屏」）。运行时预热放在进程启动，overlay 直到 renderer 发出 ready。
+- WebView 的 file access 只覆盖 bundled shell；工作区内容经 data URI 进入，不经 `file://` 工作区路径。
+- 失败路径保留用户已看见的 partial 状态；只有不存在更新的可见内容时，才回滚到动作前快照。
+- 反转布局里「历史顶部」是高索引；分页与自动跟随必须用视觉坐标系，不能复用正向列表的 lastVisible。
+- Debounce 键打在 resolved connection 身份上，不打在函数名上；配置变更必须绕开旧的 health 防抖。
+- 会改共享文件系统的测试留在假数据层（component）；连真实 server 的层默认只读。物理设备是生产态凭证存储，instrumented 测试按 serial 钉死 emulator。
+- Save 即验证时刻。独立的 Test 按钮若能留下过期的「已连接」绿勾，就是在撒谎。
+- 下标持久化只在槽位身份稳定时成立；列表插入或重排需要 canonical ID。数字 SLA 必须带适用域，否则按典型样本校准的 proxy 会在长耗时路径上碎掉。
