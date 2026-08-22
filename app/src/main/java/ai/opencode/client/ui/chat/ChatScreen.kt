@@ -111,6 +111,9 @@ fun ChatScreen(
     // Cache last non-null contextUsage so the ring stays visible during streaming
     var cachedContextUsage by remember { mutableStateOf(state.contextUsage) }
     state.contextUsage?.let { cachedContextUsage = it }
+
+    val hasActiveQuestion = state.currentSessionId != null &&
+        state.pendingQuestions.any { it.sessionId == state.currentSessionId }
     val currentSessionIsRunning = state.currentSessionStatus?.let { it.isBusy || it.isRetry } == true ||
         state.currentSessionId?.let { it in state.sendingSessionIds } == true
     val currentActivity = remember(
@@ -148,7 +151,7 @@ fun ChatScreen(
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.stopSpeechForBackground()
+                viewModel.onAppBackgrounded()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -291,42 +294,57 @@ fun ChatScreen(
         }
 
         if (state.currentSessionId != null) {
-            ChatInputBar(
-                text = state.inputText,
-                isBusy = currentSessionIsRunning,
-                isRecording = state.isRecording,
-                isTranscribing = state.isTranscribing,
-                hasPreservedSpeechAudio = state.hasPreservedSpeechAudio,
-                isRetryingSpeech = state.isRetryingSpeech,
-                speechAudioLevel = state.speechAudioLevel,
-                isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
-                agentActivityText = currentActivity?.text,
-                agentStartedAtMillis = currentActivity?.startedAtMillis,
-                imageAttachments = state.imageAttachments,
-                onTextChange = viewModel::setInputText,
-                onSend = { viewModel.sendMessage() },
-                onAddImages = { imagePickerLauncher.launch("image/*") },
-                onRemoveImage = viewModel::removeImageAttachment,
-                onAbort = { viewModel.abortSession() },
-                onAbortSpeech = { viewModel.abortSpeechRecognition() },
-                onRetrySpeech = { viewModel.retryPreservedSpeechAudio() },
-                onDiscardSpeech = { viewModel.discardPreservedSpeechAudio() },
-                onToggleRecording = {
-                    if (state.isRecording) {
-                        viewModel.toggleRecording()
-                    } else {
-                        val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasRecordAudioPermission) {
+            if (hasActiveQuestion) {
+                // A pending question replaces the composer so the card gets the
+                // space the input bar would occupy, keeping actions reachable.
+                state.pendingQuestions
+                    .filter { it.sessionId == state.currentSessionId }
+                    .firstOrNull()
+                    ?.let { question ->
+                        QuestionCardView(
+                            question = question,
+                            onReply = { answers, onError -> viewModel.replyQuestion(question.id, answers, onError) },
+                            onReject = { viewModel.rejectQuestion(question.id) }
+                        )
+                    }
+            } else {
+                ChatInputBar(
+                    text = state.inputText,
+                    isBusy = currentSessionIsRunning,
+                    isRecording = state.isRecording,
+                    isTranscribing = state.isTranscribing,
+                    hasPreservedSpeechAudio = state.hasPreservedSpeechAudio,
+                    isRetryingSpeech = state.isRetryingSpeech,
+                    speechAudioLevel = state.speechAudioLevel,
+                    isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
+                    agentActivityText = currentActivity?.text,
+                    agentStartedAtMillis = currentActivity?.startedAtMillis,
+                    imageAttachments = state.imageAttachments,
+                    onTextChange = viewModel::setInputText,
+                    onSend = { viewModel.sendMessage() },
+                    onAddImages = { imagePickerLauncher.launch("image/*") },
+                    onRemoveImage = viewModel::removeImageAttachment,
+                    onAbort = { viewModel.abortSession() },
+                    onAbortSpeech = { viewModel.abortSpeechRecognition() },
+                    onRetrySpeech = { viewModel.retryPreservedSpeechAudio() },
+                    onDiscardSpeech = { viewModel.discardPreservedSpeechAudio() },
+                    onToggleRecording = {
+                        if (state.isRecording) {
                             viewModel.toggleRecording()
                         } else {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasRecordAudioPermission) {
+                                viewModel.toggleRecording()
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
 
         if (state.ttsReadingMessageId != null) {
@@ -365,17 +383,6 @@ fun ChatScreen(
                 }
             )
         }
-
-        state.pendingQuestions
-            .filter { it.sessionId == state.currentSessionId }
-            .firstOrNull()
-            ?.let { question ->
-                QuestionCardView(
-                    question = question,
-                    onReply = { answers, onError -> viewModel.replyQuestion(question.id, answers, onError) },
-                    onReject = { viewModel.rejectQuestion(question.id) }
-                )
-            }
     }
 }
 

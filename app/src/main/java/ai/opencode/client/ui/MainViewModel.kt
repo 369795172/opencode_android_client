@@ -1,5 +1,6 @@
 package ai.opencode.client.ui
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,6 +8,7 @@ import ai.opencode.client.data.model.*
 import ai.opencode.client.data.api.AIUsageClient
 import ai.opencode.client.data.repository.HostProfileStore
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.speech.SpeechSessionService
 import ai.opencode.client.tts.TtsController
 import ai.opencode.client.ssh.SSHKeyManager
 import ai.opencode.client.ssh.TunnelManager
@@ -25,6 +27,7 @@ import com.yage.voiceflowkit.VoiceFlowPreservedAudio
 import com.yage.voiceflowkit.VoiceFlowRecordingStrategy
 import com.yage.voiceflowkit.VoiceFlowSession
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -412,6 +415,7 @@ data class AppState(
 class MainViewModel @Inject constructor(
     internal val repository: OpenCodeRepository,
     private val settingsManager: SettingsManager,
+    @ApplicationContext private val appContext: Context,
     private val voiceFlowClient: VoiceFlowClient,
     private val microphone: VoiceFlowMicrophone,
     private val hostProfileStore: HostProfileStore,
@@ -743,6 +747,7 @@ class MainViewModel @Inject constructor(
                 if (strategy.usesRealtimeTransport) {
                     if (session == null) {
                         Log.e(TAG, "Realtime speech session is missing on stop")
+                        stopSpeechKeepAlive()
                         _state.update {
                             it.copy(
                                 isTranscribing = false,
@@ -761,6 +766,7 @@ class MainViewModel @Inject constructor(
                         terminateSession = ::terminateSpeechSession,
                     ) {
                         speechSession = null
+                        stopSpeechKeepAlive()
                     }
                 } else {
                     try {
@@ -789,6 +795,7 @@ class MainViewModel @Inject constructor(
                         }
                     } finally {
                         speechSession = null
+                        stopSpeechKeepAlive()
                         audioFile?.delete()
                     }
                 }
@@ -845,11 +852,13 @@ class MainViewModel @Inject constructor(
                         microphone.start(strategy = strategy, onPCMChunk = null)
                         Log.d(TAG, "Grok batch recording started")
                     }
+                    startSpeechKeepAlive()
                     _state.update { it.copy(isRecording = true) }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to start recording", e)
                     runCatching { microphone.stop() }
                     stopSpeechAudioLevelConsumer()
+                    stopSpeechKeepAlive()
                     speechSession?.let { session ->
                         runCatching { terminateSpeechSession(session) }
                     }
@@ -875,12 +884,39 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Called when the activity reaches ON_STOP (screen off or app switched away).
+     * While the microphone keep-alive foreground service is running, recording and
+     * transcription continue in the background — screen-off must not discard audio.
+     */
+    fun onAppBackgrounded() {
+        val speechActive = _state.value.let {
+            it.isRecording || it.isTranscribing || it.isRetryingSpeech
+        }
+        if (speechActive && SpeechSessionService.isRunning.get()) {
+            Log.d(TAG, "App backgrounded during speech; keep-alive service active, continuing")
+            return
+        }
+        stopSpeechForBackground()
+    }
+
+    private fun startSpeechKeepAlive() {
+        runCatching { SpeechSessionService.start(appContext) }
+            .onFailure { Log.w(TAG, "Failed to start speech keep-alive service", it) }
+    }
+
+    private fun stopSpeechKeepAlive() {
+        runCatching { SpeechSessionService.stop(appContext) }
+            .onFailure { Log.w(TAG, "Failed to stop speech keep-alive service", it) }
+    }
+
     fun stopSpeechForBackground() {
         val session = speechSession
         speechHeartbeatJob?.cancel()
         speechHeartbeatJob = null
         stopSpeechAudioLevelConsumer()
         speechSession = null
+        stopSpeechKeepAlive()
         _state.update { it.copy(isRecording = false, isTranscribing = false, speechAudioLevel = 0f) }
         viewModelScope.launch {
             runCatching { microphone.stop() }
@@ -978,6 +1014,8 @@ class MainViewModel @Inject constructor(
             } catch (error: Exception) {
                 Log.e(TAG, "Failed to abort speech recognition", error)
                 _state.update { it.copy(speechError = errorMessageOrFallback(error, "Failed to abort speech recognition")) }
+            } finally {
+                stopSpeechKeepAlive()
             }
         }
     }
@@ -986,6 +1024,7 @@ class MainViewModel @Inject constructor(
         val preserved = preservedSpeechAudio ?: return
         val prefix = preservedSpeechExistingInput
         _state.update { it.copy(isRetryingSpeech = true) }
+        startSpeechKeepAlive()
         viewModelScope.launch {
             try {
                 val result = voiceFlowClient.transcribe(preserved) { partial ->
@@ -1006,6 +1045,8 @@ class MainViewModel @Inject constructor(
                         speechError = errorMessageOrFallback(error, "Transcription failed"),
                     )
                 }
+            } finally {
+                stopSpeechKeepAlive()
             }
         }
     }
@@ -1667,6 +1708,7 @@ class MainViewModel @Inject constructor(
         pollJob?.cancel()
         speechHeartbeatJob?.cancel()
         microphone.discard()
+        stopSpeechKeepAlive()
         runBlocking { speechSession?.let { terminateSpeechSession(it) } }
         speechSession = null
         ttsController.stop()

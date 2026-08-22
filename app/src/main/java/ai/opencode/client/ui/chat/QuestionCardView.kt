@@ -3,10 +3,12 @@ package ai.opencode.client.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.automirrored.filled.Help
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -194,192 +197,212 @@ fun QuestionCardView(
             containerColor = accent.copy(alpha = 0.07f)
         )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Help,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.question_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = accent
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = stringResource(R.string.question_of, currentTab + 1, question.questions.size),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // Prefer parent constraints when bounded; otherwise fall back to full screen height.
+            val configuration = LocalConfiguration.current
+            val boundedHeight = minOf(maxHeight, configuration.screenHeightDp.dp)
+            // Approximate space for header, progress dots, action buttons, and card padding.
+            val reservedInsideCard = 220.dp
+            val upperCap = maxOf(120.dp, boundedHeight * 0.55f)
+            val maxBodyHeight = (boundedHeight - reservedInsideCard)
+                .coerceAtLeast(0.dp)
+                .coerceIn(120.dp, upperCap)
 
-            // Progress dots
-            if (question.questions.size > 1) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    repeat(question.questions.size) { index ->
-                        val dotColor: Color = when {
-                            index == currentTab -> accent
-                            hasAnswer(index) -> accent.copy(alpha = 0.5f)
-                            else -> MaterialTheme.colorScheme.surfaceVariant
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Help,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.question_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = accent
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = stringResource(R.string.question_of, currentTab + 1, question.questions.size),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Progress dots
+                if (question.questions.size > 1) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        repeat(question.questions.size) { index ->
+                            val dotColor: Color = when {
+                                index == currentTab -> accent
+                                hasAnswer(index) -> accent.copy(alpha = 0.5f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor)
+                            )
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(dotColor)
-                        )
                     }
                 }
-            }
 
-            // Question text
-            Text(
-                text = currentQuestion.question,
-                style = MaterialTheme.typography.bodyLarge
-            )
+                // Scrollable body: question text + hint + options stay browsable when long,
+                // while header and action buttons remain pinned.
+                val bodyScrollState = rememberScrollState()
+                LaunchedEffect(question.id, currentTab) { bodyScrollState.scrollTo(0) }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = maxBodyHeight)
+                        .verticalScroll(bodyScrollState),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Question text
+                    Text(
+                        text = currentQuestion.question,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
 
-            // Hint text
-            Text(
-                text = if (currentQuestion.allowMultiple) stringResource(R.string.question_multi_hint) else stringResource(R.string.question_single_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                    // Hint text
+                    Text(
+                        text = if (currentQuestion.allowMultiple) stringResource(R.string.question_multi_hint) else stringResource(R.string.question_single_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
-            // Options
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                currentQuestion.options.forEach { option ->
-                    val selected = isSelected(option)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) accent.copy(alpha = 0.08f) else Color.Transparent)
-                            .clickable { selectOption(option) }
-                            .padding(vertical = 10.dp, horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (selected) {
-                                if (currentQuestion.allowMultiple) Icons.Filled.CheckBox else Icons.Filled.RadioButtonChecked
-                            } else {
-                                if (currentQuestion.allowMultiple) Icons.Outlined.CheckBoxOutlineBlank else Icons.Outlined.RadioButtonUnchecked
-                            },
-                            contentDescription = null,
-                            tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = option.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (selected) accent else MaterialTheme.colorScheme.onSurface
+                    currentQuestion.options.forEach { option ->
+                        val selected = isSelected(option)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) accent.copy(alpha = 0.08f) else Color.Transparent)
+                                .clickable { selectOption(option) }
+                                .padding(vertical = 10.dp, horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (selected) {
+                                    if (currentQuestion.allowMultiple) Icons.Filled.CheckBox else Icons.Filled.RadioButtonChecked
+                                } else {
+                                    if (currentQuestion.allowMultiple) Icons.Outlined.CheckBoxOutlineBlank else Icons.Outlined.RadioButtonUnchecked
+                                },
+                                contentDescription = null,
+                                tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
                             )
-                            if (option.description.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = option.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = option.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (selected) accent else MaterialTheme.colorScheme.onSurface
+                                )
+                                if (option.description.isNotEmpty()) {
+                                    Text(
+                                        text = option.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Custom input option
+                    if (currentQuestion.allowCustom) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isCustomActiveNow) accent.copy(alpha = 0.08f) else Color.Transparent)
+                                    .clickable { activateCustom() }
+                                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (isCustomActiveNow) Icons.Filled.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
+                                    contentDescription = null,
+                                    tint = if (isCustomActiveNow) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = stringResource(R.string.question_type_own_answer),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (isCustomActiveNow) accent else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            if (isCustomActiveNow) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = customText,
+                                    onValueChange = { customTexts[currentTab] = it },
+                                    label = { Text(stringResource(R.string.question_custom_placeholder)) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = { commitCustom() }),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .imePadding()
                                 )
                             }
                         }
                     }
                 }
 
-                // Custom input option
-                if (currentQuestion.allowCustom) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isCustomActiveNow) accent.copy(alpha = 0.08f) else Color.Transparent)
-                                .clickable { activateCustom() }
-                                .padding(vertical = 10.dp, horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (isCustomActiveNow) Icons.Filled.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
-                                contentDescription = null,
-                                tint = if (isCustomActiveNow) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = stringResource(R.string.question_type_own_answer),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isCustomActiveNow) accent else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        if (isCustomActiveNow) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = customText,
-                                onValueChange = { customTexts[currentTab] = it },
-                                label = { Text(stringResource(R.string.question_custom_placeholder)) },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { commitCustom() }),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Action buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onReject,
-                    modifier = Modifier.weight(1f)
+                // Action buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(stringResource(R.string.question_dismiss))
-                }
-
-                if (currentTab > 0) {
                     OutlinedButton(
-                        onClick = { back() },
+                        onClick = onReject,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(stringResource(R.string.question_back))
+                        Text(stringResource(R.string.question_dismiss))
                     }
-                }
 
-                Button(
-                    onClick = { next() },
-                    enabled = canProceed() && !isSending,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (isSending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    } else {
-                        Text(if (currentTab >= question.questions.size - 1) stringResource(R.string.question_submit) else stringResource(R.string.question_next))
+                    if (currentTab > 0) {
+                        OutlinedButton(
+                            onClick = { back() },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.question_back))
+                        }
+                    }
+
+                    Button(
+                        onClick = { next() },
+                        enabled = canProceed() && !isSending,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (isSending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Text(if (currentTab >= question.questions.size - 1) stringResource(R.string.question_submit) else stringResource(R.string.question_next))
+                        }
                     }
                 }
             }

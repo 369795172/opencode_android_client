@@ -125,6 +125,7 @@ class NfcQuickPromptTest {
         return MainViewModel(
             repository,
             settingsManager,
+            mockk(relaxed = true),
             voiceFlowClient,
             microphone,
             hostProfileStore,

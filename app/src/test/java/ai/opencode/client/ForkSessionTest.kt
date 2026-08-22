@@ -121,7 +121,7 @@ class ForkSessionTest {
     }
 
     private fun createViewModel(): MainViewModel {
-        return MainViewModel(repository, settingsManager, voiceFlowClient, microphone, hostProfileStore, tunnelManager, sshKeyManager, ttsController = ttsController)
+        return MainViewModel(repository, settingsManager, mockk(relaxed = true), voiceFlowClient, microphone, hostProfileStore, tunnelManager, sshKeyManager, ttsController = ttsController)
     }
 
     @Test
