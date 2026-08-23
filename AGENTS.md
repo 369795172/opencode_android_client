@@ -24,7 +24,7 @@ Public GitHub fork（`369795172/opencode_android_client`）；上游为 `grapeot
 - 提交保持小而可逆；commit message 引用 issue 时用 `fix: #<n> — …` / `feat: #<n> — …`
 - **每个 meaningful change 之后必须更新 `docs/working.md`**（日期键倒序 + 特性级 bullet）。决策变更同步回写 PRD/RFC/design，不留口径漂移。
 - 不提交 `.env`、密钥、私钥、真实密码、build 产物
-- 这是 public repo：已跟踪文件禁止私人邮箱、真实 API key、内部路径、1Password/`op://` 引用
+- 这是 public repo：已跟踪文件禁止私人邮箱、真实 API key、内部路径、1Password/`op://` 引用、真实主机名/域名（含 tailnet 与公司域名）、真实设备串号——**包括 `docs/working.md` 的 E2E 记录**；push 前对 staged diff 跑隐私扫描（`docs/test.md` Fail-closed），必须零命中
 
 ## Build Environment
 
@@ -73,6 +73,7 @@ cd projects/opencode-android
 - App side: `MainActivity` extras `test_server_url` / `test_username` / `test_password` / `test_profile_name` → `MainViewModel.configureServer`（syncs Host Profile + EncryptedSharedPreferences）.
 - Speech (voice input = the only text-entry channel on glasses): extras `test_ai_builder_token` / `test_ai_builder_base_url` → `MainViewModel.configureAiBuilder`; script flags `--ai-builder-token-env VAR` / `--ai-builder-token` / `--ai-builder-url`（env 缺省回落 ambient `AI_BUILDER_TOKEN`）. After inject, run the speech section's 保存 once to flip the live-probe state (`aiBuilderOK`).
 - USB-tethered topology: `adb reverse tcp:4096 tcp:4096` tunnels the device's `localhost:4096` to the Mac's OpenCode server (matches the app's default URL). Known flake: first inject right after `install -r` may not persist; re-run bootstrap with `--skip-install`.
+- **Privacy red lines（部署工具，public repo）**：`scripts/glasses_bootstrap.sh` 与 `scripts/glasses_profile.json` 是 local-only（已 gitignore）——脚本引用私有 monorepo env 源，真实 profile 带真实主机名，两者永不可提交或 push。可提交的只有占位符版 `glasses_profile.example.json`。凭证一律走 `--password-env` / `--ai-builder-token-env`（Keychain env），不落 argv 历史不进文件；文档写设备一律用 `RG_glasses` 这类别名，不写串号。
 
 ## Key Decisions（摘要）
 
