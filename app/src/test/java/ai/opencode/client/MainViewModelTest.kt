@@ -55,6 +55,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -198,6 +199,43 @@ class MainViewModelTest {
             })
             repository.configure("https://host.ts.net:4096", "opencode", "s3cret")
         }
+    }
+
+    @Test
+    fun `configureAiBuilder sanitizes token and persists speech credentials`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.configureAiBuilder(
+            token = " tok_secret\n﻿ ",
+            baseUrl = " https://voice.example.com/backend ",
+        )
+
+        verify(exactly = 1) {
+            settingsManager.aiBuilderToken = "tok_secret"
+            settingsManager.aiBuilderBaseURL = "https://voice.example.com/backend"
+        }
+    }
+
+    @Test
+    fun `configureAiBuilder without baseUrl keeps stored base URL`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.configureAiBuilder(token = "tok_secret")
+
+        verify(exactly = 1) { settingsManager.aiBuilderToken = "tok_secret" }
+        verify(exactly = 0) { settingsManager.aiBuilderBaseURL = any() }
+    }
+
+    @Test
+    fun `configureAiBuilder rejects blank token`() = runTest {
+        val viewModel = createViewModel()
+
+        try {
+            viewModel.configureAiBuilder(token = "  \n ")
+            fail("expected IllegalArgumentException for blank token")
+        } catch (_: IllegalArgumentException) {
+        }
+        verify(exactly = 0) { settingsManager.aiBuilderToken = any() }
     }
 
     @Test

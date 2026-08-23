@@ -526,6 +526,21 @@ class MainViewModel @Inject constructor(
         refreshHostProfileState()
     }
 
+    /**
+     * Debug/bootstrap entry: persist AI Builder speech credentials (token and
+     * optional base URL) without driving the Settings UI, so IME-less devices
+     * (glasses) can receive voice-input credentials via launch Intent extras.
+     * Other speech settings (custom prompt / terminology / strategy) keep their
+     * stored or default values.
+     */
+    fun configureAiBuilder(token: String, baseUrl: String? = null) {
+        val sanitizedToken = sanitizeBearerToken(token)
+        require(sanitizedToken.isNotEmpty()) { "AI Builder token is required" }
+        val trimmedBase = baseUrl?.trim()?.takeIf { it.isNotEmpty() }
+        settingsManager.aiBuilderToken = sanitizedToken
+        trimmedBase?.let { settingsManager.aiBuilderBaseURL = it }
+    }
+
     fun getHostProfiles(): List<HostProfile> = hostProfileStore.profiles()
 
     fun currentHostProfile(): HostProfile = hostProfileStore.currentProfile()

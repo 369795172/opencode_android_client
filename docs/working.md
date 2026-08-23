@@ -1,5 +1,16 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-08-23 — Glasses 零输入 bootstrap 补全：AI Builder token 注入（Rokid 专版）
+
+- Rokid Glasses（IME-less，无键盘）装 OpenCode 客户端的最后一道墙是语音输入凭证：server URL/密码已有 debug Intent 注入通道（`configureServer`），但 `aiBuilderToken` 只能 Settings 手输，而语音是眼镜上唯一文字输入手段。
+- `MainViewModel.configureAiBuilder(token, baseUrl?)`：debug/bootstrap 入口，sanitizes token（复用 `sanitizeBearerToken`）后写 `settingsManager`，可选覆盖 base URL；其余语音设置（自定义提示词/术语表/录音策略）不动。
+- `MainActivity` 新增 debug extras：`test_ai_builder_token` / `test_ai_builder_base_url`（`BuildConfig.DEBUG` 硬门控，release 死代码，与 `test_server_url` 家族同 pattern）。
+- `scripts/glasses_bootstrap.sh` 新增 `--ai-builder-token` / `--ai-builder-token-env VAR` / `--ai-builder-url`；env 缺省回落 ambient `AI_BUILDER_TOKEN`；dry-run 输出对 token 值脱敏（修复 dry-run 泄漏真实值）。
+- 版本 bump 0.1.20260823 (33)；`testDebugUnitTest` 全绿（新增 3 个 configureAiBuilder 单测：sanitize+持久化 / 无 baseUrl 不覆盖 / 空 token require 失败）。
+- **真机 E2E（RG_glasses 真机）**：v33 覆盖安装 → `adb reverse tcp:4096 tcp:4096`（USB 隧道，App 默认 URL 恰为 `http://localhost:4096`）→ bootstrap 全量注入 → Settings「已连接 (v1.18.18)」→ 眼镜实时渲染 Mac 当前 session（Chat 流式同步验证）→ logcat `tokenSet=true` → 语音段 保存 自动探测「连接成功」→ Chat 点麦克风 `aiBuilderOK=true, tokenSet=true` + Speech keep-alive service 启动（录音起停实测）。
+- **已知坑（Lesson）**：`install -r` 后立即 `am start` 带 extras 的首次注入可能不落（12:01 首次 token 未持久化，重跑 `--skip-install` 注入即成；12:14/12:17 两次复验通过）。疑似 install/force-stop/am start 竞态，未复现定位；bootstrap 后用 logcat `tokenSet=` 做一次行为断言即可兜底。
+- Lesson（可迁移）：无输入设备的产品，配置面 = 可注入面；把「最后一项必须手输的凭证」当成 P0 缺口，因为它封死的是该设备形态的唯一输入通道。
+
 ## 2026-08-21 — scaffold v2 retrofit（文档纪律，不改运行时）
 
 - 按 rootgrove `workflow_project_scaffold.md` v2 Retrofit（§7）收敛治理层：补 `AGENTS.md` 的 What NOT to do、working.md 更新强制、Key Decisions 摘要；README 与 AGENTS 互指。

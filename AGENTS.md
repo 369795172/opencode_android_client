@@ -71,6 +71,8 @@ cd projects/opencode-android
 - Requires debug APK (`ai.opencode.client`); refuses to auto-pick a device (must pass `-s` / `ANDROID_SERIAL`).
 - Example profile: `scripts/glasses_profile.example.json` (leave `password` empty and pass `--password-env`).
 - App side: `MainActivity` extras `test_server_url` / `test_username` / `test_password` / `test_profile_name` → `MainViewModel.configureServer`（syncs Host Profile + EncryptedSharedPreferences）.
+- Speech (voice input = the only text-entry channel on glasses): extras `test_ai_builder_token` / `test_ai_builder_base_url` → `MainViewModel.configureAiBuilder`; script flags `--ai-builder-token-env VAR` / `--ai-builder-token` / `--ai-builder-url`（env 缺省回落 ambient `AI_BUILDER_TOKEN`）. After inject, run the speech section's 保存 once to flip the live-probe state (`aiBuilderOK`).
+- USB-tethered topology: `adb reverse tcp:4096 tcp:4096` tunnels the device's `localhost:4096` to the Mac's OpenCode server (matches the app's default URL). Known flake: first inject right after `install -r` may not persist; re-run bootstrap with `--skip-install`.
 
 ## Key Decisions（摘要）
 
