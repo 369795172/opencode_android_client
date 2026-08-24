@@ -103,3 +103,14 @@ cd projects/opencode-android
 - 里程碑后问一次：本轮能否蒸馏一条可迁移原则进 `docs/working.md` Lessons。
 - 公开发布或 push 前做隐私扫描（命令见 `docs/test.md` Fail-closed），必须零命中。
 - 可交付构建按 README 版本号规范 bump `versionName` / `versionCode`。本文件只约束文档与工程纪律，不替代发版 checklist。
+
+## Feishu Inbound（需求流水线运行环境）
+
+本仓的 feishu inbound（Pipeline C–F）不在本仓运行，由 rootgrove 托管：
+
+- 运行环境：rootgrove venv（`/Users/marvi/CursorWorks/rootgrove/venv/bin/python`）；引擎 pin SSOT = rootgrove `tools/feishu_inbound/requirements.txt`
+- Instance config：rootgrove `config/feishu_inbound_opencode_android.yaml`（surface 路由见 `feishu_inbound_opencode_android_surfaces.yaml`）
+- 调度：launchd `com.personal.feishu-inbound-opencode-android-lead-tick` → `tools/feishu_inbound/run_opencode_android_lead_tick.sh`（wrapper 检测引擎缺失时按 pin 自动安装）
+- 引擎仓：`369795172/feishu-inbound-skill`（只装 Release wheel，不跟踪其 main）
+
+本仓的 Gradle/Kotlin 工具链只服务 APK 构建，与 inbound 无关。
