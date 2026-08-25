@@ -18,6 +18,9 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Rokid assistserver exposes the glasses' only TTS via an explicit-component
+             binder service rather than the standard TTS_SERVICE intent. -->
+        <package android:name="com.rokid.os.sprite.assistserver" />
     </queries>
 
     <application

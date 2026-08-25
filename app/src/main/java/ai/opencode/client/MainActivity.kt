@@ -94,6 +94,7 @@ private const val EXTRA_TEST_PASSWORD = "test_password"
 private const val EXTRA_TEST_PROFILE_NAME = "test_profile_name"
 private const val EXTRA_TEST_AI_BUILDER_TOKEN = "test_ai_builder_token"
 private const val EXTRA_TEST_AI_BUILDER_BASE_URL = "test_ai_builder_base_url"
+private const val EXTRA_TEST_AUTO_SEND_AFTER_SPEECH = "test_auto_send_after_speech"
 
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @AndroidEntryPoint
@@ -141,6 +142,9 @@ class MainActivity : AppCompatActivity() {
                             token = aiBuilderToken,
                             baseUrl = intent?.getStringExtra(EXTRA_TEST_AI_BUILDER_BASE_URL),
                         )
+                    }
+                    if (intent?.getBooleanExtra(EXTRA_TEST_AUTO_SEND_AFTER_SPEECH, false) == true) {
+                        mainViewModel.setAutoSendAfterSpeech(true)
                     }
                 }
                 lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {

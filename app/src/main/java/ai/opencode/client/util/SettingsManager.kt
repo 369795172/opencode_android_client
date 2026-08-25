@@ -175,6 +175,10 @@ class SettingsManager @Inject constructor(
         get() = encryptedPrefs.getBoolean(KEY_AUTO_READ_ALOUD, true)
         set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_READ_ALOUD, value).apply()
 
+    var autoSendAfterSpeech: Boolean
+        get() = encryptedPrefs.getBoolean(KEY_AUTO_SEND_AFTER_SPEECH, false)
+        set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_SEND_AFTER_SPEECH, value).apply()
+
     var ttsSpeechRate: Float
         get() = encryptedPrefs.getFloat(KEY_TTS_SPEECH_RATE, 1f)
         set(value) = encryptedPrefs.edit()
@@ -286,6 +290,7 @@ class SettingsManager @Inject constructor(
         private const val KEY_NFC_PROMPT = "nfc_prompt"
         private const val KEY_NFC_AUTO_SEND = "nfc_auto_send"
         private const val KEY_AUTO_READ_ALOUD = "auto_read_aloud"
+        private const val KEY_AUTO_SEND_AFTER_SPEECH = "auto_send_after_speech"
         private const val KEY_TTS_SPEECH_RATE = "tts_speech_rate"
 
         private const val MODEL_PRESET_SCHEMA_VERSION = 1

@@ -31,6 +31,8 @@ import dagger.hilt.android.EntryPointAccessors
 class TtsService : Service() {
 
     private var tts: TextToSpeech? = null
+    private var rokidEngine: RokidAssistTtsEngine? = null
+    private var useRokidEngine = false
     private var mediaSession: MediaSession? = null
     private var ttsController: TtsController? = null
     private var isTtsReady = false
@@ -154,7 +156,11 @@ class TtsService : Service() {
                     stopPlayback(removeNotification = true)
                     return START_NOT_STICKY
                 }
-                if (selectedEngine == null || tts == null) {
+                // Hard-fail only when no engine path exists at all. While the
+                // Rokid assistserver bind is still in flight (rokidEngine set,
+                // useRokidEngine false) the request queues via pendingText and
+                // speaks from onServiceConnected.
+                if ((selectedEngine == null || tts == null) && !useRokidEngine && rokidEngine == null) {
                     notifyTtsError("文字转语音不可用，请检查系统 TTS 设置。")
                     stopPlayback(removeNotification = true)
                     return START_NOT_STICKY
@@ -168,7 +174,7 @@ class TtsService : Service() {
                 cancelChunkWatchdog()
                 chunkRetryCount = 0
                 resumeChunkAfterReinit = null
-                tts?.stop()
+                stopActiveEngine()
                 currentText = text
                 currentMessageId = messageId
                 if (isTtsReady) {
@@ -208,9 +214,8 @@ class TtsService : Service() {
     private fun initializeTtsEngine() {
         selectedEngine = TtsEngineResolver.resolveEnginePackage(applicationContext)
         if (selectedEngine == null) {
-            Log.w(TAG, "No TTS engine installed on device")
-            notifyTtsError("未找到文字转语音引擎。请到 设置 → 无障碍 → 文字转语音输出 安装引擎并下载中文语音包。")
-            handleTtsInitFailure()
+            Log.w(TAG, "No system TTS engine installed; falling back to Rokid assistserver TTS")
+            initializeRokidEngine()
             return
         }
         Log.i(TAG, "Using TTS engine: $selectedEngine")
@@ -257,11 +262,54 @@ class TtsService : Service() {
         }, selectedEngine)
     }
 
+    /**
+     * Glasses fallback: Rokid devices ship no standard TTS engine, but the
+     * vendor assistserver exposes an AIDL TTS service. Wire its utterance
+     * callbacks onto the existing chunk-aware [utteranceListener] so chunk
+     * sequencing, pause/resume, seek and the watchdog keep working.
+     */
+    private fun initializeRokidEngine() {
+        val engine = RokidAssistTtsEngine(applicationContext)
+        rokidEngine = engine
+        engine.onUtteranceStart = { tag -> utteranceListener.onStart(tag) }
+        engine.onUtteranceDone = { tag -> utteranceListener.onDone(tag) }
+        val bound = engine.ensureBound {
+            if (rokidEngine !== engine) return@ensureBound
+            useRokidEngine = true
+            isTtsReady = true
+            selectedEngine = RokidAssistTtsEngine.TTS_COMPONENT.packageName
+            Log.i(TAG, "Rokid assistserver TTS ready rate=$speechRate")
+            val resumeAt = resumeChunkAfterReinit
+            if (resumeAt != null && isPlaybackActive) {
+                resumeChunkAfterReinit = null
+                chunkRetryCount = 0
+                speakChunkAt(resumeAt)
+                return@ensureBound
+            }
+            val text = pendingText
+            if (text != null) {
+                speakInternal(text, pendingMessageId)
+                pendingText = null
+                pendingMessageId = null
+            }
+        }
+        if (!bound) {
+            rokidEngine = null
+            useRokidEngine = false
+            Log.w(TAG, "Rokid assistserver TTS unavailable; no engine at all")
+            notifyTtsError("未找到文字转语音引擎（系统 TTS 与 Rokid assistserver 均不可用）。")
+            handleTtsInitFailure()
+        }
+    }
+
     private fun shutdownTtsEngine() {
         isTtsReady = false
         tts?.stop()
         tts?.shutdown()
         tts = null
+        rokidEngine?.release()
+        rokidEngine = null
+        useRokidEngine = false
     }
 
     private fun reinitializeTtsEngine(resumeAtChunk: Int) {
@@ -439,7 +487,7 @@ class TtsService : Service() {
         chunkRetryCount = 0
         cancelChunkWatchdog()
         stopProgressTicker()
-        tts?.stop()
+        stopActiveEngine()
         isPaused = false
         publishProgress(progress = clamped, isPlaying = true, paused = false)
         mainHandler.post {
@@ -460,7 +508,7 @@ class TtsService : Service() {
         if (isPaused) return
         cancelChunkWatchdog()
         stopProgressTicker()
-        tts?.stop()
+        stopActiveEngine()
         mainHandler.post {
             if (isPlaybackActive && !isPaused) {
                 speakChunkAt(index)
@@ -523,6 +571,10 @@ class TtsService : Service() {
     }
 
     private fun speakChunkAt(index: Int) {
+        if (useRokidEngine) {
+            speakChunkViaRokid(index)
+            return
+        }
         val engine = tts
         if (engine == null || !isTtsReady) {
             if (isPlaybackActive) {
@@ -553,6 +605,44 @@ class TtsService : Service() {
         if (result == TextToSpeech.ERROR) {
             Log.w(TAG, "TTS speak returned ERROR for chunk=$index")
             handleUtteranceError(utteranceId, TextToSpeech.ERROR)
+        }
+    }
+
+    private fun speakChunkViaRokid(index: Int) {
+        val engine = rokidEngine
+        if (engine == null || !isTtsReady) {
+            if (isPlaybackActive) {
+                reinitializeTtsEngine(index)
+            } else {
+                finishPlayback()
+            }
+            return
+        }
+        if (index >= utteranceChunks.size) {
+            finishPlayback()
+            return
+        }
+        activeChunkIndex = index
+        acquirePlaybackWakeLock()
+        ensureForeground(isPlaying = true)
+        val chunk = utteranceChunks[index]
+        chunkStartedAtMs = System.currentTimeMillis()
+        chunkEstimatedMs = estimateChunkDurationMs(chunk.length)
+        val utteranceId = utteranceIdForChunk(index)
+        if (!engine.speak(chunk, utteranceId)) {
+            Log.w(TAG, "Rokid TTS speak failed for chunk=$index")
+            handleUtteranceError(utteranceId, TextToSpeech.ERROR)
+            return
+        }
+        scheduleChunkWatchdog(index, chunk.length)
+    }
+
+    /** Stop whatever the active engine is saying (system engine or Rokid). */
+    private fun stopActiveEngine() {
+        if (useRokidEngine) {
+            rokidEngine?.stop(utteranceIdForChunk(activeChunkIndex))
+        } else {
+            tts?.stop()
         }
     }
 
@@ -595,7 +685,7 @@ class TtsService : Service() {
         isPaused = true
         cancelChunkWatchdog()
         stopProgressTicker()
-        tts?.stop()
+        stopActiveEngine()
         releasePlaybackWakeLock()
         ttsController?.onPlaybackPaused(currentMessageId)
         publishProgress(isPlaying = false, paused = true)
@@ -615,7 +705,7 @@ class TtsService : Service() {
     private fun stopPlayback(removeNotification: Boolean) {
         cancelChunkWatchdog()
         stopProgressTicker()
-        tts?.stop()
+        stopActiveEngine()
         isPaused = false
         isPlaybackActive = false
         currentText = null

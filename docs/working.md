@@ -1,5 +1,18 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-08-25 — Glasses 语音闭环补全：Rokid 原生 TTS 引擎 + 语音后自动发送
+
+- 眼镜语音闭环（戴上→说→执行→听）断在输出半环：RG_glasses 无任何标准 Android TTS 引擎（`TTS_SERVICE` intent 零解析），`TtsService` 初始化即「未找到文字转语音引擎」退出，`autoReadAloud`（默认 on）永远无声。输入半环（AI Builder 实时转写 + bootstrap token 注入）上一版已真机验证。
+- Rokid 系统自带私有 TTS：`com.rokid.os.sprite.assistserver` 内 `com.rokid.os.sprite.tts.TtsService` 暴露 AIDL `ITtsServer.playTtsMsg(text, tag, ITtsListener)` / `stopTtsPlay(tag)`；绑定走显式 ComponentName（不走标准 TTS_SERVICE intent，manifest `<queries>` 需加 package）。
+- 协议为逆向确认（assistserver APK dexdump 字节码）：`playTtsMsg` 首参经 `TextUtils.isEmpty` 校验=必填文本，次参=去重/停止 tag（listener `onTtsStart/onTtsStop` 回传同一 tag）；方法顺序即 AIDL transaction code，不可重排。
+- `RokidAssistTtsEngine`（新）：bind/重绑/DeathRecipient 式断连容忍 + tag 回调映射；`TtsService` 引擎链改为 系统 TTS → Rokid assistserver → 报错，chunk 管线（分片/进度/暂停恢复/seek/看门狗）对 Rokid 路径全复用（vendor 回调直接喂既有 `utteranceListener`，tag=`tts_chunk_N`）。
+- **修竞态**：ACTION_SPEAK 的引擎守卫原为「engine==null 即拒绝」，Rokid bind 异步窗口内首次 auto-read 被误杀（真机 logcat 复现：connected 后无 playTtsMsg）；改为「仅在无任何引擎路径时硬失败」，bind 在途走既有 `pendingText` 队列。
+- 语音后自动发送（闭环最后一环）：`SettingsManager.autoSendAfterSpeech`（默认 off）+ 纯函数 `shouldAutoSendAfterSpeech`（enabled/非录音转写中/无 speechError/有 session/文本非空，6 单测）+ Settings「Auto-send after speech」开关 + bootstrap `--auto-send` / debug extra `test_auto_send_after_speech`；接线在 realtime onFinished 与 Grok finally 两处。
+- `buildFeatures.aidl = true`（AGP 新默认关闭）；本机构建 JDK 用 Zulu 17（无 Android Studio）。
+- 版本 bump 0.1.20260825 (34)；`testDebugUnitTest` 351/351 绿；隐私扫描零命中。
+- **真机 E2E（RG_glasses）**：bootstrap 注入（profile+token+auto-send）→ server API 注入短 prompt → 回复完成 SSE → auto-read → logcat 完整证据链：`TtsService → Rokid assistserver TTS` → vendor `TtsData{msg='语音链路测试通过', uuid='tts_chunk_0'}` + 端侧合成首包 332ms → `onTtsStart/onTtsStop tag=tts_chunk_0` → 音频焦点释放。语音输入半环沿用 v33 验证。
+- Lesson（可迁移）：硬件带私有能力栈时，先 dumpsys/逆向确认协议再写代码（一次 dexdump 省掉整轮试错）；异步初始化的引擎守卫要区分「无引擎」与「引擎在路上」，否则首请求必被误杀——队列化而不是拒绝。
+
 ## 2026-08-23 — Glasses 零输入 bootstrap 补全：AI Builder token 注入（Rokid 专版）
 
 - Rokid Glasses（IME-less，无键盘）装 OpenCode 客户端的最后一道墙是语音输入凭证：server URL/密码已有 debug Intent 注入通道（`configureServer`），但 `aiBuilderToken` 只能 Settings 手输，而语音是眼镜上唯一文字输入手段。

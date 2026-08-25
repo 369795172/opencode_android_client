@@ -782,6 +782,7 @@ class MainViewModel @Inject constructor(
                     ) {
                         speechSession = null
                         stopSpeechKeepAlive()
+                        maybeAutoSendAfterSpeech()
                     }
                 } else {
                     try {
@@ -812,6 +813,7 @@ class MainViewModel @Inject constructor(
                         speechSession = null
                         stopSpeechKeepAlive()
                         audioFile?.delete()
+                        maybeAutoSendAfterSpeech()
                     }
                 }
             }
@@ -945,6 +947,28 @@ class MainViewModel @Inject constructor(
 
     fun setAutoReadAloud(enabled: Boolean) {
         settingsManager.autoReadAloud = enabled
+    }
+
+    fun getAutoSendAfterSpeech(): Boolean = settingsManager.autoSendAfterSpeech
+
+    fun setAutoSendAfterSpeech(enabled: Boolean) {
+        settingsManager.autoSendAfterSpeech = enabled
+    }
+
+    private fun maybeAutoSendAfterSpeech() {
+        val s = _state.value
+        if (!shouldAutoSendAfterSpeech(
+                enabled = settingsManager.autoSendAfterSpeech,
+                inputText = s.inputText,
+                speechError = s.speechError,
+                isRecording = s.isRecording,
+                isTranscribing = s.isTranscribing,
+                hasSession = s.currentSessionId != null,
+            )
+        ) {
+            return
+        }
+        sendMessage()
     }
 
     private fun handleSessionReplyComplete(sessionId: String) {
