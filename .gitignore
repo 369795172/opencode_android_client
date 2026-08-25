@@ -63,3 +63,6 @@ docs/ios_markdown_preview_fixtures/
 scripts/glasses_bootstrap.sh
 scripts/glasses_profile.json
 logs/
+
+# OMC runtime state — never commit (public repo; may embed local absolute paths)
+.omc/

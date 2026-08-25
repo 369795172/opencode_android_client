@@ -11,6 +11,7 @@
 - `buildFeatures.aidl = true`（AGP 新默认关闭）；本机构建 JDK 用 Zulu 17（无 Android Studio）。
 - 版本 bump 0.1.20260825 (34)；`testDebugUnitTest` 351/351 绿；隐私扫描零命中。
 - **真机 E2E（RG_glasses）**：bootstrap 注入（profile+token+auto-send）→ server API 注入短 prompt → 回复完成 SSE → auto-read → logcat 完整证据链：`TtsService → Rokid assistserver TTS` → vendor `TtsData{msg='语音链路测试通过', uuid='tts_chunk_0'}` + 端侧合成首包 332ms → `onTtsStart/onTtsStop tag=tts_chunk_0` → 音频焦点释放。语音输入半环沿用 v33 验证。
+- 隐私卫生（同日）：`.omc/` 运行态文件 untrack + gitignore（public 仓，含本机绝对路径风险）；全量审计确认域名/串号/中继 IP/凭证零泄露，详见 path-b 同日条目。
 - Lesson（可迁移）：硬件带私有能力栈时，先 dumpsys/逆向确认协议再写代码（一次 dexdump 省掉整轮试错）；异步初始化的引擎守卫要区分「无引擎」与「引擎在路上」，否则首请求必被误杀——队列化而不是拒绝。
 
 ## 2026-08-23 — Glasses 零输入 bootstrap 补全：AI Builder token 注入（Rokid 专版）
