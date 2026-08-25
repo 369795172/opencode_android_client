@@ -1,5 +1,14 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-08-25 · Public repo 隐私审计与卫生修复（path-b）
+
+- 全量审计（全部已推送 ref 内容扫描 + 全历史 pickaxe + GitHub issues/PRs/releases）：服务器域名、眼镜串号、SSH 中继 IP、真实凭证 **零泄露**；两个远端仓（opencode_android_client / client-1）确认 PUBLIC。
+- 已泄露并修复（低危：本机绝对路径，无凭证无域名）：`.omc/` 运行态 2 文件与 AGENTS.md feishu 节曾含 `/Users/...` 绝对路径 → `.omc/` 全部 untrack 并 gitignore 封禁，AGENTS.md 改相对路径表述。历史 commit 里的旧路径残留无法用新提交消除，评估低危可接受；如需彻底清除需 filter-repo 重写 + force-push（另行决策）。
+- .gitignore 补漏：`scripts/glasses_bootstrap.sh` / `glasses_profile.json`（含真实主机名，local-only）与 `logs/`（agent transcripts，含内部路径）此前在 path-b 未被 ignore，一次 `git add .` 即可泄露，已封禁。
+- 已知残留：63 个历史 commit 作者邮箱为私人邮箱（GitHub UI 可见）；后续提交可改 noreply 地址，历史重写另行决策。
+- AGENTS.md 构建环境改 `/usr/libexec/java_home -v 17`（本机 Zulu 17；已卸载 Android Studio，构建只需 JDK + Android SDK cmdline 组件，无需 IDE）。
+- Lesson：跨 ref 的隐私扫描先做 known-hit 校准再信任结果；运行态目录（.omc/logs）从 scaffold 第一天就该 gitignore，事后 untrack 是补救不是防线。
+
 ## 2026-08-21 — scaffold v2 retrofit（文档纪律，不改运行时）
 
 - 按 rootgrove `workflow_project_scaffold.md` v2 Retrofit（§7）收敛治理层：补 `AGENTS.md` 的 What NOT to do、working.md 更新强制、Key Decisions 摘要；README 与 AGENTS 互指。
@@ -645,3 +654,12 @@ iOS/Android feature parity 调研完成，确认以下体验层差异需要对�
 - 会改共享文件系统的测试留在假数据层（component）；连真实 server 的层默认只读。物理设备是生产态凭证存储，instrumented 测试按 serial 钉死 emulator。
 - Save 即验证时刻。独立的 Test 按钮若能留下过期的「已连接」绿勾，就是在撒谎。
 - 下标持久化只在槽位身份稳定时成立；列表插入或重排需要 canonical ID。数字 SLA 必须带适用域，否则按典型样本校准的 proxy 会在长耗时路径上碎掉。
+
+## 2026-08-21 · RFC-002 Specification Complete
+
+- **RFC-002 (Glasses Bootstrap)** specification written: Intent extras schema (namespaced `ai.opencode.client.bootstrap.*`), persistence strategy (disk HostProfile + encrypted password/token storage), error handling (3-retry health check, 401 auth fallback, IME-less error screen), narrow-display UX (success/error screens), unit + integration test strategy
+- **Scope finalized**: Intent schema canonicalization, profile persistence lifecycle, error handling matrix, narrow-screen UX spec, testing fixtures
+- **Out of scope**: NFC/QR (RFC-003), multi-device config (Phase 9), config export (Phase 9), background verification (Phase 9)
+- **Acceptance criteria**: 8 checkboxes covering schema, persistence, error handling, UX validation, test coverage, privacy scan
+- **Next phase**: Unit test implementation (MainViewModelTest.kt, BootstrapIntegrationTest.kt) after user review/approval of RFC-002.md
+
