@@ -28,17 +28,17 @@ Public GitHub fork（`369795172/opencode_android_client`）；上游为 `grapeot
 
 ## Build Environment
 
-终端默认可能找不到 Java，导致 `./gradlew` 失败。使用 Android Studio 自带的 JDK：
+终端默认可能找不到 Java，导致 `./gradlew` 失败。用系统 JDK 17（本机为 Zulu 17，`/usr/libexec/java_home -v 17` 可解析；装有 Android Studio 的机器其自带 JBR 亦可）：
 
 ```bash
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 export PATH="$JAVA_HOME/bin:$PATH"
 
 # For integration tests (adb)
 export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 ```
 
-**持久化**：在 `~/.zshrc` 中加入上述 `JAVA_HOME` 和 `PATH` 两行，然后 `source ~/.zshrc`。
+**持久化**：在 `~/.zshrc` 中加入上述 `JAVA_HOME` 和 `PATH` 两行，然后 `source ~/.zshrc`。构建只需 JDK + Android SDK cmdline 组件，不需要 Android Studio IDE。
 
 ## Run / Module not found
 
@@ -108,7 +108,7 @@ cd projects/opencode-android
 
 本仓的 feishu inbound（Pipeline C–F）不在本仓运行，由 rootgrove 托管：
 
-- 运行环境：rootgrove venv（`/Users/marvi/CursorWorks/rootgrove/venv/bin/python`）；引擎 pin SSOT = rootgrove `tools/feishu_inbound/requirements.txt`
+- 运行环境：rootgrove venv（rootgrove 仓根 `./venv/bin/python`，勿写绝对路径——本仓 public）；引擎 pin SSOT = rootgrove `tools/feishu_inbound/requirements.txt`
 - Instance config：rootgrove `config/feishu_inbound_opencode_android.yaml`（surface 路由见 `feishu_inbound_opencode_android_surfaces.yaml`）
 - 调度：launchd `com.personal.feishu-inbound-opencode-android-lead-tick` → `tools/feishu_inbound/run_opencode_android_lead_tick.sh`（wrapper 检测引擎缺失时按 pin 自动安装）
 - 引擎仓：`369795172/feishu-inbound-skill`（只装 Release wheel，不跟踪其 main）

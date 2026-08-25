@@ -57,3 +57,11 @@ ENV/
 
 # Local Markdown Web Preview fixtures copied from iOS for manual Android rendering tests
 docs/ios_markdown_preview_fixtures/
+
+# env sources and real host profiles — never commit (AGENTS.md documents usage)
+scripts/glasses_bootstrap.sh
+scripts/glasses_profile.json
+logs/
+
+# OMC runtime state — never commit (public repo; may embed local absolute paths)
+.omc/
