@@ -27,7 +27,7 @@ internal fun applySavedSettings(
     settingsManager: SettingsManager,
     hostProfileStore: HostProfileStore,
     state: MutableStateFlow<AppState>
-) {
+): Boolean {
     settingsManager.migrateRemovedGpt56SolProModelIndices()
     val currentProfile = hostProfileStore.currentProfile()
     val password = currentProfile.basicAuth?.passwordId?.let { settingsManager.basicAuthPassword(it) }
@@ -38,9 +38,6 @@ internal fun applySavedSettings(
     )
 
     val loaded = ModelPresetSync.loadOrSeed(settingsManager.pinnedModels)
-    if (loaded.shouldPersist) {
-        settingsManager.pinnedModels = ModelPresetSync.encode(loaded.models)
-    }
     val models = resolveAvailableModels(loaded.models, null)
     val selectedIndex = resolvePersistedModelIndex(
         models = models,
@@ -71,6 +68,7 @@ internal fun applySavedSettings(
     if (savedSignature != null && savedSignature == currentSignature) {
         state.update { it.copy(aiBuilderConnectionOK = true) }
     }
+    return loaded.shouldPersist
 }
 
 internal fun launchConnectionTest(

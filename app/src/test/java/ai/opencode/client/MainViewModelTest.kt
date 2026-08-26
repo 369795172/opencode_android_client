@@ -1,6 +1,7 @@
 package ai.opencode.client
 
 import android.util.Log
+import androidx.lifecycle.viewModelScope
 import ai.opencode.client.data.model.Message
 import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.Part
@@ -41,6 +42,7 @@ import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -55,6 +57,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -198,6 +201,43 @@ class MainViewModelTest {
             })
             repository.configure("https://host.ts.net:4096", "opencode", "s3cret")
         }
+    }
+
+    @Test
+    fun `configureAiBuilder sanitizes token and persists speech credentials`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.configureAiBuilder(
+            token = " tok_secret\n﻿ ",
+            baseUrl = " https://voice.example.com/backend ",
+        )
+
+        verify(exactly = 1) {
+            settingsManager.aiBuilderToken = "tok_secret"
+            settingsManager.aiBuilderBaseURL = "https://voice.example.com/backend"
+        }
+    }
+
+    @Test
+    fun `configureAiBuilder without baseUrl keeps stored base URL`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.configureAiBuilder(token = "tok_secret")
+
+        verify(exactly = 1) { settingsManager.aiBuilderToken = "tok_secret" }
+        verify(exactly = 0) { settingsManager.aiBuilderBaseURL = any() }
+    }
+
+    @Test
+    fun `configureAiBuilder rejects blank token`() = runTest {
+        val viewModel = createViewModel()
+
+        try {
+            viewModel.configureAiBuilder(token = "  \n ")
+            fail("expected IllegalArgumentException for blank token")
+        } catch (_: IllegalArgumentException) {
+        }
+        verify(exactly = 0) { settingsManager.aiBuilderToken = any() }
     }
 
     @Test
@@ -1687,6 +1727,67 @@ class MainViewModelTest {
         updateState(viewModel) { it.copy(pinnedModels = custom) }
 
         assertEquals(custom, viewModel.state.value.availableModels)
+    }
+
+    @Test
+    fun `fresh install leaves seed unpersisted until workspace sync`() = runTest {
+        every { settingsManager.pinnedModels } returns ""
+
+        createViewModel()
+
+        verify(exactly = 0) { settingsManager.pinnedModels = any() }
+    }
+
+    @Test
+    fun `healthy first connection syncs workspace models on fresh install`() = runTest {
+        val workspaceModels = listOf(AppState.ModelOption("Workspace", "openai", "gpt-workspace"))
+        every { settingsManager.pinnedModels } returns ""
+        coEvery { repository.checkHealth() } returns Result.success(HealthResponse(healthy = true, version = "1.0"))
+        coEvery { repository.getFileContent("contexts/model_presets.json") } returns Result.success(
+            ai.opencode.client.data.model.FileContent(
+                type = "text",
+                content = ai.opencode.client.ui.ModelPresetSync.encode(workspaceModels),
+            )
+        )
+        coEvery { repository.getProviders() } returns Result.success(
+            ai.opencode.client.data.model.ProvidersResponse(providers = emptyList())
+        )
+        coEvery { repository.getAgents() } returns Result.success(emptyList())
+        coEvery { repository.getPendingQuestions() } returns Result.success(emptyList())
+        val viewModel = createViewModel()
+
+        try {
+            viewModel.testConnection(force = true)
+            runCurrent()
+
+            coVerify(exactly = 1) { repository.getFileContent("contexts/model_presets.json") }
+            assertEquals(workspaceModels, viewModel.state.value.pinnedModels)
+        } finally {
+            viewModel.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun `healthy connection preserves valid stored model pins`() = runTest {
+        val storedModels = listOf(AppState.ModelOption("Stored", "openai", "gpt-stored"))
+        every { settingsManager.pinnedModels } returns ai.opencode.client.ui.ModelPresetSync.encode(storedModels)
+        coEvery { repository.checkHealth() } returns Result.success(HealthResponse(healthy = true, version = "1.0"))
+        coEvery { repository.getProviders() } returns Result.success(
+            ai.opencode.client.data.model.ProvidersResponse(providers = emptyList())
+        )
+        coEvery { repository.getAgents() } returns Result.success(emptyList())
+        coEvery { repository.getPendingQuestions() } returns Result.success(emptyList())
+        val viewModel = createViewModel()
+
+        try {
+            viewModel.testConnection(force = true)
+            runCurrent()
+
+            coVerify(exactly = 0) { repository.getFileContent("contexts/model_presets.json") }
+            assertEquals(storedModels, viewModel.state.value.pinnedModels)
+        } finally {
+            viewModel.viewModelScope.cancel()
+        }
     }
 
     @Test

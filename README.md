@@ -80,7 +80,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 ## 版本号规范
 
-- `versionName` 使用日期格式：`0.1.YYYYMMDD`（示例：`0.1.20260404`）。
+- `versionName` 使用日期格式：`0.1.YYYYMMDD`（示例：`0.1.20260404`）；同日多次可交付构建追加 `.N`（示例：`0.1.20260404.1`）。
 - 每次发布或可交付构建时，按当天日期更新 `versionName`。
 - `versionCode` 始终保持单调递增（每次发布至少 +1）。
 

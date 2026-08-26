@@ -35,6 +35,26 @@ internal fun currentSpeechInputConfig(settingsManager: SettingsManager): SpeechI
 }
 
 /**
+ * Voice-loop gate for IME-less devices: after a transcription finishes, only
+ * auto-send when everything the user typed-by-voice is intact, nothing failed,
+ * and a session is open to receive it.
+ */
+internal fun shouldAutoSendAfterSpeech(
+    enabled: Boolean,
+    inputText: String,
+    speechError: String?,
+    isRecording: Boolean,
+    isTranscribing: Boolean,
+    hasSession: Boolean,
+): Boolean {
+    if (!enabled) return false
+    if (isRecording || isTranscribing) return false
+    if (speechError != null) return false
+    if (!hasSession) return false
+    return inputText.isNotBlank()
+}
+
+/**
  * Finalize a live VoiceFlowKit session: commit the audio, stream partial deltas into
  * the input field, and write the final transcript. Mirrors the previous
  * `RealtimeSpeechStreamer.commitAndStop` flow 1:1 — the library now owns recovery,

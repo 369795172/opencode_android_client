@@ -424,6 +424,7 @@ internal fun SpeechRecognitionSection(
     aiBuilderTerminology: String,
     aiBuilderRecordingStrategy: String,
     showAIBuilderToken: Boolean,
+    autoSendAfterSpeech: Boolean,
     saveMessage: String? = null,
     onBaseUrlChange: (String) -> Unit,
     onTokenChange: (String) -> Unit,
@@ -431,9 +432,34 @@ internal fun SpeechRecognitionSection(
     onTerminologyChange: (String) -> Unit,
     onRecordingStrategyChange: (String) -> Unit,
     onToggleTokenVisibility: () -> Unit,
+    onAutoSendAfterSpeechChange: (Boolean) -> Unit,
     onSave: () -> Unit
 ) {
     SectionHeader(title = stringResource(R.string.settings_speech_recognition))
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Auto-send after speech",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                "Send the message automatically once a voice transcription completes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        Switch(
+            checked = autoSendAfterSpeech,
+            onCheckedChange = onAutoSendAfterSpeechChange
+        )
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
 
     OutlinedTextField(
         value = aiBuilderBaseURL,

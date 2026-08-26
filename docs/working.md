@@ -1,5 +1,26 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-08-26 — 模型清单升级 GLM-5.3 + 存量设备 pinned 迁移
+
+- 根因：`ModelPresets` seed 停在 GLM-4.7（上游 `f0ebb0f` 已 bump 到 GLM-5.3 / Gemini 3.7 Flash / Grok 4.6）；且 08-25 的同源修复只覆盖 fresh/invalid prefs，已 provisioned 设备（RG_glasses）的存量 pinned JSON 永远压过 seed，装新包也不换清单。
+- 修复（三层）：
+  - seed 对齐上游并保留个人条目（claude-cli trio、DeepSeek）：GLM-5.3（prefix `glm-5`，沿用 fork 的自动升版机制）、Gemini 3.7 Flash，新增 Grok 4.6 / Qwen 3.8 27B / GPT-5.6 Luna。
+  - schema v2 迁移 `migrateStalePinnedModels`（挂 `applySavedSettings` 既有迁移钩子，schema gate 1→2 分级，不复跑 v1 索引迁移）：存量 JSON 里 `zai-coding-plan: glm-4.x` 原位升级 GLM-5.3、`google: gemini-3.6` 升级 3.7 Flash；纯函数 `upgradeStalePinnedModel` + 3 单测。
+  - workspace SSOT 再生：rootgrove `contexts/model_presets.json` 为 08-17 旧产物（早于 registry 里 glm-5.3 的 08-18 验证），`gen_model_presets` 重跑后 50 模型含 glm-5.3，重置/fresh 设备首连同步即得新清单。
+- 真机验证（RG_glasses, USB）：`install -r` 保留数据装包 → force-stop 重启 → 连接触发迁移 → 模型下拉实测显示 GLM-5.3 / Gemini 3.7 Flash（截屏确认）；provider 过滤按预期裁掉 ds4/ollama-cloud（本 server 无此 provider）。
+- `testDebugUnitTest` 全绿（356+3）。版本 bump 0.1.20260826 (36)。
+- Lesson：`loadOrSeed` 型「存量优先」缓存的 seed 更新永远到不了老设备；preset 类升级必须带 schema-gated 存量迁移，验证面是设备上的下拉框而不是编译期断言。
+
+## 2026-08-25 — Glasses 离开 session 后恢复朗读 + 模型清单同源
+
+- TTS 根因：播放正文只存在 `TtsService` 的 chunk 内存；Rokid 在离开 session 后重建 service 时，通知/底部播放条仍发 `ACTION_RESUME`，但新 service 的 `utteranceChunks` 为空，旧代码静默 return，Controller 同时乐观显示播放。
+- 修复：`TtsReplayBuffer` 在进程内保留最后一次已清洗的 speech payload；首次 ACTION_SPEAK 消费 pending 后仍可恢复，显式 Stop/自然结束立即清空。重建后的 `TtsService` 收到 Resume 时，用 payload 从头重建 chunk 与 Rokid AIDL 播放状态；活着且暂停的 service 继续原 chunk，已经在播时忽略 stale Resume；不把对话正文落盘。
+- 模型根因：新设备把 11 个编译期 seed 立即写进独立 EncryptedSharedPreferences，workspace `contexts/model_presets.json` 同步只在 Settings 手动触发，手机和眼镜因此会随设备 prefs 漂移。
+- 修复：seed 只作为离线 UI fallback，不再标成已持久化配置；fresh/invalid prefs 的首次健康连接自动同步 workspace SSOT，成功后才持久化。已有手机 pins 与手工 pin/unpin 不覆盖；provider API 仍做可选性过滤。
+- 红→绿：新增回归测试覆盖 TTS payload 恢复和 Resume 三态决策、fresh seed 不持久化、首次健康连接自动同步、已有 pins 保留；完整 `testDebugUnitTest` 356/356 绿。
+- 版本 bump 0.1.20260825.1 (35)。APK 已通过飞书私聊交付（`message_id=om_x100b67e355e610a8c3e69e5d4915d64`）；RG_glasses 当时未接入 ADB，真机 E2E 未执行并明确保留为残余验证项。
+- Lesson：设备 parity 不能依赖“相同 APK”——凡是设备本地 prefs 参与选择面的，都必须指定跨设备 SSOT 和首次收敛时机；服务重建后的控制按钮必须携带恢复语义，不能只携带 Resume 动作。
+
 ## 2026-08-25 · Public repo 隐私审计与卫生修复（path-b）
 
 - 全量审计（全部已推送 ref 内容扫描 + 全历史 pickaxe + GitHub issues/PRs/releases）：服务器域名、眼镜串号、SSH 中继 IP、真实凭证 **零泄露**；两个远端仓（opencode_android_client / client-1）确认 PUBLIC。
@@ -8,6 +29,31 @@
 - 已知残留：63 个历史 commit 作者邮箱为私人邮箱（GitHub UI 可见）；后续提交可改 noreply 地址，历史重写另行决策。
 - AGENTS.md 构建环境改 `/usr/libexec/java_home -v 17`（本机 Zulu 17；已卸载 Android Studio，构建只需 JDK + Android SDK cmdline 组件，无需 IDE）。
 - Lesson：跨 ref 的隐私扫描先做 known-hit 校准再信任结果；运行态目录（.omc/logs）从 scaffold 第一天就该 gitignore，事后 untrack 是补救不是防线。
+
+## 2026-08-25 — Glasses 语音闭环补全：Rokid 原生 TTS 引擎 + 语音后自动发送
+
+- 眼镜语音闭环（戴上→说→执行→听）断在输出半环：RG_glasses 无任何标准 Android TTS 引擎（`TTS_SERVICE` intent 零解析），`TtsService` 初始化即「未找到文字转语音引擎」退出，`autoReadAloud`（默认 on）永远无声。输入半环（AI Builder 实时转写 + bootstrap token 注入）上一版已真机验证。
+- Rokid 系统自带私有 TTS：`com.rokid.os.sprite.assistserver` 内 `com.rokid.os.sprite.tts.TtsService` 暴露 AIDL `ITtsServer.playTtsMsg(text, tag, ITtsListener)` / `stopTtsPlay(tag)`；绑定走显式 ComponentName（不走标准 TTS_SERVICE intent，manifest `<queries>` 需加 package）。
+- 协议为逆向确认（assistserver APK dexdump 字节码）：`playTtsMsg` 首参经 `TextUtils.isEmpty` 校验=必填文本，次参=去重/停止 tag（listener `onTtsStart/onTtsStop` 回传同一 tag）；方法顺序即 AIDL transaction code，不可重排。
+- `RokidAssistTtsEngine`（新）：bind/重绑/DeathRecipient 式断连容忍 + tag 回调映射；`TtsService` 引擎链改为 系统 TTS → Rokid assistserver → 报错，chunk 管线（分片/进度/暂停恢复/seek/看门狗）对 Rokid 路径全复用（vendor 回调直接喂既有 `utteranceListener`，tag=`tts_chunk_N`）。
+- **修竞态**：ACTION_SPEAK 的引擎守卫原为「engine==null 即拒绝」，Rokid bind 异步窗口内首次 auto-read 被误杀（真机 logcat 复现：connected 后无 playTtsMsg）；改为「仅在无任何引擎路径时硬失败」，bind 在途走既有 `pendingText` 队列。
+- 语音后自动发送（闭环最后一环）：`SettingsManager.autoSendAfterSpeech`（默认 off）+ 纯函数 `shouldAutoSendAfterSpeech`（enabled/非录音转写中/无 speechError/有 session/文本非空，6 单测）+ Settings「Auto-send after speech」开关 + bootstrap `--auto-send` / debug extra `test_auto_send_after_speech`；接线在 realtime onFinished 与 Grok finally 两处。
+- `buildFeatures.aidl = true`（AGP 新默认关闭）；本机构建 JDK 用 Zulu 17（无 Android Studio）。
+- 版本 bump 0.1.20260825 (34)；`testDebugUnitTest` 351/351 绿；隐私扫描零命中。
+- **真机 E2E（RG_glasses）**：bootstrap 注入（profile+token+auto-send）→ server API 注入短 prompt → 回复完成 SSE → auto-read → logcat 完整证据链：`TtsService → Rokid assistserver TTS` → vendor `TtsData{msg='语音链路测试通过', uuid='tts_chunk_0'}` + 端侧合成首包 332ms → `onTtsStart/onTtsStop tag=tts_chunk_0` → 音频焦点释放。语音输入半环沿用 v33 验证。
+- 隐私卫生（同日）：`.omc/` 运行态文件 untrack + gitignore（public 仓，含本机绝对路径风险）；全量审计确认域名/串号/中继 IP/凭证零泄露，详见 path-b 同日条目。
+- Lesson（可迁移）：硬件带私有能力栈时，先 dumpsys/逆向确认协议再写代码（一次 dexdump 省掉整轮试错）；异步初始化的引擎守卫要区分「无引擎」与「引擎在路上」，否则首请求必被误杀——队列化而不是拒绝。
+
+## 2026-08-23 — Glasses 零输入 bootstrap 补全：AI Builder token 注入（Rokid 专版）
+
+- Rokid Glasses（IME-less，无键盘）装 OpenCode 客户端的最后一道墙是语音输入凭证：server URL/密码已有 debug Intent 注入通道（`configureServer`），但 `aiBuilderToken` 只能 Settings 手输，而语音是眼镜上唯一文字输入手段。
+- `MainViewModel.configureAiBuilder(token, baseUrl?)`：debug/bootstrap 入口，sanitizes token（复用 `sanitizeBearerToken`）后写 `settingsManager`，可选覆盖 base URL；其余语音设置（自定义提示词/术语表/录音策略）不动。
+- `MainActivity` 新增 debug extras：`test_ai_builder_token` / `test_ai_builder_base_url`（`BuildConfig.DEBUG` 硬门控，release 死代码，与 `test_server_url` 家族同 pattern）。
+- `scripts/glasses_bootstrap.sh` 新增 `--ai-builder-token` / `--ai-builder-token-env VAR` / `--ai-builder-url`；env 缺省回落 ambient `AI_BUILDER_TOKEN`；dry-run 输出对 token 值脱敏（修复 dry-run 泄漏真实值）。
+- 版本 bump 0.1.20260823 (33)；`testDebugUnitTest` 全绿（新增 3 个 configureAiBuilder 单测：sanitize+持久化 / 无 baseUrl 不覆盖 / 空 token require 失败）。
+- **真机 E2E（RG_glasses 真机）**：v33 覆盖安装 → `adb reverse tcp:4096 tcp:4096`（USB 隧道，App 默认 URL 恰为 `http://localhost:4096`）→ bootstrap 全量注入 → Settings「已连接 (v1.18.18)」→ 眼镜实时渲染 Mac 当前 session（Chat 流式同步验证）→ logcat `tokenSet=true` → 语音段 保存 自动探测「连接成功」→ Chat 点麦克风 `aiBuilderOK=true, tokenSet=true` + Speech keep-alive service 启动（录音起停实测）。
+- **已知坑（Lesson）**：`install -r` 后立即 `am start` 带 extras 的首次注入可能不落（12:01 首次 token 未持久化，重跑 `--skip-install` 注入即成；12:14/12:17 两次复验通过）。疑似 install/force-stop/am start 竞态，未复现定位；bootstrap 后用 logcat `tokenSet=` 做一次行为断言即可兜底。
+- Lesson（可迁移）：无输入设备的产品，配置面 = 可注入面；把「最后一项必须手输的凭证」当成 P0 缺口，因为它封死的是该设备形态的唯一输入通道。
 
 ## 2026-08-21 — scaffold v2 retrofit（文档纪律，不改运行时）
 
@@ -662,4 +708,3 @@ iOS/Android feature parity 调研完成，确认以下体验层差异需要对�
 - **Out of scope**: NFC/QR (RFC-003), multi-device config (Phase 9), config export (Phase 9), background verification (Phase 9)
 - **Acceptance criteria**: 8 checkboxes covering schema, persistence, error handling, UX validation, test coverage, privacy scan
 - **Next phase**: Unit test implementation (MainViewModelTest.kt, BootstrapIntegrationTest.kt) after user review/approval of RFC-002.md
-

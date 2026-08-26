@@ -439,6 +439,7 @@ class MainViewModel @Inject constructor(
     private var preservedSpeechAudio: VoiceFlowPreservedAudio? = null
     private var preservedSpeechExistingInput: String = ""
     private var lastHealthCheckTime = 0L
+    private var needsInitialModelSync = false
     private var deepLinkRouteGeneration = 0L
     private var deepLinkJob: Job? = null
     private var hostRuntimeJob = SupervisorJob(viewModelScope.coroutineContext[Job])
@@ -469,7 +470,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun loadSettings() {
-        applySavedSettings(repository, settingsManager, hostProfileStore, _state)
+        needsInitialModelSync = applySavedSettings(repository, settingsManager, hostProfileStore, _state)
         _state.update { it.copy(aiUsageDashboardUrl = settingsManager.aiUsageDashboardUrl) }
     }
 
@@ -524,6 +525,21 @@ class MainViewModel @Inject constructor(
         }
         repository.configure(trimmedUrl, trimmedUser, trimmedPass)
         refreshHostProfileState()
+    }
+
+    /**
+     * Debug/bootstrap entry: persist AI Builder speech credentials (token and
+     * optional base URL) without driving the Settings UI, so IME-less devices
+     * (glasses) can receive voice-input credentials via launch Intent extras.
+     * Other speech settings (custom prompt / terminology / strategy) keep their
+     * stored or default values.
+     */
+    fun configureAiBuilder(token: String, baseUrl: String? = null) {
+        val sanitizedToken = sanitizeBearerToken(token)
+        require(sanitizedToken.isNotEmpty()) { "AI Builder token is required" }
+        val trimmedBase = baseUrl?.trim()?.takeIf { it.isNotEmpty() }
+        settingsManager.aiBuilderToken = sanitizedToken
+        trimmedBase?.let { settingsManager.aiBuilderBaseURL = it }
     }
 
     fun getHostProfiles(): List<HostProfile> = hostProfileStore.profiles()
@@ -767,6 +783,7 @@ class MainViewModel @Inject constructor(
                     ) {
                         speechSession = null
                         stopSpeechKeepAlive()
+                        maybeAutoSendAfterSpeech()
                     }
                 } else {
                     try {
@@ -797,6 +814,7 @@ class MainViewModel @Inject constructor(
                         speechSession = null
                         stopSpeechKeepAlive()
                         audioFile?.delete()
+                        maybeAutoSendAfterSpeech()
                     }
                 }
             }
@@ -930,6 +948,28 @@ class MainViewModel @Inject constructor(
 
     fun setAutoReadAloud(enabled: Boolean) {
         settingsManager.autoReadAloud = enabled
+    }
+
+    fun getAutoSendAfterSpeech(): Boolean = settingsManager.autoSendAfterSpeech
+
+    fun setAutoSendAfterSpeech(enabled: Boolean) {
+        settingsManager.autoSendAfterSpeech = enabled
+    }
+
+    private fun maybeAutoSendAfterSpeech() {
+        val s = _state.value
+        if (!shouldAutoSendAfterSpeech(
+                enabled = settingsManager.autoSendAfterSpeech,
+                inputText = s.inputText,
+                speechError = s.speechError,
+                isRecording = s.isRecording,
+                isTranscribing = s.isTranscribing,
+                hasSession = s.currentSessionId != null,
+            )
+        ) {
+            return
+        }
+        sendMessage()
     }
 
     private fun handleSessionReplyComplete(sessionId: String) {
@@ -1124,6 +1164,7 @@ class MainViewModel @Inject constructor(
         loadSessions()
         loadAgents()
         loadProviders()
+        if (needsInitialModelSync) syncModelsFromWorkspace()
         loadPendingPermissions()
         loadPendingQuestions()
     }
@@ -1578,6 +1619,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun replacePinnedModels(pinned: List<AppState.ModelOption>) {
+        needsInitialModelSync = false
         settingsManager.pinnedModels = ModelPresetSync.encode(pinned)
         _state.update { current ->
             val models = resolveAvailableModels(pinned, current.providers)

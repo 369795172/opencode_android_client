@@ -25,20 +25,46 @@ internal data class TtsSpeakPayload(
     val speechRate: Float,
 )
 
+internal class TtsReplayBuffer {
+    private var pending: TtsSpeakPayload? = null
+    private var resumable: TtsSpeakPayload? = null
+
+    @Synchronized
+    fun enqueue(payload: TtsSpeakPayload) {
+        pending = payload
+        resumable = payload
+    }
+
+    @Synchronized
+    fun consumePending(): TtsSpeakPayload? {
+        val payload = pending
+        pending = null
+        return payload
+    }
+
+    @Synchronized
+    fun resumePayload(): TtsSpeakPayload? = resumable
+
+    @Synchronized
+    fun clear() {
+        pending = null
+        resumable = null
+    }
+}
+
 @Singleton
 class TtsController(
     private val context: Context,
 ) {
     private val _playbackState = MutableStateFlow(TtsPlaybackState())
     val playbackState: StateFlow<TtsPlaybackState> = _playbackState.asStateFlow()
-    @Volatile
-    private var pendingSpeakPayload: TtsSpeakPayload? = null
+    private val replayBuffer = TtsReplayBuffer()
 
     fun speak(text: String, messageId: String? = null, speechRate: Float = 1f) {
         val cleaned = stripMarkdown(text)
         if (cleaned.isBlank()) return
 
-        pendingSpeakPayload = TtsSpeakPayload(cleaned, messageId, speechRate)
+        replayBuffer.enqueue(TtsSpeakPayload(cleaned, messageId, speechRate))
         val intent = Intent(context, TtsService::class.java).apply {
             action = TtsService.ACTION_SPEAK
             putExtra(TtsService.EXTRA_MESSAGE_ID, messageId)
@@ -57,6 +83,7 @@ class TtsController(
     }
 
     fun stop() {
+        replayBuffer.clear()
         dispatch(TtsService.ACTION_STOP)
         _playbackState.value = TtsPlaybackState()
     }
@@ -136,6 +163,7 @@ class TtsController(
     }
 
     internal fun onPlaybackStopped() {
+        replayBuffer.clear()
         _playbackState.value = TtsPlaybackState(speechRate = _playbackState.value.speechRate)
     }
 
@@ -144,10 +172,10 @@ class TtsController(
     }
 
     internal fun consumePendingSpeakPayload(): TtsSpeakPayload? {
-        val payload = pendingSpeakPayload
-        pendingSpeakPayload = null
-        return payload
+        return replayBuffer.consumePending()
     }
+
+    internal fun resumableSpeakPayload(): TtsSpeakPayload? = replayBuffer.resumePayload()
 
     companion object {
         fun stripMarkdown(text: String): String {

@@ -92,6 +92,9 @@ private const val EXTRA_TEST_SERVER_URL = "test_server_url"
 private const val EXTRA_TEST_USERNAME = "test_username"
 private const val EXTRA_TEST_PASSWORD = "test_password"
 private const val EXTRA_TEST_PROFILE_NAME = "test_profile_name"
+private const val EXTRA_TEST_AI_BUILDER_TOKEN = "test_ai_builder_token"
+private const val EXTRA_TEST_AI_BUILDER_BASE_URL = "test_ai_builder_base_url"
+private const val EXTRA_TEST_AUTO_SEND_AFTER_SPEECH = "test_auto_send_after_speech"
 
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @AndroidEntryPoint
@@ -129,6 +132,19 @@ class MainActivity : AppCompatActivity() {
                             password = intent?.getStringExtra(EXTRA_TEST_PASSWORD),
                             profileName = intent?.getStringExtra(EXTRA_TEST_PROFILE_NAME),
                         )
+                    }
+                    // Glasses bootstrap: voice input is the only text-entry channel
+                    // on IME-less devices, so the AI Builder token must also be
+                    // injectable via Intent extras (debug builds only).
+                    val aiBuilderToken = intent?.getStringExtra(EXTRA_TEST_AI_BUILDER_TOKEN)
+                    if (!aiBuilderToken.isNullOrEmpty()) {
+                        mainViewModel.configureAiBuilder(
+                            token = aiBuilderToken,
+                            baseUrl = intent?.getStringExtra(EXTRA_TEST_AI_BUILDER_BASE_URL),
+                        )
+                    }
+                    if (intent?.getBooleanExtra(EXTRA_TEST_AUTO_SEND_AFTER_SPEECH, false) == true) {
+                        mainViewModel.setAutoSendAfterSpeech(true)
                     }
                 }
                 lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {

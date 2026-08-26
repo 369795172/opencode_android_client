@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "Mac Tailscale",
+  "transport": "direct",
+  "serverURL": "https://YOUR-HOST.ts.net:4096",
+  "username": "opencode",
+  "password": ""
+}

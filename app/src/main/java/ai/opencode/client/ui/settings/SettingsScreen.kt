@@ -86,6 +86,7 @@ fun SettingsScreen(
     var nfcPrompt by remember { mutableStateOf(viewModel.getNfcPrompt()) }
     var nfcAutoSend by remember { mutableStateOf(viewModel.getNfcAutoSend()) }
     var autoReadAloud by remember { mutableStateOf(viewModel.getAutoReadAloud()) }
+    var autoSendAfterSpeech by remember { mutableStateOf(viewModel.getAutoSendAfterSpeech()) }
 
     LaunchedEffect(state.isConnecting) {
         if (!state.isConnecting && isTesting) {
@@ -223,6 +224,7 @@ fun SettingsScreen(
                 aiBuilderTerminology = aiBuilderTerminology,
                 aiBuilderRecordingStrategy = aiBuilderRecordingStrategy,
                 showAIBuilderToken = showAIBuilderToken,
+                autoSendAfterSpeech = autoSendAfterSpeech,
                 saveMessage = aiBuilderSaveMessage,
                 onBaseUrlChange = {
                     aiBuilderBaseURL = it
@@ -231,6 +233,10 @@ fun SettingsScreen(
                 onTokenChange = {
                     aiBuilderToken = it
                     aiBuilderSaveMessage = null
+                },
+                onAutoSendAfterSpeechChange = { enabled ->
+                    autoSendAfterSpeech = enabled
+                    viewModel.setAutoSendAfterSpeech(enabled)
                 },
                 onPromptChange = {
                     aiBuilderCustomPrompt = it

@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
+import ai.opencode.client.ui.AppState
+import ai.opencode.client.ui.ModelPresetSync
 import ai.opencode.client.ui.ModelPresets
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -92,25 +94,41 @@ class SettingsManager @Inject constructor(
         set(value) = encryptedPrefs.edit().putInt(KEY_MODEL_INDEX, value).apply()
 
     fun migrateRemovedGpt56SolProModelIndices() {
-        if (encryptedPrefs.getInt(KEY_MODEL_PRESET_SCHEMA_VERSION, 0) >= MODEL_PRESET_SCHEMA_VERSION) return
-
-        val sessionModels = encryptedPrefs.getString(KEY_SESSION_MODELS, null)?.let { encoded ->
-            try {
-                Json.decodeFromString<Map<String, String>>(encoded).mapValues { (_, value) ->
-                    value.toIntOrNull()?.let(::migrateLegacyModelIndex)?.toString() ?: value
+        if (encryptedPrefs.getInt(KEY_MODEL_PRESET_SCHEMA_VERSION, 0) < INDEX_MIGRATION_SCHEMA_VERSION) {
+            val sessionModels = encryptedPrefs.getString(KEY_SESSION_MODELS, null)?.let { encoded ->
+                try {
+                    Json.decodeFromString<Map<String, String>>(encoded).mapValues { (_, value) ->
+                        value.toIntOrNull()?.let(::migrateLegacyModelIndex)?.toString() ?: value
+                    }
+                } catch (_: Exception) {
+                    null
                 }
-            } catch (_: Exception) {
-                null
+            }
+
+            encryptedPrefs.edit().apply {
+                if (encryptedPrefs.contains(KEY_MODEL_INDEX)) {
+                    putInt(KEY_MODEL_INDEX, migrateLegacyModelIndex(encryptedPrefs.getInt(KEY_MODEL_INDEX, 1)))
+                }
+                if (sessionModels != null) putString(KEY_SESSION_MODELS, Json.encodeToString(sessionModels))
+                putInt(KEY_MODEL_PRESET_SCHEMA_VERSION, INDEX_MIGRATION_SCHEMA_VERSION)
+            }.apply()
+        }
+        migrateStalePinnedModels()
+    }
+
+    /** Schema v2: stored pinnedModels overrides the seed, so preset upgrades (GLM 4.x→5.3, Gemini 3.6→3.7) must rewrite the stored JSON on already-provisioned devices. */
+    private fun migrateStalePinnedModels() {
+        if (encryptedPrefs.getInt(KEY_MODEL_PRESET_SCHEMA_VERSION, 0) >= PINNED_UPGRADE_SCHEMA_VERSION) return
+        val stored = encryptedPrefs.getString(KEY_PINNED_MODELS, null)
+        if (!stored.isNullOrBlank()) {
+            val upgraded = ModelPresetSync.parse(stored)?.map(::upgradeStalePinnedModel)
+            if (upgraded != null) {
+                pinnedModels = ModelPresetSync.encode(upgraded)
             }
         }
-
-        encryptedPrefs.edit().apply {
-            if (encryptedPrefs.contains(KEY_MODEL_INDEX)) {
-                putInt(KEY_MODEL_INDEX, migrateLegacyModelIndex(encryptedPrefs.getInt(KEY_MODEL_INDEX, 1)))
-            }
-            if (sessionModels != null) putString(KEY_SESSION_MODELS, Json.encodeToString(sessionModels))
-            putInt(KEY_MODEL_PRESET_SCHEMA_VERSION, MODEL_PRESET_SCHEMA_VERSION)
-        }.apply()
+        encryptedPrefs.edit()
+            .putInt(KEY_MODEL_PRESET_SCHEMA_VERSION, PINNED_UPGRADE_SCHEMA_VERSION)
+            .apply()
     }
 
     var selectedAgentName: String?
@@ -174,6 +192,10 @@ class SettingsManager @Inject constructor(
     var autoReadAloud: Boolean
         get() = encryptedPrefs.getBoolean(KEY_AUTO_READ_ALOUD, true)
         set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_READ_ALOUD, value).apply()
+
+    var autoSendAfterSpeech: Boolean
+        get() = encryptedPrefs.getBoolean(KEY_AUTO_SEND_AFTER_SPEECH, false)
+        set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_SEND_AFTER_SPEECH, value).apply()
 
     var ttsSpeechRate: Float
         get() = encryptedPrefs.getFloat(KEY_TTS_SPEECH_RATE, 1f)
@@ -286,9 +308,11 @@ class SettingsManager @Inject constructor(
         private const val KEY_NFC_PROMPT = "nfc_prompt"
         private const val KEY_NFC_AUTO_SEND = "nfc_auto_send"
         private const val KEY_AUTO_READ_ALOUD = "auto_read_aloud"
+        private const val KEY_AUTO_SEND_AFTER_SPEECH = "auto_send_after_speech"
         private const val KEY_TTS_SPEECH_RATE = "tts_speech_rate"
 
-        private const val MODEL_PRESET_SCHEMA_VERSION = 1
+        private const val INDEX_MIGRATION_SCHEMA_VERSION = 1
+        private const val PINNED_UPGRADE_SCHEMA_VERSION = 2
 
         private fun basicAuthPasswordKey(passwordId: String): String = "basic_auth_password_$passwordId"
     }
@@ -298,6 +322,14 @@ internal fun migrateLegacyModelIndex(index: Int): Int = when (index) {
     6 -> 1 // Removed GPT-5.6 Sol Pro now falls back to regular Sol.
     7 -> 6 // GPT-5.6 Sol Fast shifted left by one slot.
     else -> index
+}
+
+internal fun upgradeStalePinnedModel(option: AppState.ModelOption): AppState.ModelOption = when {
+    option.providerId == "zai-coding-plan" && option.modelId.startsWith("glm-4") ->
+        option.copy(displayName = "GLM-5.3", modelId = "glm-5.3", modelIdPrefix = "glm-5")
+    option.providerId == "google" && option.modelId.startsWith("gemini-3.6") ->
+        option.copy(displayName = "Gemini 3.7 Flash", modelId = "gemini-3.7-flash")
+    else -> option
 }
 
 @Serializable
