@@ -3,10 +3,15 @@ package ai.opencode.client
 import ai.opencode.client.data.model.ComposerImageAttachment
 import ai.opencode.client.data.model.Message
 import ai.opencode.client.data.model.MessageWithParts
+import ai.opencode.client.data.model.SSEEvent
+import ai.opencode.client.data.model.SSEPayload
 import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.buildOptimisticMessage
 import ai.opencode.client.ui.makeServerId
 import ai.opencode.client.ui.mergePendingOptimisticMessages
+import ai.opencode.client.ui.parseSessionErrorReason
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -115,5 +120,68 @@ class OptimisticSendTest {
         val (merged, pruned) = mergePendingOptimisticMessages(listOf(server), currentState)
         assertEquals(listOf("msg_a"), merged.map { it.info.id })
         assertEquals(emptySet<String>(), pruned)
+    }
+
+    @Test
+    fun `parseSessionErrorReason combines name and first message line`() {
+        val event = SSEEvent(
+            payload = SSEPayload(
+                type = "session.error",
+                properties = buildJsonObject {
+                    put("sessionID", JsonPrimitive("s1"))
+                    put(
+                        "error",
+                        buildJsonObject {
+                            put("name", JsonPrimitive("ProviderAuthError"))
+                            put("data", buildJsonObject { put("message", JsonPrimitive("boom")) })
+                        }
+                    )
+                }
+            )
+        )
+        assertEquals("ProviderAuthError: boom", parseSessionErrorReason(event))
+    }
+
+    @Test
+    fun `parseSessionErrorReason keeps only the first meaningful line of a multi-line message`() {
+        val event = SSEEvent(
+            payload = SSEPayload(
+                type = "session.error",
+                properties = buildJsonObject {
+                    put(
+                        "error",
+                        buildJsonObject {
+                            put("name", JsonPrimitive("APIError"))
+                            put(
+                                "data",
+                                buildJsonObject {
+                                    put("message", JsonPrimitive("first line\nsecond line\nthird"))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        )
+        assertEquals("APIError: first line", parseSessionErrorReason(event))
+    }
+
+    @Test
+    fun `parseSessionErrorReason falls back to name when there is no message`() {
+        val event = SSEEvent(
+            payload = SSEPayload(
+                type = "session.error",
+                properties = buildJsonObject {
+                    put("error", buildJsonObject { put("name", JsonPrimitive("MessageAbortedError")) })
+                }
+            )
+        )
+        assertEquals("MessageAbortedError", parseSessionErrorReason(event))
+    }
+
+    @Test
+    fun `parseSessionErrorReason returns fallback when the error object is missing`() {
+        val event = SSEEvent(payload = SSEPayload(type = "session.error"))
+        assertEquals("unknown error", parseSessionErrorReason(event))
     }
 }
