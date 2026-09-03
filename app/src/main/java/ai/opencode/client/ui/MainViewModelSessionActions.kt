@@ -2,6 +2,8 @@ package ai.opencode.client.ui
 
 import ai.opencode.client.data.model.ComposerImageAttachment
 import ai.opencode.client.data.model.Message
+import ai.opencode.client.data.model.MessageWithParts
+import ai.opencode.client.data.model.Part
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.repository.OpenCodeRepository
@@ -11,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 internal fun launchLoadSessions(
     scope: CoroutineScope,
@@ -169,12 +172,26 @@ internal fun selectSessionState(
         it.copy(
             currentSessionId = sessionId,
             messages = emptyList(),
+            pendingOptimisticMessageIds = emptySet(),
             streamingPartTexts = emptyMap(),
             streamingReasoningPart = null,
             messageLimit = 30,
             inputText = restoredDraft
         )
     }
+}
+
+internal fun mergePendingOptimisticMessages(
+    serverMessages: List<MessageWithParts>,
+    currentState: AppState
+): Pair<List<MessageWithParts>, Set<String>> {
+    val loadedIds = serverMessages.map { it.info.id }.toSet()
+    val pendingRows = currentState.messages.filter { m ->
+        currentState.pendingOptimisticMessageIds.contains(m.info.id) && m.info.id !in loadedIds
+    }
+    val merged = serverMessages + pendingRows
+    val prunedPending = currentState.pendingOptimisticMessageIds - loadedIds
+    return merged to prunedPending
 }
 
 internal fun launchLoadMessages(
@@ -208,8 +225,10 @@ internal fun launchLoadMessages(
                     val modelIndex = savedIndex ?: inferredModelIndex
                     val agentName = settingsManager?.getAgentForSession(sessionId) ?: inferredAgentName
                     state.update {
+                        val (mergedMessages, prunedPending) = mergePendingOptimisticMessages(messages, it)
                         it.copy(
-                            messages = messages,
+                            messages = mergedMessages,
+                            pendingOptimisticMessageIds = prunedPending,
                             messageLimit = limit,
                             isLoadingMessages = false,
                             selectedModelIndex = modelIndex ?: it.selectedModelIndex,
@@ -274,8 +293,10 @@ internal fun launchLoadMoreMessages(
             .onSuccess { messages ->
                 if (sessionId == state.value.currentSessionId) {
                     state.update {
+                        val (mergedMessages, prunedPending) = mergePendingOptimisticMessages(messages, it)
                         it.copy(
-                            messages = messages,
+                            messages = mergedMessages,
+                            pendingOptimisticMessageIds = prunedPending,
                             messageLimit = newLimit,
                             isLoadingMessages = false
                         )
@@ -463,17 +484,17 @@ internal fun launchSendMessage(
     attachments: List<ComposerImageAttachment> = emptyList(),
     agent: String,
     model: Message.ModelInfo?,
+    messageId: String,
     onRefreshMessages: (String, Boolean) -> Unit,
     onRefreshSessions: () -> Unit,
     onSuccess: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null
 ) {
     scope.launch {
-        repository.sendMessage(sessionId, text, agent, model, attachments = attachments)
+        repository.sendMessage(sessionId, text, agent, model, attachments = attachments, messageId = messageId)
             .onSuccess {
                 state.update {
                     it.copy(
-                        inputText = "",
                         error = null,
                         sessions = bumpSessionUpdated(it.sessions, sessionId, System.currentTimeMillis()),
                         sessionStatuses = it.sessionStatuses + (sessionId to SessionStatus(type = "busy"))
@@ -488,8 +509,65 @@ internal fun launchSendMessage(
                 }
             }
             .onFailure { error ->
-                state.update { it.copy(error = errorMessageOrFallback(error, "Failed to send message")) }
+                // The optimistic row was inserted before dispatch. On failure, drop it
+                // and hand the text/attachments back to the composer so the user can retry.
+                state.update {
+                    it.copy(
+                        messages = it.messages.filter { m -> m.info.id != messageId },
+                        pendingOptimisticMessageIds = it.pendingOptimisticMessageIds - messageId,
+                        inputText = text,
+                        imageAttachments = attachments,
+                        error = errorMessageOrFallback(error, "Failed to send message")
+                    )
+                }
             }
         onComplete?.invoke()
     }
+}
+
+internal fun makeServerId(prefix: String): String =
+    "${prefix}_${UUID.randomUUID().toString().replace("-", "")}"
+
+internal fun buildOptimisticMessage(
+    sessionId: String,
+    text: String,
+    attachments: List<ComposerImageAttachment>,
+    messageId: String,
+    parentMessageId: String?
+): MessageWithParts {
+    val now = System.currentTimeMillis()
+    val message = Message(
+        id = messageId,
+        sessionId = sessionId,
+        role = "user",
+        parentId = parentMessageId,
+        time = Message.TimeInfo(created = now, completed = now)
+    )
+    val parts = buildList {
+        if (text.isNotBlank()) {
+            add(
+                Part(
+                    id = "temp-part-$messageId",
+                    messageId = messageId,
+                    sessionId = sessionId,
+                    type = "text",
+                    text = text
+                )
+            )
+        }
+        attachments.forEach { attachment ->
+            add(
+                Part(
+                    id = "temp-file-${attachment.id}",
+                    messageId = messageId,
+                    sessionId = sessionId,
+                    type = "file",
+                    mime = attachment.mime,
+                    filename = attachment.filename,
+                    url = attachment.dataUrl
+                )
+            )
+        }
+    }
+    return MessageWithParts(info = message, parts = parts)
 }
