@@ -21,17 +21,22 @@ internal fun launchLoadSessions(
     onLoadMessages: (String) -> Unit
 ) {
     scope.launch {
-        val limit = MainViewModelTimings.sessionPageSize
+        val limit = maxOf(state.value.loadedSessionLimit, MainViewModelTimings.sessionPageSize)
         state.update {
             it.copy(
                 loadedSessionLimit = limit,
                 hasMoreSessions = true,
-                isLoadingMoreSessions = false,
                 isRefreshingSessions = true
             )
         }
         repository.getSessions(limit)
             .onSuccess { sessions ->
+                if (state.value.loadedSessionLimit > limit) {
+                    // A load-more with a larger window completed while this refresh was in
+                    // flight; applying this snapshot would truncate the expanded list.
+                    state.update { it.copy(isRefreshingSessions = false) }
+                    return@onSuccess
+                }
                 state.update {
                     val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(
                         sessions,
@@ -41,7 +46,6 @@ internal fun launchLoadSessions(
                     it.copy(
                         sessions = mergedSessions,
                         hasMoreSessions = sessions.size >= limit,
-                        isLoadingMoreSessions = false,
                         isRefreshingSessions = false
                     )
                 }
@@ -65,7 +69,6 @@ internal fun launchLoadSessions(
             .onFailure { error ->
                 state.update {
                     it.copy(
-                        isLoadingMoreSessions = false,
                         isRefreshingSessions = false,
                         error = "Failed to load sessions: ${errorMessageOrFallback(error, "unknown error")}"
                     )

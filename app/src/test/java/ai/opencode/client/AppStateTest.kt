@@ -17,7 +17,7 @@ class AppStateTest {
         assertFalse(state.isConnecting)
         assertNull(state.serverVersion)
         assertTrue(state.sessions.isEmpty())
-        assertEquals(400, state.loadedSessionLimit)
+        assertEquals(6, state.loadedSessionLimit)
         assertTrue(state.hasMoreSessions)
         assertFalse(state.isLoadingMoreSessions)
         assertNull(state.currentSessionId)

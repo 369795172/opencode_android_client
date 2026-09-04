@@ -40,6 +40,7 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -397,7 +398,7 @@ class MainViewModelTest {
     @Test
     fun `sendMessage success clears input and uses selected preset model`() = runTest {
         coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(400) } returns Result.success(
+        coEvery { repository.getSessions(6) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 
@@ -448,7 +449,7 @@ class MainViewModelTest {
     @Test
     fun `sendMessage success refreshes sessions`() = runTest {
         coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(400) } returns Result.success(
+        coEvery { repository.getSessions(6) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project", title = "Updated"))
         )
 
@@ -460,7 +461,7 @@ class MainViewModelTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        coVerify(atLeast = 1) { repository.getSessions(400) }
+        coVerify(atLeast = 1) { repository.getSessions(6) }
         assertEquals("Updated", viewModel.state.value.sessions.single().title)
     }
 
@@ -479,7 +480,7 @@ class MainViewModelTest {
             time = ai.opencode.client.data.model.Session.TimeInfo(updated = 2_000)
         )
         coEvery { repository.sendMessage(any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(400) } returns Result.success(listOf(previousTop, current))
+        coEvery { repository.getSessions(6) } returns Result.success(listOf(previousTop, current))
 
         val viewModel = createViewModel()
         updateState(viewModel) {
@@ -632,7 +633,7 @@ class MainViewModelTest {
                 title = "Server Refreshed"
             )
         )
-        coEvery { repository.getSessions(400) } returns Result.success(updatedSessions)
+        coEvery { repository.getSessions(6) } returns Result.success(updatedSessions)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
@@ -662,7 +663,7 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(400) }
+        coVerify { repository.getSessions(6) }
         assertEquals("Server Refreshed", viewModel.state.value.sessions.single().title)
     }
 
@@ -672,7 +673,7 @@ class MainViewModelTest {
         // but the full refresh it triggers returns a stale snapshot (placeholder title, older
         // timestamp). The freshly received title must remain visible (Chat header reads it from
         // state.sessions) rather than being clobbered by the stale refresh.
-        coEvery { repository.getSessions(400) } returns Result.success(
+        coEvery { repository.getSessions(6) } returns Result.success(
             listOf(
                 ai.opencode.client.data.model.Session(
                     id = "session-1",
@@ -722,7 +723,7 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(400) }
+        coVerify { repository.getSessions(6) }
         assertEquals(
             "Pythagorean theorem: history, proof, engineering",
             viewModel.state.value.sessions.single { it.id == "session-1" }.title
@@ -745,7 +746,7 @@ class MainViewModelTest {
                 time = ai.opencode.client.data.model.Session.TimeInfo(updated = 1_000)
             )
         )
-        coEvery { repository.getSessions(400) } returns Result.success(refreshedSessions)
+        coEvery { repository.getSessions(6) } returns Result.success(refreshedSessions)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
@@ -768,13 +769,13 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(400) }
+        coVerify { repository.getSessions(6) }
         assertEquals("session-2", viewModel.state.value.sessions.first().id)
     }
 
     @Test
     fun `message updated SSE refreshes current messages and sessions`() = runTest {
-        coEvery { repository.getSessions(400) } returns Result.success(
+        coEvery { repository.getSessions(6) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 
@@ -794,26 +795,26 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(400) }
+        coVerify { repository.getSessions(6) }
         coVerify { repository.getMessages("session-1", 30) }
     }
 
     @Test
-    fun `loadSessions requests current limit and tracks hasMore`() = runTest {
-        val sessions = (1..400).map { index ->
+    fun `loadSessions requests six and tracks hasMore`() = runTest {
+        val sessions = (1..6).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        coEvery { repository.getSessions(400) } returns Result.success(sessions)
+        coEvery { repository.getSessions(6) } returns Result.success(sessions)
 
         val viewModel = createViewModel()
 
         viewModel.loadSessions()
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(400) }
-        assertEquals(400, viewModel.state.value.loadedSessionLimit)
+        coVerify { repository.getSessions(6) }
+        assertEquals(6, viewModel.state.value.loadedSessionLimit)
         assertTrue(viewModel.state.value.hasMoreSessions)
-        assertEquals(400, viewModel.state.value.sessions.size)
+        assertEquals(6, viewModel.state.value.sessions.size)
         assertFalse(viewModel.state.value.isRefreshingSessions)
     }
 
@@ -837,7 +838,7 @@ class MainViewModelTest {
         val initialSessions = listOf(
             ai.opencode.client.data.model.Session(id = "parent-1", directory = "/tmp/project")
         )
-        coEvery { repository.getSessions(400) } returns Result.success(initialSessions)
+        coEvery { repository.getSessions(6) } returns Result.success(initialSessions)
 
         val viewModel = createViewModel()
         viewModel.loadSessions()
@@ -854,7 +855,7 @@ class MainViewModelTest {
                 parentId = "parent-1"
             )
         )
-        coEvery { repository.getSessions(400) } returns Result.success(refreshedSessions)
+        coEvery { repository.getSessions(6) } returns Result.success(refreshedSessions)
 
         viewModel.loadSessions()
         advanceUntilIdle()
@@ -878,41 +879,41 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `loadMoreSessions requests higher limit and replaces sessions`() = runTest {
-        val initial = (1..400).map { index ->
+    fun `loadMoreSessions requests twelve and replaces sessions`() = runTest {
+        val initial = (1..6).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        val expanded = (1..450).map { index ->
+        val expanded = (1..10).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        coEvery { repository.getSessions(800) } returns Result.success(expanded)
+        coEvery { repository.getSessions(12) } returns Result.success(expanded)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
                 sessions = initial,
-                loadedSessionLimit = 400,
+                loadedSessionLimit = 6,
                 hasMoreSessions = true,
-                currentSessionId = "session-20"
+                currentSessionId = "session-4"
             )
         }
 
         viewModel.loadMoreSessions()
         advanceUntilIdle()
 
-        coVerify { repository.getSessions(800) }
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
+        coVerify { repository.getSessions(12) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
         assertFalse(viewModel.state.value.hasMoreSessions)
-        assertEquals(450, viewModel.state.value.sessions.size)
-        assertEquals("session-20", viewModel.state.value.currentSessionId)
+        assertEquals(10, viewModel.state.value.sessions.size)
+        assertEquals("session-4", viewModel.state.value.currentSessionId)
     }
 
     @Test
     fun `loadMoreSessions ignores duplicate triggers while request is in flight`() = runTest {
-        val expanded = (1..450).map { index ->
+        val expanded = (1..10).map { index ->
             ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
         }
-        coEvery { repository.getSessions(800) } coAnswers {
+        coEvery { repository.getSessions(12) } coAnswers {
             kotlinx.coroutines.delay(100)
             Result.success(expanded)
         }
@@ -920,9 +921,9 @@ class MainViewModelTest {
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
-                loadedSessionLimit = 400,
+                loadedSessionLimit = 6,
                 hasMoreSessions = true,
-                sessions = (1..400).map { index -> ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index") }
+                sessions = (1..6).map { index -> ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index") }
             )
         }
 
@@ -930,8 +931,75 @@ class MainViewModelTest {
         viewModel.loadMoreSessions()
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { repository.getSessions(800) }
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
+        coVerify(exactly = 1) { repository.getSessions(12) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+    }
+
+    @Test
+    fun `loadSessions keeps expanded window when list already holds twelve`() = runTest {
+        val expanded = (1..12).map { index ->
+            ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
+        }
+        coEvery { repository.getSessions(12) } returns Result.success(expanded)
+
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                sessions = expanded,
+                loadedSessionLimit = 12,
+                hasMoreSessions = false
+            )
+        }
+
+        viewModel.loadSessions()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.getSessions(12) }
+        coVerify(exactly = 0) { repository.getSessions(6) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
+        assertTrue(viewModel.state.value.hasMoreSessions)
+        assertFalse(viewModel.state.value.isRefreshingSessions)
+    }
+
+    @Test
+    fun `stale refresh response does not truncate expanded session list`() = runTest {
+        val staleRefresh = (1..3).map { index ->
+            ai.opencode.client.data.model.Session(id = "stale-$index", directory = "/tmp/stale-$index")
+        }
+        val expanded = (1..12).map { index ->
+            ai.opencode.client.data.model.Session(id = "session-$index", directory = "/tmp/$index")
+        }
+        val refreshResponse = CompletableDeferred<Unit>()
+        val loadMoreResponse = CompletableDeferred<Unit>()
+        coEvery { repository.getSessions(6) } coAnswers {
+            refreshResponse.await()
+            Result.success(staleRefresh)
+        }
+        coEvery { repository.getSessions(12) } coAnswers {
+            loadMoreResponse.await()
+            Result.success(expanded)
+        }
+
+        val viewModel = createViewModel()
+
+        viewModel.loadSessions()
+        runCurrent()
+        viewModel.loadMoreSessions()
+        runCurrent()
+        loadMoreResponse.complete(Unit)
+        runCurrent()
+        refreshResponse.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.getSessions(6) }
+        coVerify(exactly = 1) { repository.getSessions(12) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
+        assertEquals("session-1", viewModel.state.value.sessions.first().id)
+        assertTrue(viewModel.state.value.hasMoreSessions)
+        assertFalse(viewModel.state.value.isRefreshingSessions)
+        assertFalse(viewModel.state.value.isLoadingMoreSessions)
     }
 
     @Test
@@ -1248,7 +1316,7 @@ class MainViewModelTest {
     fun `handleSSEEvent idle status clears streaming state and refreshes messages`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "a1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
-        coEvery { repository.getSessions(400) } returns Result.success(
+        coEvery { repository.getSessions(6) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
         val viewModel = createViewModel()
@@ -1584,7 +1652,7 @@ class MainViewModelTest {
     fun `handleSSEEvent message created refreshes messages for current session`() = runTest {
         val messages = listOf(MessageWithParts(info = Message(id = "m1", role = "assistant")))
         coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
-        coEvery { repository.getSessions(400) } returns Result.success(
+        coEvery { repository.getSessions(6) } returns Result.success(
             listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 
