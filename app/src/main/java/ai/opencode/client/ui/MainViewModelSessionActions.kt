@@ -480,7 +480,6 @@ internal fun launchSendMessage(
                     )
                 }
                 onSuccess?.invoke()
-                onRefreshSessions()
                 onRefreshMessages(sessionId, true)
                 launch {
                     delay(MainViewModelTimings.messageRefreshDelayMs)

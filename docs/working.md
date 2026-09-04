@@ -1,5 +1,15 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-09-04 — Session 刷新合并：事件本地生效，整表刷新收敛到边界
+
+- SSE `session.created` / `session.updated` 改为本地 upsert 即时生效，不再触发 `getSessions` 整表刷新；本地较新合并（local-newer merge）继续兜底并发过期快照。
+- SSE `message.created` / `message.updated` 对任意 session 不再刷新 session 列表；仅当前 session 刷新消息窗口（created 重置、updated 增量），非当前 session 零网络请求。
+- 保留 `session.status=idle` 行为：恰一次 session 刷新 + 当前消息刷新 + 回复完成回调（TTS 自动朗读）。
+- 发送成功路径移除即时 session 整表刷新：本地乐观状态（清输入、置 busy、bump 排序）立即生效，消息窗口即时刷新，整表刷新延迟到 1200ms 边界合并为一次。
+- 会话列表首屏/增量分页（6/12）不受影响；分页、stale-guard、loading-flag 语义未改动。
+- 验证：`testDebugUnitTest` 344 全绿；新增/改写断言用 `coVerify(exactly=N)` 钉死调用次数（RED→GREEN 先行）。
+- Lesson：乐观本地更新若紧跟着一次全量刷新，会被刷新附带的权威快照（如 sessionStatuses 整表替换）悄悄抹掉——判断"本地更新是否真的生效"要断言网络调用次数（exactly=0），只断言最终状态会漏掉这类回写覆盖。
+
 ## 2026-08-25 · Public repo 隐私审计与卫生修复（path-b）
 
 - 全量审计（全部已推送 ref 内容扫描 + 全历史 pickaxe + GitHub issues/PRs/releases）：服务器域名、眼镜串号、SSH 中继 IP、真实凭证 **零泄露**；两个远端仓（opencode_android_client / client-1）确认 PUBLIC。
