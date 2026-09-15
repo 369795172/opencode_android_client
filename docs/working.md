@@ -1,5 +1,15 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-09-15 — 语音转写可靠性：Grok STT 失败保留重试 + VoiceFlowKit 0.4.0（三策略）
+
+- **背景**：Marvin 反馈 Grok STT 录音转写经常报 "Empty transcript"。排查确认客户端 WAV（PCM16/24kHz/mono）有效，空文本来自 AI Builders 代理偶发 200+空 `text`；且旧代码在 Grok 失败后 `finally { audioFile?.delete() }` 直接毁掉录音，用户只能重讲。
+- **Grok STT 失败路径重建**（`MainViewModel.kt`）：`transcribeGrokAudio()` 静默重试一次（2 attempts）覆盖代理抖动；仍失败则保留 WAV 到 `grokRetryAudioFile` 并复用 `hasPreservedSpeechAudio` 状态——麦克风按钮变 Refresh 图标，点击走 `retryGrokSpeechAudio()` 重新上传同一文件；成功/新录音/用户丢弃时才删文件。
+- **错误信息中文化**（`MainViewModelSupport.kt speechErrorMessage`）：EmptyTranscript 按「有无保留音频」给不同中文指引（"录音已保留，点麦克风图标可重试" vs "请重讲一次"），HttpError/ConnectionLost/WebsocketError 映射为可读中文；realtime 与 Grok 两条失败路径统一走该映射。
+- **VoiceFlowKit pin `0fbc2d5` → `0.4.0`**（tag，JitPack 已构建 ok）：新增 GPT Live Transcribe 策略（专用转写 realtime 通道，长录音 finalize 按音频时长自适应超时）。App 适配：`startSession()` 改传 strategy（否则 GPT Live 会用错模型）、Settings 策略选择器从 2 段变 3 段（GPT Realtime / GPT Live / Grok STT，文案对齐上游）、自定义 prompt 字段条件从 `== OPENAI_REALTIME` 放宽为 `usesRealtimeTransport`（GPT Live 同样吃 prompt/terms）。
+- 版本 bump 0.1.20260915 (35)。
+- 验证：`testDebugUnitTest` 353 tests / 0 failures（新增 9 个：4 个 Grok 重试状态机 + 5 个 speechErrorMessage 映射）。测试踩坑：Grok stop 路径依赖 start 时写入的 `activeSpeechStrategy`，直接 `updateState { isRecording = true }` 会让 stop 走 realtime 分支——测试必须走真实 start→toggle 流程；start 路径会触发 keep-alive service 的三参 `Log.w`，setUp 需补 mock。
+- Lesson: 「失败即删除用户数据」是重试类功能的隐形杀手——先把产物生命周期和 UI 重试按钮对齐（复用既有 `hasPreservedSpeechAudio` 管道），再加自动重试，diff 最小且语义自洽。服务端偶发空响应类问题，客户端一次静默重试 + 保留产物手动重试是标准双保险。
+
 ## 2026-09-09 — Agent 选择器落地（ChatTopBar，复用既有 selectAgent 管道）
 
 - Chat 顶栏新增 Agent pill（模型 pill 左侧同款样式）：展示当前 agent `shortName`，点击弹 DropdownMenu 列出 `visibleAgents`（`AgentInfo.isVisible` 过滤 hidden 与非 primary/all 模式），选中调 `viewModel.selectAgent`（持久化全局 + 按 session 记忆），名称下挂 description 副行。
