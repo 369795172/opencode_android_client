@@ -93,6 +93,9 @@
     <string name="sessions_collapse">折叠 %1$s</string>
     <string name="chat_model_fallback">模型</string>
     <string name="chat_switch_model">切换模型</string>
+    <string name="chat_agent_fallback">Agent</string>
+    <string name="chat_switch_agent">切换 Agent</string>
+    <string name="chat_no_agents">暂无可用 Agent</string>
     <string name="chat_todo">待办</string>
     <string name="chat_context">上下文</string>
     <string name="chat_no_usage_data">无使用数据</string>

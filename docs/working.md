@@ -1,5 +1,14 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-09-09 — Agent 选择器落地（ChatTopBar，复用既有 selectAgent 管道）
+
+- Chat 顶栏新增 Agent pill（模型 pill 左侧同款样式）：展示当前 agent `shortName`，点击弹 DropdownMenu 列出 `visibleAgents`（`AgentInfo.isVisible` 过滤 hidden 与非 primary/all 模式），选中调 `viewModel.selectAgent`（持久化全局 + 按 session 记忆），名称下挂 description 副行。
+- 此前 `visibleAgents`/`selectAgent()` 只有单测调用、无任何 UI 消费点——README 宣称的「切换 Agent」实际不存在，App 每条消息静默携带默认 agent（`build`）。本次补上 UI 入口，数据层零改动。
+- 服务端兼容性已实证：opencode 本地 DB 历史消息 `agent` 字段同时存在 config key（`build`/`plan`）与 display name（`Sisyphus - ultraworker`/`Atlas - Plan Executor`）两种形态，OMO 服务端做 display→key 归一化；客户端发送 `AgentInfo.name` round-trip 安全。
+- `ChatTopBarState.availableAgents`/`selectedAgentName` 与 `ChatTopBarActions.onSelectAgent` 均带默认值，既有调用方与测试零破坏。
+- 验证：`testDebugUnitTest` 344 tests / 0 failures；strings.xml 与 values-zh 同步新增 3 条（fallback/切换/空态）。
+- Lesson: 「管道齐全但无 UI 消费点」这类半成品，grep 测试目录调用方是最快的判别法——生产代码零引用即功能不存在，README 宣称不作数。
+
 ## 2026-09-04 — Session 刷新合并：事件本地生效，整表刷新收敛到边界
 
 - SSE `session.created` / `session.updated` 改为本地 upsert 即时生效，不再触发 `getSessions` 整表刷新；本地较新合并（local-newer merge）继续兜底并发过期快照。

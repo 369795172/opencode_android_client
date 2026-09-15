@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import ai.opencode.client.R
 import ai.opencode.client.data.model.AIUsageQuota
 import ai.opencode.client.data.model.AIUsageQuotaSnapshot
+import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.data.model.TodoItem
@@ -74,6 +75,8 @@ internal data class ChatTopBarState(
     val expandedSessionIds: Set<String> = emptySet(),
     val availableModels: List<AppState.ModelOption>,
     val selectedModelIndex: Int,
+    val availableAgents: List<AgentInfo> = emptyList(),
+    val selectedAgentName: String = "build",
     val contextUsage: AppState.ContextUsage?,
     val sessionTodos: List<TodoItem> = emptyList(),
     val aiUsageEnabled: Boolean = false,
@@ -98,6 +101,7 @@ internal data class ChatTopBarActions(
     val onRefreshSessions: () -> Unit = {},
     val onToggleSessionExpanded: (String) -> Unit = {},
     val onSelectModel: (Int) -> Unit,
+    val onSelectAgent: (String) -> Unit = {},
     val onOpenAIUsage: () -> Unit = {},
     val onRefreshAIUsage: () -> Unit = {},
     val onNavigateToSettings: () -> Unit = {},
@@ -205,6 +209,84 @@ internal fun ChatTopBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    Box(modifier = Modifier.weight(1f, fill = false)) {
+                        var showAgentMenu by remember { mutableStateOf(false) }
+                        val selectedAgent = state.availableAgents.find { it.name == state.selectedAgentName }
+                        Surface(
+                            onClick = { showAgentMenu = true },
+                            shape = RoundedCornerShape(50),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier.testTag("chat.agent_pill")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = selectedAgent?.shortName ?: state.selectedAgentName.take(12),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                                Icon(
+                                    Icons.Default.KeyboardArrowDown,
+                                    contentDescription = stringResource(R.string.chat_switch_agent),
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showAgentMenu,
+                            onDismissRequest = { showAgentMenu = false }
+                        ) {
+                            if (state.availableAgents.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(R.string.chat_no_agents),
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    },
+                                    onClick = { }
+                                )
+                            }
+                            state.availableAgents.forEach { agent ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                agent.name,
+                                                color = if (agent.name == state.selectedAgentName)
+                                                    MaterialTheme.colorScheme.primary
+                                                else
+                                                    MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (!agent.description.isNullOrBlank()) {
+                                                Text(
+                                                    agent.description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        actions.onSelectAgent(agent.name)
+                                        showAgentMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     Box(modifier = Modifier.weight(1f, fill = false)) {
                         Surface(
                             onClick = { showModelMenu = true },
