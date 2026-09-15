@@ -6,6 +6,7 @@ import ai.opencode.client.data.model.QuestionRequest
 import ai.opencode.client.data.model.SSEEvent
 import ai.opencode.client.data.model.Session
 import ai.opencode.client.data.model.SessionStatus
+import com.yage.voiceflowkit.VoiceFlowError
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import java.security.MessageDigest
@@ -63,6 +64,25 @@ internal fun aiBuilderSignature(baseURL: String, token: String): String {
 internal fun errorMessageOrFallback(throwable: Throwable?, fallback: String): String {
     val message = throwable?.message?.trim().orEmpty()
     return if (message.isEmpty()) fallback else message
+}
+
+internal fun speechErrorMessage(error: Throwable?, retryAvailable: Boolean): String = when (error) {
+    is VoiceFlowError.EmptyTranscript ->
+        if (retryAvailable) {
+            "未识别到语音，录音已保留，点麦克风图标可重试；经常失败可在设置中切换录音模型"
+        } else {
+            "未识别到语音，请重讲一次；经常失败可在设置中切换录音模型"
+        }
+    is IllegalStateException ->
+        if (error.message == "Empty Grok recording") {
+            "本次没有录到音频，请重试录音"
+        } else {
+            errorMessageOrFallback(error, "Transcription failed")
+        }
+    is VoiceFlowError.HttpError -> "语音服务返回 HTTP ${error.statusCode}"
+    is VoiceFlowError.ConnectionLost -> "语音连接中断：${error.detail}"
+    is VoiceFlowError.WebsocketError -> "语音通道错误：${error.detail}"
+    else -> errorMessageOrFallback(error, "Transcription failed")
 }
 
 internal fun parseSessionCreatedEvent(event: SSEEvent): SessionCreatedEvent? {

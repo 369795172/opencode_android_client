@@ -22,6 +22,7 @@ import ai.opencode.client.util.OpenCodeDeepLinkParser
 import ai.opencode.client.util.ThemeMode
 import com.yage.voiceflowkit.VoiceFlowClient
 import com.yage.voiceflowkit.VoiceFlowConfig
+import com.yage.voiceflowkit.VoiceFlowError
 import com.yage.voiceflowkit.VoiceFlowMicrophone
 import com.yage.voiceflowkit.VoiceFlowPreservedAudio
 import com.yage.voiceflowkit.VoiceFlowRecordingStrategy
@@ -438,6 +439,13 @@ class MainViewModel @Inject constructor(
         VoiceFlowRecordingStrategy.OPENAI_REALTIME
     private var preservedSpeechAudio: VoiceFlowPreservedAudio? = null
     private var preservedSpeechExistingInput: String = ""
+
+    /**
+     * WAV kept after a failed Grok STT transcription so the mic button's retry
+     * affordance can re-upload it. Null once the retry succeeds, the user
+     * discards it, or a new recording starts.
+     */
+    private var grokRetryAudioFile: java.io.File? = null
     private var lastHealthCheckTime = 0L
     private var deepLinkRouteGeneration = 0L
     private var deepLinkJob: Job? = null
@@ -769,15 +777,19 @@ class MainViewModel @Inject constructor(
                         stopSpeechKeepAlive()
                     }
                 } else {
-                    try {
-                        if (audioFile == null || !audioFile.exists() || audioFile.length() == 0L) {
-                            throw IllegalStateException("Empty Grok recording")
+                    var transcribed: String? = null
+                    var failure: Exception? = null
+                    if (audioFile == null || !audioFile.exists() || audioFile.length() == 0L) {
+                        failure = IllegalStateException("Empty Grok recording")
+                    } else {
+                        try {
+                            transcribed = transcribeGrokAudio(audioFile)
+                        } catch (error: Exception) {
+                            failure = error
                         }
-                        val result = voiceFlowClient.transcribe(
-                            audioFile = audioFile,
-                            strategy = VoiceFlowRecordingStrategy.GROK_BATCH,
-                        )
-                        val cleaned = result.text.trim()
+                    }
+                    if (transcribed != null) {
+                        val cleaned = transcribed
                         Log.d(TAG, "Grok batch transcription success: chars=${cleaned.length}")
                         _state.update {
                             it.copy(
@@ -785,19 +797,26 @@ class MainViewModel @Inject constructor(
                                 isTranscribing = false,
                             )
                         }
-                    } catch (error: Exception) {
+                        audioFile?.delete()
+                    } else {
+                        val error = failure ?: VoiceFlowError.EmptyTranscript
                         Log.e(TAG, "Grok batch speech processing failed", error)
+                        val retryAvailable = audioFile != null &&
+                            audioFile.exists() && audioFile.length() > 0L
+                        if (retryAvailable) {
+                            grokRetryAudioFile = audioFile
+                            preservedSpeechExistingInput = speechExistingInput
+                            _state.update { it.copy(hasPreservedSpeechAudio = true) }
+                        }
                         _state.update {
                             it.copy(
                                 isTranscribing = false,
-                                speechError = errorMessageOrFallback(error, "Transcription failed"),
+                                speechError = speechErrorMessage(error, retryAvailable),
                             )
                         }
-                    } finally {
-                        speechSession = null
-                        stopSpeechKeepAlive()
-                        audioFile?.delete()
                     }
+                    speechSession = null
+                    stopSpeechKeepAlive()
                 }
             }
         } else {
@@ -1020,7 +1039,38 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The AI Builders proxy intermittently answers 200 with empty text; one
+     * silent retry avoids costing the user a re-recording.
+     */
+    private suspend fun transcribeGrokAudio(audioFile: java.io.File, attempts: Int = 2): String {
+        var lastError: Exception? = null
+        repeat(attempts) { attempt ->
+            try {
+                if (!audioFile.exists() || audioFile.length() == 0L) {
+                    throw IllegalStateException("Empty Grok recording")
+                }
+                val text = voiceFlowClient.transcribe(
+                    audioFile = audioFile,
+                    strategy = VoiceFlowRecordingStrategy.GROK_BATCH,
+                ).text.trim()
+                if (text.isEmpty()) {
+                    throw VoiceFlowError.EmptyTranscript
+                }
+                return text
+            } catch (error: Exception) {
+                lastError = error
+                Log.e(TAG, "Grok batch transcription attempt ${attempt + 1}/${attempts} failed", error)
+            }
+        }
+        throw lastError ?: VoiceFlowError.EmptyTranscript
+    }
+
     fun retryPreservedSpeechAudio() {
+        grokRetryAudioFile?.let { file ->
+            retryGrokSpeechAudio(file)
+            return
+        }
         val preserved = preservedSpeechAudio ?: return
         val prefix = preservedSpeechExistingInput
         _state.update { it.copy(isRetryingSpeech = true) }
@@ -1042,7 +1092,36 @@ class MainViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isRetryingSpeech = false,
-                        speechError = errorMessageOrFallback(error, "Transcription failed"),
+                        speechError = speechErrorMessage(error, retryAvailable = false),
+                    )
+                }
+            } finally {
+                stopSpeechKeepAlive()
+            }
+        }
+    }
+
+    private fun retryGrokSpeechAudio(audioFile: java.io.File) {
+        val prefix = preservedSpeechExistingInput
+        _state.update { it.copy(isRetryingSpeech = true) }
+        startSpeechKeepAlive()
+        viewModelScope.launch {
+            try {
+                val cleaned = transcribeGrokAudio(audioFile)
+                Log.d(TAG, "Grok batch retry transcription success: chars=${cleaned.length}")
+                _state.update {
+                    it.copy(
+                        inputText = mergedSpeechInput(prefix, cleaned),
+                        isRetryingSpeech = false,
+                    )
+                }
+                clearPreservedSpeechAudio()
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to retry Grok speech audio", error)
+                _state.update {
+                    it.copy(
+                        isRetryingSpeech = false,
+                        speechError = speechErrorMessage(error, retryAvailable = true),
                     )
                 }
             } finally {
@@ -1054,6 +1133,10 @@ class MainViewModel @Inject constructor(
     private fun clearPreservedSpeechAudio() {
         preservedSpeechAudio?.let { voiceFlowClient.discardPreservedAudio(it) }
         preservedSpeechAudio = null
+        grokRetryAudioFile?.let { file ->
+            runCatching { file.delete() }
+        }
+        grokRetryAudioFile = null
         preservedSpeechExistingInput = ""
         _state.update { it.copy(hasPreservedSpeechAudio = false) }
     }

@@ -74,7 +74,7 @@ internal fun launchRealtimeSpeechStop(
                         currentInput = it.inputText,
                     ),
                     isTranscribing = false,
-                    speechError = errorMessageOrFallback(error, "Transcription failed"),
+                    speechError = speechErrorMessage(error, retryAvailable = false),
                 )
             }
         } finally {

@@ -28,8 +28,11 @@ import ai.opencode.client.ui.session.buildSessionTree
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.SelectedModelRef
 import ai.opencode.client.util.ThemeMode
+import com.yage.voiceflowkit.TranscriptionResult
 import com.yage.voiceflowkit.VoiceFlowClient
+import com.yage.voiceflowkit.VoiceFlowError
 import com.yage.voiceflowkit.VoiceFlowMicrophone
+import com.yage.voiceflowkit.VoiceFlowRecordingStrategy
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -81,6 +84,8 @@ class MainViewModelTest {
         mockkStatic(Log::class)
         every { Log.d(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>(), any<Throwable>()) } returns 0
+        every { Log.i(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
 
@@ -1824,6 +1829,123 @@ class MainViewModelTest {
 
         assertEquals(before, viewModel.state.value.pinnedModels)
         assertEquals("Sync failed: missing", viewModel.state.value.modelSyncMessage)
+    }
+
+    @Test
+    fun `toggleRecording grok batch retries once then preserves audio for manual retry`() = runTest {
+        every { settingsManager.aiBuilderToken } returns "token"
+        every { settingsManager.aiBuilderRecordingStrategy } returns "GROK_BATCH"
+        val audioFile = java.io.File.createTempFile("grok-empty", ".wav").apply {
+            writeBytes(ByteArray(64) { 1 })
+        }
+        coEvery {
+            voiceFlowClient.transcribe(any<java.io.File>(), any<VoiceFlowRecordingStrategy>(), any())
+        } throws VoiceFlowError.EmptyTranscript
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(aiBuilderConnectionOK = true) }
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.isRecording)
+        coEvery { microphone.stop() } returns audioFile
+
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) {
+            voiceFlowClient.transcribe(any<java.io.File>(), any<VoiceFlowRecordingStrategy>(), any())
+        }
+        assertFalse(viewModel.state.value.isTranscribing)
+        assertTrue(viewModel.state.value.hasPreservedSpeechAudio)
+        assertTrue(
+            "expected preserved-audio guidance, got: ${viewModel.state.value.speechError}",
+            viewModel.state.value.speechError.orEmpty().contains("录音已保留")
+        )
+        assertTrue("retry audio must be kept on disk", audioFile.exists())
+        audioFile.delete()
+    }
+
+    @Test
+    fun `toggleRecording grok batch succeeds on second attempt and deletes file`() = runTest {
+        every { settingsManager.aiBuilderToken } returns "token"
+        every { settingsManager.aiBuilderRecordingStrategy } returns "GROK_BATCH"
+        val audioFile = java.io.File.createTempFile("grok-flaky", ".wav").apply {
+            writeBytes(ByteArray(64) { 1 })
+        }
+        var call = 0
+        coEvery {
+            voiceFlowClient.transcribe(any<java.io.File>(), any<VoiceFlowRecordingStrategy>(), any())
+        } coAnswers {
+            call += 1
+            if (call == 1) throw VoiceFlowError.EmptyTranscript
+            TranscriptionResult(text = "第二次成功", requestId = "req-1")
+        }
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(aiBuilderConnectionOK = true) }
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+        coEvery { microphone.stop() } returns audioFile
+
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+
+        assertEquals("第二次成功", viewModel.state.value.inputText)
+        assertFalse(viewModel.state.value.isTranscribing)
+        assertFalse(viewModel.state.value.hasPreservedSpeechAudio)
+        assertNull(viewModel.state.value.speechError)
+        assertFalse("success must delete the recording", audioFile.exists())
+    }
+
+    @Test
+    fun `retryPreservedSpeechAudio retries grok audio and clears state on success`() = runTest {
+        every { settingsManager.aiBuilderToken } returns "token"
+        every { settingsManager.aiBuilderRecordingStrategy } returns "GROK_BATCH"
+        val audioFile = java.io.File.createTempFile("grok-retry", ".wav").apply {
+            writeBytes(ByteArray(64) { 1 })
+        }
+        coEvery {
+            voiceFlowClient.transcribe(any<java.io.File>(), any<VoiceFlowRecordingStrategy>(), any())
+        } throws VoiceFlowError.EmptyTranscript
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(aiBuilderConnectionOK = true, inputText = "前文 ") }
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+        coEvery { microphone.stop() } returns audioFile
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.hasPreservedSpeechAudio)
+
+        coEvery {
+            voiceFlowClient.transcribe(any<java.io.File>(), any<VoiceFlowRecordingStrategy>(), any())
+        } returns TranscriptionResult(text = "重试成功", requestId = "req-2")
+
+        viewModel.retryPreservedSpeechAudio()
+        advanceUntilIdle()
+
+        assertTrue(
+            "retry must merge transcript after existing input",
+            viewModel.state.value.inputText.endsWith("重试成功")
+        )
+        assertFalse(viewModel.state.value.isRetryingSpeech)
+        assertFalse(viewModel.state.value.hasPreservedSpeechAudio)
+        assertFalse(audioFile.exists())
+    }
+
+    @Test
+    fun `toggleRecording grok batch missing recording shows guidance without preserving`() = runTest {
+        every { settingsManager.aiBuilderToken } returns "token"
+        every { settingsManager.aiBuilderRecordingStrategy } returns "GROK_BATCH"
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(aiBuilderConnectionOK = true) }
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+        coEvery { microphone.stop() } returns null
+
+        viewModel.toggleRecording()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isTranscribing)
+        assertFalse(viewModel.state.value.hasPreservedSpeechAudio)
+        assertEquals("本次没有录到音频，请重试录音", viewModel.state.value.speechError)
     }
 
     @org.junit.After
