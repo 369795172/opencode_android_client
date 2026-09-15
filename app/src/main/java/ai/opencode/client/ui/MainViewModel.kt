@@ -832,7 +832,7 @@ class MainViewModel @Inject constructor(
                     clearPreservedSpeechAudio()
                     val strategy = activeSpeechStrategy
                     if (strategy.usesRealtimeTransport) {
-                        val session = voiceFlowClient.startSession()
+                        val session = voiceFlowClient.startSession(strategy)
                         speechSession = session
                         startSpeechAudioLevelConsumer()
                         microphone.start(strategy = strategy) { chunk ->
