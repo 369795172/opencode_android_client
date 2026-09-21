@@ -10,6 +10,7 @@ import ai.opencode.client.data.repository.OpenCodeRepository
 import ai.opencode.client.util.SettingsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -32,26 +33,32 @@ internal fun launchLoadSessions(
                 isRefreshingSessions = true
             )
         }
-        repository.getSessions(limit)
+        val result = repository.getSessions(limit)
+        ensureActive()
+        result
             .onSuccess { sessions ->
-                if (state.value.loadedSessionLimit > limit) {
-                    // A load-more with a larger window completed while this refresh was in
-                    // flight; applying this snapshot would truncate the expanded list.
-                    state.update { it.copy(isRefreshingSessions = false) }
-                    return@onSuccess
+                var accepted = false
+                state.update { current ->
+                    if (limit < current.loadedSessionLimit) {
+                        accepted = false
+                        // A load-more with a larger window completed while this refresh was
+                        // in flight; applying this snapshot would truncate the expanded list.
+                        current.copy(isRefreshingSessions = false)
+                    } else {
+                        accepted = true
+                        val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(
+                            sessions,
+                            current.sessions,
+                            current.currentSessionId
+                        )
+                        current.copy(
+                            sessions = mergedSessions,
+                            hasMoreSessions = sessions.size >= limit,
+                            isRefreshingSessions = false
+                        )
+                    }
                 }
-                state.update {
-                    val mergedSessions = mergeRefreshedSessionsPreservingLocalActivity(
-                        sessions,
-                        it.sessions,
-                        it.currentSessionId
-                    )
-                    it.copy(
-                        sessions = mergedSessions,
-                        hasMoreSessions = sessions.size >= limit,
-                        isRefreshingSessions = false
-                    )
-                }
+                if (!accepted) return@onSuccess
                 val currentId = state.value.currentSessionId
                 val refreshedSessions = state.value.sessions
                 val hasCurrentSession = currentId != null && refreshedSessions.any { it.id == currentId }
@@ -99,7 +106,9 @@ internal fun launchLoadMoreSessions(
     }
     if (!shouldLaunch) return
     scope.launch {
-        repository.getSessions(nextLimit)
+        val result = repository.getSessions(nextLimit)
+        ensureActive()
+        result
             .onSuccess { sessions ->
                 if (state.value.loadedSessionLimit > nextLimit) {
                     state.update { it.copy(isLoadingMoreSessions = false) }

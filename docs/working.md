@@ -1,5 +1,11 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-09-21 — Keep loaded session window across refresh
+
+- `launchLoadSessions` 不再把 `loadedSessionLimit` 重置为 400，也不再清掉 in-flight 的 load more 标志。刷新使用当前已加载窗口；迟到的较小窗口响应会被丢掉，避免 Load older 之后列表缩回去。
+- Session 列表刷新结束不再自动滚回顶部。
+- 单测覆盖：load more 后刷新、连续扩到 1200、乱序响应、SSE/发送触发的刷新、选中项补回不影响 hasMore、host 切换丢弃在途请求。
+
 ## 2026-09-15 — 语音转写可靠性：Grok STT 失败保留重试 + VoiceFlowKit 0.4.0（三策略）
 
 - **背景**：Marvin 反馈 Grok STT 录音转写经常报 "Empty transcript"。排查确认客户端 WAV（PCM16/24kHz/mono）有效，空文本来自 AI Builders 代理偶发 200+空 `text`；且旧代码在 Grok 失败后 `finally { audioFile?.delete() }` 直接毁掉录音，用户只能重讲。
