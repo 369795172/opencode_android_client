@@ -90,7 +90,8 @@ class OpenCodeRepository @Inject constructor() {
         password: String? = null,
         workspaceDirectory: String? = null
     ) {
-        this.baseUrl = baseUrl
+        val normalized = if (baseUrl.startsWith("http")) baseUrl else "http://$baseUrl"
+        this.baseUrl = normalized.trimEnd('/')
         this.username = username
         this.password = password
         this.workspaceDirectory = workspaceDirectory
