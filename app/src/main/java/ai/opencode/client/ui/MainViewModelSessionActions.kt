@@ -1,5 +1,6 @@
 package ai.opencode.client.ui
 
+import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.ComposerImageAttachment
 import ai.opencode.client.data.model.Message
 import ai.opencode.client.data.model.MessageWithParts
@@ -203,6 +204,12 @@ internal fun mergePendingOptimisticMessages(
     return merged to prunedPending
 }
 
+internal fun effectiveSelectedAgent(selection: String, agents: List<AgentInfo>): String {
+    if (agents.isEmpty()) return selection
+    if (agents.any { it.name == selection }) return selection
+    return agents.firstOrNull { it.isVisible }?.name ?: "build"
+}
+
 internal fun launchLoadMessages(
     scope: CoroutineScope,
     repository: OpenCodeRepository,
@@ -241,7 +248,7 @@ internal fun launchLoadMessages(
                             messageLimit = limit,
                             isLoadingMessages = false,
                             selectedModelIndex = modelIndex ?: it.selectedModelIndex,
-                            selectedAgentName = agentName ?: it.selectedAgentName
+                            selectedAgentName = effectiveSelectedAgent(agentName ?: it.selectedAgentName, it.agents)
                         )
                     }
                     onMessagesLoaded?.invoke()

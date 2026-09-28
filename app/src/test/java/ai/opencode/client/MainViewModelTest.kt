@@ -1,6 +1,7 @@
 package ai.opencode.client
 
 import android.util.Log
+import ai.opencode.client.data.model.AgentInfo
 import ai.opencode.client.data.model.Message
 import ai.opencode.client.data.model.MessageWithParts
 import ai.opencode.client.data.model.Part
@@ -24,6 +25,7 @@ import ai.opencode.client.ui.AppState
 import ai.opencode.client.ui.DeepLinkError
 import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.ui.ModelPresets
+import ai.opencode.client.ui.effectiveSelectedAgent
 import ai.opencode.client.ui.session.buildSessionTree
 import ai.opencode.client.util.SettingsManager
 import ai.opencode.client.util.SelectedModelRef
@@ -172,6 +174,12 @@ class MainViewModelTest {
         val method = MainViewModel::class.java.getDeclaredMethod("handleSSEEvent", SSEEvent::class.java)
         method.isAccessible = true
         method.invoke(viewModel, event)
+    }
+
+    private fun loadAgents(viewModel: MainViewModel) {
+        val method = MainViewModel::class.java.getDeclaredMethod("loadAgents")
+        method.isAccessible = true
+        method.invoke(viewModel)
     }
 
     private fun sha256(input: String): String {
@@ -1712,6 +1720,112 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `effectiveSelectedAgent keeps known selection and ignores empty agent list`() {
+        val agents = listOf(
+            AgentInfo(name = "build", mode = "primary"),
+            AgentInfo(name = "plan", mode = "primary")
+        )
+        assertEquals("plan", effectiveSelectedAgent("plan", agents))
+        assertEquals("grok", effectiveSelectedAgent("grok", emptyList()))
+    }
+
+    @Test
+    fun `effectiveSelectedAgent falls back to first visible agent`() {
+        val agents = listOf(
+            AgentInfo(name = "hidden", mode = "primary", hidden = true),
+            AgentInfo(name = "build", mode = "primary")
+        )
+        assertEquals("build", effectiveSelectedAgent("grok", agents))
+        assertEquals(
+            "build",
+            effectiveSelectedAgent("grok", listOf(AgentInfo(name = "sub", mode = "subagent", hidden = true)))
+        )
+    }
+
+    @Test
+    fun `loadAgents replaces unknown selected agent with first visible agent`() = runTest {
+        coEvery { repository.getAgents() } returns Result.success(
+            listOf(AgentInfo(name = "build", mode = "primary"))
+        )
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(selectedAgentName = "grok") }
+
+        loadAgents(viewModel)
+        advanceUntilIdle()
+
+        assertEquals("build", viewModel.state.value.selectedAgentName)
+    }
+
+    @Test
+    fun `loadAgents keeps selected agent that the server still exposes`() = runTest {
+        coEvery { repository.getAgents() } returns Result.success(
+            listOf(AgentInfo(name = "build", mode = "primary"))
+        )
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(selectedAgentName = "build") }
+
+        loadAgents(viewModel)
+        advanceUntilIdle()
+
+        assertEquals("build", viewModel.state.value.selectedAgentName)
+    }
+
+    @Test
+    fun `loadAgents leaves selection unchanged when agent list is empty`() = runTest {
+        coEvery { repository.getAgents() } returns Result.success(emptyList())
+        val viewModel = createViewModel()
+        updateState(viewModel) { it.copy(selectedAgentName = "grok") }
+
+        loadAgents(viewModel)
+        advanceUntilIdle()
+
+        assertEquals("grok", viewModel.state.value.selectedAgentName)
+    }
+
+    @Test
+    fun `loadMessages corrects inferred agent missing from the server list`() = runTest {
+        val messages = listOf(
+            MessageWithParts(info = Message(id = "a1", role = "assistant", agent = "plan"))
+        )
+        coEvery { repository.getMessages("session-1", 30) } returns Result.success(messages)
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                currentSessionId = "session-1",
+                agents = listOf(AgentInfo(name = "build", mode = "primary")),
+                selectedAgentName = "grok"
+            )
+        }
+
+        viewModel.loadMessages("session-1")
+        advanceUntilIdle()
+
+        assertEquals("build", viewModel.state.value.selectedAgentName)
+    }
+
+    @Test
+    fun `sendMessage revalidates unknown agent against loaded agents`() = runTest {
+        coEvery { repository.sendMessage(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        val viewModel = createViewModel()
+        viewModel.selectSession("session-1")
+        advanceUntilIdle()
+        updateState(viewModel) {
+            it.copy(
+                selectedAgentName = "grok",
+                agents = listOf(AgentInfo(name = "build", mode = "primary"))
+            )
+        }
+        viewModel.setInputText("hello")
+
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify {
+            repository.sendMessage("session-1", "hello", "build", any(), any(), any())
+        }
+    }
+
+    @Test
     fun `toggleRecording shows token guidance when AI Builder token missing`() = runTest {
         val viewModel = createViewModel()
 
@@ -2146,6 +2260,29 @@ class MainViewModelTest {
 
         coVerify(exactly = 1) { repository.deleteSession("session-1") }
         assertEquals(listOf("session-2"), viewModel.state.value.sessions.map { it.id })
+    }
+
+    @Test
+    fun `deleteSession failure keeps the row and shows the error`() = runTest {
+        coEvery { repository.deleteSession("session-1") } returns Result.failure(
+            Exception("Delete failed 501: unsupported")
+        )
+        val viewModel = createViewModel()
+        updateState(viewModel) {
+            it.copy(
+                sessions = listOf(
+                    Session(id = "session-1", directory = "/tmp/one"),
+                    Session(id = "session-2", directory = "/tmp/two")
+                ),
+                currentSessionId = "session-2"
+            )
+        }
+
+        viewModel.deleteSession("session-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("session-1", "session-2"), viewModel.state.value.sessions.map { it.id })
+        assertTrue(viewModel.state.value.error!!.contains("501"))
     }
 
     @Test

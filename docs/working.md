@@ -1,5 +1,28 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-09-27 — Agent 校验与删除假成功
+
+- 选中 agent 对照当前 server 的 `/agent` 列表重校验，避免跨 server 残留的名字（例如 `grok`）被发给只有 `build` 的 host。
+- `deleteSession` 非 2xx 改为失败，错误带状态码和 body；失败时本地列表不删该行。
+- 说明见 `docs/fix_agent_validate_delete.md`。
+
+## 2026-09-26 — v0.1.20260926 release
+
+- `versionName` 升至 `0.1.20260926`，`versionCode` 升至 19。GitHub Release tag `v0.1.20260926`。
+
+## 2026-09-26 — Grok quota pill
+
+- 选中 `xai` 时 toolbar 不显示 quota pill。显示条件只包含 `openai` / `zai-coding-plan` / `ollama-cloud`，查找还写死 `5h`。
+- `xai` 映射到 dashboard 的 `grok` / `Weekly`。没有快照时 pill 用该窗口名，不再写死 `5h`。
+- 进入 Chat 就拉取。有数字显示百分比；还没有数字时只显示窗口名，不画 `--`。一小时内成功拉取为品牌蓝，超过一小时或刷新失败为灰色。quota pill 的内边距和最小高度与模型 pill 对齐。
+
+## 2026-09-21 — Docked file preview in phone chat
+
+- 对齐 iOS PR #159：手机 Chat 点文件后停靠预览，底部仍用原来的 `ChatInputBar`，不再跳 Files 或开全屏 Dialog。
+- 根层 `rememberSaveable` 保存预览请求；host/session/directory 不对时关闭；变宽到 Expanded 时把当前文件交给中栏。
+- 消息列表 `LazyListState` 提到 ChatScreen，关闭预览后不强制跳到底部。
+- 验证：`./gradlew testDebugUnitTest`；仪器测试未在真机跑。
+
 ## 2026-09-21 — Keep loaded session window across refresh
 
 - `launchLoadSessions` 不再把 `loadedSessionLimit` 重置为 400，也不再清掉 in-flight 的 load more 标志。刷新使用当前已加载窗口；迟到的较小窗口响应会被丢掉，避免 Load older 之后列表缩回去。
