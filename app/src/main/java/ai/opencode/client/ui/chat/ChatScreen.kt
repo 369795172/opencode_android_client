@@ -241,6 +241,7 @@ fun ChatScreen(
                     onPlayMessage = viewModel::playMessage,
                     onResumeTts = viewModel::resumeTts,
                     onStopTts = viewModel::stopTts,
+                    onOpenChildSession = viewModel::openChildSession
                 )
             }
 

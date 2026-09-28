@@ -115,6 +115,7 @@ internal fun ChatMessageList(
     onPlayMessage: (String) -> Unit = {},
     onResumeTts: () -> Unit = {},
     onStopTts: () -> Unit = {},
+    onOpenChildSession: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val layoutInfo = listState.layoutInfo
@@ -230,6 +231,7 @@ internal fun ChatMessageList(
                     onPlayMessage = onPlayMessage,
                     onResumeTts = onResumeTts,
                     onStopTts = onStopTts,
+                    onOpenChildSession = onOpenChildSession
                 )
                 is ChatItem.Activity -> TurnActivityRow(activity = item.activity)
             }
@@ -264,8 +266,11 @@ internal fun ChatMessageList(
 internal fun copyableMessageText(parts: List<Part>): String = parts
     .asSequence()
     .filter { it.isText }
-    .mapNotNull { it.text }
-    .filter { it.isNotEmpty() }
+    .mapNotNull { part ->
+        val notification = TaskNotificationParser.notificationFor(part)
+        val text = notification?.resultText ?: part.text
+        text?.takeIf { it.isNotEmpty() }
+    }
     .joinToString("\n\n")
 
 @Composable
@@ -284,6 +289,7 @@ private fun MessageRow(
     onPlayMessage: (String) -> Unit = {},
     onResumeTts: () -> Unit = {},
     onStopTts: () -> Unit = {},
+    onOpenChildSession: (String) -> Unit
 ) {
     val isUser = message.info.isUser
     val clipboard = LocalClipboard.current
@@ -308,6 +314,7 @@ private fun MessageRow(
                     workspaceDirectory = workspaceDirectory,
                     onFileClick = onFileClick,
                     onMarkdownLinkClick = onMarkdownLinkClick,
+                    onOpenChildSession = onOpenChildSession,
                     modifier = Modifier.fillMaxWidth()
                 )
                 i += 1
@@ -399,6 +406,7 @@ private fun MessageRow(
                     workspaceDirectory = workspaceDirectory,
                     onFileClick = onFileClick,
                     onMarkdownLinkClick = onMarkdownLinkClick,
+                    onOpenChildSession = onOpenChildSession,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -478,7 +486,7 @@ private fun MessageRow(
                             showMenu = false
                         }
                     )
-                    if (isUser) {
+                    if (TaskNotificationParser.offersEditFromHere(isUser, message.parts)) {
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.chat_edit_from_here)) },
                             leadingIcon = {
@@ -540,11 +548,22 @@ private fun PartView(
     workspaceDirectory: String?,
     onFileClick: (String) -> Unit,
     onMarkdownLinkClick: (String) -> Unit,
+    onOpenChildSession: (String) -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
+    val displayedText = streamingTextOverride ?: part.text ?: ""
+    val taskNotification = if (part.isText) TaskNotificationParser.notificationFor(part, displayedText) else null
     when {
+        taskNotification != null -> TaskNotificationCard(
+            notification = taskNotification,
+            repository = repository,
+            workspaceDirectory = workspaceDirectory,
+            onMarkdownLinkClick = onMarkdownLinkClick,
+            onOpenSession = onOpenChildSession,
+            modifier = modifier
+        )
         part.isText -> TextPart(
-            text = streamingTextOverride ?: part.text ?: "",
+            text = displayedText,
             isUser = isUser,
             modifier = modifier,
             repository = repository,
@@ -892,7 +911,7 @@ private fun TextPart(
 }
 
 @Composable
-private fun ResolvedMarkdownText(
+internal fun ResolvedMarkdownText(
     text: String,
     repository: OpenCodeRepository,
     workspaceDirectory: String?,
