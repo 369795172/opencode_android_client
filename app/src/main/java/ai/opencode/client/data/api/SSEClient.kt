@@ -36,8 +36,9 @@ class SSEClient(
     fun connect(
         baseUrl: String,
         username: String? = null,
-        password: String? = null
-    ): Flow<Result<SSEEvent>> = connectOnce(baseUrl, username, password)
+        password: String? = null,
+        onConnected: (() -> Unit)? = null
+    ): Flow<Result<SSEEvent>> = connectOnce(baseUrl, username, password, onConnected)
         .retryWhen { _, attempt ->
             val delayMs = (INITIAL_RETRY_DELAY_MS * Math.pow(RETRY_MULTIPLIER, attempt.toDouble()))
                 .toLong()
@@ -49,7 +50,8 @@ class SSEClient(
     private fun connectOnce(
         baseUrl: String,
         username: String? = null,
-        password: String? = null
+        password: String? = null,
+        onConnected: (() -> Unit)? = null
     ): Flow<Result<SSEEvent>> = callbackFlow {
         val url = if (baseUrl.startsWith("http")) baseUrl else "http://$baseUrl"
         val request = Request.Builder()
@@ -66,6 +68,12 @@ class SSEClient(
             .build()
 
         val listener = object : EventSourceListener() {
+            override fun onOpen(eventSource: EventSource, response: okhttp3.Response) {
+                // OkHttp fires onOpen for every fresh (re)connect once response
+                // headers arrive — first connect included.
+                onConnected?.invoke()
+            }
+
             override fun onEvent(
                 eventSource: EventSource,
                 id: String?,

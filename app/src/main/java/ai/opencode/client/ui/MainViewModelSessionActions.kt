@@ -66,8 +66,13 @@ internal fun launchLoadSessions(
                 when {
                     currentId == null && refreshedSessions.isNotEmpty() -> onSelectSession(refreshedSessions.first().id)
                     hasCurrentSession -> {
-                        onLoadSessionStatus()
-                        onLoadMessages(currentId!!)
+                        // While a turn is in flight the SSE stream owns message
+                        // state; a chained REST snapshot here would be stale
+                        // and visibly roll the list back to pre-streaming.
+                        if (state.value.sessionStatuses[currentId]?.isBusy != true) {
+                            onLoadSessionStatus()
+                            onLoadMessages(currentId!!)
+                        }
                     }
                     refreshedSessions.isNotEmpty() -> {
                         onSelectSession(refreshedSessions.first().id)
@@ -157,7 +162,9 @@ internal fun launchLoadSessionStatus(
     scope.launch {
         repository.getSessionStatus()
             .onSuccess { statuses ->
-                state.update { it.copy(sessionStatuses = statuses) }
+                state.update { current ->
+                    current.copy(sessionStatuses = statuses)
+                }
             }
             .onFailure { error ->
                 reportNonFatalIssue("MainViewModel", "Failed to load session status", error)
@@ -186,6 +193,7 @@ internal fun selectSessionState(
             pendingOptimisticMessageIds = emptySet(),
             streamingPartTexts = emptyMap(),
             streamingReasoningPart = null,
+            partTypeIndex = emptyMap(),
             messageLimit = 30,
             inputText = restoredDraft
         )
@@ -221,6 +229,14 @@ internal fun launchLoadMessages(
     onMessagesLoaded: (() -> Unit)? = null
 ) {
     scope.launch {
+        val busy = state.value.sessionStatuses[sessionId]?.isBusy == true
+        val showingThisSession = state.value.currentSessionId == sessionId && state.value.messages.isNotEmpty()
+        // While a turn is in flight the local SSE state is ahead of the REST
+        // snapshot; a full replacement flashes the UI. Skip the refresh here
+        // once the turn is on screen.
+        if (busy && showingThisSession) {
+            return@launch
+        }
         state.update { it.copy(isLoadingMessages = true) }
         val limit = if (resetLimit) 30 else state.value.messageLimit
         repository.getMessages(sessionId, limit)
@@ -290,7 +306,10 @@ internal fun launchLoadMessagesWithRetry(
 ) {
     scope.launch {
         delay(MainViewModelTimings.messageRetryDelayMs)
-        if (sessionId == state.value.currentSessionId) {
+        if (
+            sessionId == state.value.currentSessionId &&
+            state.value.sessionStatuses[sessionId]?.isBusy != true
+        ) {
             onLoadMessages(sessionId, resetLimit)
         }
     }
@@ -512,6 +531,7 @@ internal fun launchSendMessage(
     scope.launch {
         repository.sendMessage(sessionId, text, agent, model, attachments = attachments, messageId = messageId)
             .onSuccess {
+                val wasBusy = state.value.sessionStatuses[sessionId]?.isBusy == true
                 state.update {
                     it.copy(
                         error = null,
@@ -520,11 +540,19 @@ internal fun launchSendMessage(
                     )
                 }
                 onSuccess?.invoke()
-                onRefreshMessages(sessionId, true)
+                onRefreshSessions()
+                // While the turn is in flight the local SSE state is ahead of
+                // the REST snapshot; skip the post-send messages refreshes and
+                // let the idle reconcile converge. (Session list refreshes stay.)
+                if (state.value.sessionStatuses[sessionId]?.isBusy != true) {
+                    onRefreshMessages(sessionId, true)
+                }
                 launch {
                     delay(MainViewModelTimings.messageRefreshDelayMs)
                     onRefreshSessions()
-                    onRefreshMessages(sessionId, false)
+                    if (state.value.sessionStatuses[sessionId]?.isBusy != true) {
+                        onRefreshMessages(sessionId, false)
+                    }
                 }
             }
             .onFailure { error ->

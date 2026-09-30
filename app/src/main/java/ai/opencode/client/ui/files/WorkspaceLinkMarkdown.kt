@@ -8,6 +8,7 @@ import androidx.compose.ui.platform.UriHandler
 import com.mikepenz.markdown.m3.Markdown
 import ai.opencode.client.ui.theme.markdownTypographyCompact
 import ai.opencode.client.ui.util.DataUriImageTransformer
+import com.mikepenz.markdown.model.rememberMarkdownState
 
 @Composable
 internal fun WorkspaceLinkMarkdown(
@@ -23,7 +24,7 @@ internal fun WorkspaceLinkMarkdown(
         }
     ) {
         Markdown(
-            content = content,
+            markdownState = rememberMarkdownState(content = content, retainState = true),
             typography = markdownTypographyCompact(),
             modifier = modifier,
             imageTransformer = DataUriImageTransformer
