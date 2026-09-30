@@ -131,6 +131,7 @@ class NfcQuickPromptTest {
             hostProfileStore,
             tunnelManager,
             sshKeyManager,
+            sessionStatsStore = testSessionStatsStore(),
             ttsController = ttsController
         )
     }
