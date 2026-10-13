@@ -336,9 +336,10 @@ fun ChatScreen(
                             viewModel.toggleRecording()
                         } else {
                             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
                     }
                 }
-            }
+            )
         }
 
         if (state.currentSessionId != null) {

@@ -160,22 +160,16 @@ internal fun handleIncomingSseEvent(
         }
         "message.created" -> {
             val sessionId = event.payload.getString("sessionID")
-            if (sessionId != null) {
-                onRefreshSessions()
-                if (sessionId == state.value.currentSessionId) {
-                    recordUserMessageForStats(state, event, sessionId, onRecordUserMessage)
-                    onRefreshMessages(sessionId, true)
-                }
+            if (sessionId != null && sessionId == state.value.currentSessionId) {
+                recordUserMessageForStats(state, event, sessionId, onRecordUserMessage)
+                onRefreshMessages(sessionId, true)
             }
         }
         "message.updated" -> {
             val sessionId = event.payload.getString("sessionID")
-            if (sessionId != null) {
-                onRefreshSessions()
-                if (sessionId == state.value.currentSessionId) {
-                    recordUserMessageForStats(state, event, sessionId, onRecordUserMessage)
-                    onRefreshMessages(sessionId, false)
-                }
+            if (sessionId != null && sessionId == state.value.currentSessionId) {
+                recordUserMessageForStats(state, event, sessionId, onRecordUserMessage)
+                onRefreshMessages(sessionId, false)
             }
         }
         "message.part.updated" -> {
