@@ -1242,8 +1242,8 @@ class MainViewModelTest {
 
     @Test
     fun `refresh after load more keeps expanded window and tail sessions`() = runTest {
-        coEvery { repository.getSessions(400) } returns Result.success(numberedSessions(400))
-        coEvery { repository.getSessions(800) } returns Result.success(numberedSessions(800))
+        coEvery { repository.getSessions(6) } returns Result.success(numberedSessions(6))
+        coEvery { repository.getSessions(12) } returns Result.success(numberedSessions(12))
 
         val viewModel = createViewModel()
         viewModel.loadSessions()
@@ -1254,21 +1254,21 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         coVerifyOrder {
-            repository.getSessions(400)
-            repository.getSessions(800)
-            repository.getSessions(800)
+            repository.getSessions(6)
+            repository.getSessions(12)
+            repository.getSessions(12)
         }
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertEquals(800, viewModel.state.value.sessions.size)
-        assertTrue(viewModel.state.value.sessions.any { it.id == "session-650" })
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
+        assertTrue(viewModel.state.value.sessions.any { it.id == "session-9" })
         assertTrue(viewModel.state.value.hasMoreSessions)
     }
 
     @Test
-    fun `refresh after two load more requests still uses 1200`() = runTest {
-        coEvery { repository.getSessions(400) } returns Result.success(numberedSessions(400))
-        coEvery { repository.getSessions(800) } returns Result.success(numberedSessions(800))
-        coEvery { repository.getSessions(1200) } returns Result.success(numberedSessions(1200))
+    fun `refresh after two load more requests still uses 18`() = runTest {
+        coEvery { repository.getSessions(6) } returns Result.success(numberedSessions(6))
+        coEvery { repository.getSessions(12) } returns Result.success(numberedSessions(12))
+        coEvery { repository.getSessions(18) } returns Result.success(numberedSessions(18))
 
         val viewModel = createViewModel()
         viewModel.loadSessions()
@@ -1281,19 +1281,19 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         coVerifyOrder {
-            repository.getSessions(400)
-            repository.getSessions(800)
-            repository.getSessions(1200)
-            repository.getSessions(1200)
+            repository.getSessions(6)
+            repository.getSessions(12)
+            repository.getSessions(18)
+            repository.getSessions(18)
         }
-        assertEquals(1200, viewModel.state.value.loadedSessionLimit)
-        assertEquals(1200, viewModel.state.value.sessions.size)
+        assertEquals(18, viewModel.state.value.loadedSessionLimit)
+        assertEquals(18, viewModel.state.value.sessions.size)
     }
 
     @Test
     fun `refresh after partial window keeps hasMore false and same limit`() = runTest {
-        coEvery { repository.getSessions(400) } returns Result.success(numberedSessions(400))
-        coEvery { repository.getSessions(800) } returns Result.success(numberedSessions(450))
+        coEvery { repository.getSessions(6) } returns Result.success(numberedSessions(6))
+        coEvery { repository.getSessions(12) } returns Result.success(numberedSessions(9))
 
         val viewModel = createViewModel()
         viewModel.loadSessions()
@@ -1303,21 +1303,21 @@ class MainViewModelTest {
         viewModel.loadSessions()
         advanceUntilIdle()
 
-        coVerify(exactly = 2) { repository.getSessions(800) }
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertEquals(450, viewModel.state.value.sessions.size)
+        coVerify(exactly = 2) { repository.getSessions(12) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(9, viewModel.state.value.sessions.size)
         assertFalse(viewModel.state.value.hasMoreSessions)
     }
 
     @Test
     fun `refresh failure after load more does not shrink window`() = runTest {
-        coEvery { repository.getSessions(400) } returns Result.success(numberedSessions(400))
+        coEvery { repository.getSessions(6) } returns Result.success(numberedSessions(6))
         var refreshShouldFail = false
-        coEvery { repository.getSessions(800) } coAnswers {
+        coEvery { repository.getSessions(12) } coAnswers {
             if (refreshShouldFail) {
                 Result.failure(IllegalStateException("network error"))
             } else {
-                Result.success(numberedSessions(800))
+                Result.success(numberedSessions(12))
             }
         }
 
@@ -1330,10 +1330,10 @@ class MainViewModelTest {
         viewModel.loadSessions()
         advanceUntilIdle()
 
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertEquals(800, viewModel.state.value.sessions.size)
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
         assertTrue(viewModel.state.value.hasMoreSessions)
-        assertTrue(viewModel.state.value.sessions.any { it.id == "session-650" })
+        assertTrue(viewModel.state.value.sessions.any { it.id == "session-9" })
         assertFalse(viewModel.state.value.isRefreshingSessions)
         assertEquals("Failed to load sessions: network error", viewModel.state.value.error)
     }
@@ -1342,17 +1342,17 @@ class MainViewModelTest {
     fun `stale smaller refresh is dropped after expanded window arrives first`() = runTest {
         val refreshGate = CompletableDeferred<Unit>()
         val moreGate = CompletableDeferred<Unit>()
-        coEvery { repository.getSessions(400) } coAnswers {
+        coEvery { repository.getSessions(6) } coAnswers {
             refreshGate.await()
-            Result.success(numberedSessions(400))
+            Result.success(numberedSessions(6))
         }
-        coEvery { repository.getSessions(800) } coAnswers {
+        coEvery { repository.getSessions(12) } coAnswers {
             moreGate.await()
-            Result.success(numberedSessions(800))
+            Result.success(numberedSessions(12))
         }
 
         val viewModel = createViewModel()
-        updateState(viewModel) { it.copy(currentSessionId = "session-20") }
+        updateState(viewModel) { it.copy(currentSessionId = "session-4") }
         viewModel.loadSessions()
         runCurrent()
         viewModel.loadMoreSessions()
@@ -1360,16 +1360,16 @@ class MainViewModelTest {
 
         moreGate.complete(Unit)
         advanceUntilIdle()
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertEquals(800, viewModel.state.value.sessions.size)
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
 
         refreshGate.complete(Unit)
         advanceUntilIdle()
 
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertEquals(800, viewModel.state.value.sessions.size)
-        assertTrue(viewModel.state.value.sessions.any { it.id == "session-650" })
-        assertEquals("session-20", viewModel.state.value.currentSessionId)
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
+        assertTrue(viewModel.state.value.sessions.any { it.id == "session-9" })
+        assertEquals("session-4", viewModel.state.value.currentSessionId)
         coVerify(exactly = 0) { repository.getMessages(any(), any()) }
     }
 
@@ -1377,13 +1377,13 @@ class MainViewModelTest {
     fun `expanded window still replaces list when smaller refresh finishes first`() = runTest {
         val refreshGate = CompletableDeferred<Unit>()
         val moreGate = CompletableDeferred<Unit>()
-        coEvery { repository.getSessions(400) } coAnswers {
+        coEvery { repository.getSessions(6) } coAnswers {
             refreshGate.await()
-            Result.success(numberedSessions(400))
+            Result.success(numberedSessions(6))
         }
-        coEvery { repository.getSessions(800) } coAnswers {
+        coEvery { repository.getSessions(12) } coAnswers {
             moreGate.await()
-            Result.success(numberedSessions(800))
+            Result.success(numberedSessions(12))
         }
 
         val viewModel = createViewModel()
@@ -1394,30 +1394,30 @@ class MainViewModelTest {
 
         refreshGate.complete(Unit)
         advanceUntilIdle()
-        assertEquals(400, viewModel.state.value.loadedSessionLimit)
-        assertEquals(400, viewModel.state.value.sessions.size)
+        assertEquals(6, viewModel.state.value.loadedSessionLimit)
+        assertEquals(6, viewModel.state.value.sessions.size)
 
         moreGate.complete(Unit)
         advanceUntilIdle()
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertEquals(800, viewModel.state.value.sessions.size)
-        assertTrue(viewModel.state.value.sessions.any { it.id == "session-650" })
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.sessions.size)
+        assertTrue(viewModel.state.value.sessions.any { it.id == "session-9" })
     }
 
     @Test
     fun `refresh does not clear in-flight load more flag`() = runTest {
         val moreGate = CompletableDeferred<Unit>()
-        coEvery { repository.getSessions(400) } returns Result.success(numberedSessions(400))
-        coEvery { repository.getSessions(800) } coAnswers {
+        coEvery { repository.getSessions(6) } returns Result.success(numberedSessions(6))
+        coEvery { repository.getSessions(12) } coAnswers {
             moreGate.await()
-            Result.success(numberedSessions(800))
+            Result.success(numberedSessions(12))
         }
 
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
-                sessions = numberedSessions(400),
-                loadedSessionLimit = 400,
+                sessions = numberedSessions(6),
+                loadedSessionLimit = 6,
                 hasMoreSessions = true
             )
         }
@@ -1429,23 +1429,23 @@ class MainViewModelTest {
         advanceUntilIdle()
         assertTrue(viewModel.state.value.isLoadingMoreSessions)
         viewModel.loadMoreSessions()
-        coVerify(exactly = 1) { repository.getSessions(800) }
+        coVerify(exactly = 1) { repository.getSessions(12) }
 
         moreGate.complete(Unit)
         advanceUntilIdle()
         assertFalse(viewModel.state.value.isLoadingMoreSessions)
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
     }
 
     @Test
     fun `sse refresh after load more keeps expanded window`() = runTest {
-        coEvery { repository.getSessions(800) } returns Result.success(numberedSessions(800))
+        coEvery { repository.getSessions(12) } returns Result.success(numberedSessions(12))
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
-                currentSessionId = "session-20",
-                sessions = numberedSessions(800),
-                loadedSessionLimit = 800,
+                currentSessionId = "session-4",
+                sessions = numberedSessions(12),
+                loadedSessionLimit = 12,
                 hasMoreSessions = true
             )
         }
@@ -1459,8 +1459,8 @@ class MainViewModelTest {
                         put(
                             "info",
                             buildJsonObject {
-                                put("id", JsonPrimitive("session-20"))
-                                put("directory", JsonPrimitive("/tmp/20"))
+                                put("id", JsonPrimitive("session-4"))
+                                put("directory", JsonPrimitive("/tmp/4"))
                                 put("title", JsonPrimitive("Updated"))
                             }
                         )
@@ -1485,7 +1485,7 @@ class MainViewModelTest {
                 payload = SSEPayload(
                     type = "session.status",
                     properties = buildJsonObject {
-                        put("sessionID", JsonPrimitive("session-20"))
+                        put("sessionID", JsonPrimitive("session-4"))
                         put("status", buildJsonObject { put("type", JsonPrimitive("idle")) })
                     }
                 )
@@ -1493,23 +1493,23 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        coVerify(atLeast = 3) { repository.getSessions(800) }
-        coVerify(exactly = 0) { repository.getSessions(400) }
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertTrue(viewModel.state.value.sessions.any { it.id == "session-650" })
+        coVerify(exactly = 1) { repository.getSessions(12) }
+        coVerify(exactly = 0) { repository.getSessions(6) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertTrue(viewModel.state.value.sessions.any { it.id == "session-9" })
     }
 
     @Test
     fun `sendMessage refresh after load more keeps expanded window`() = runTest {
         coEvery { repository.sendMessage(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
-        coEvery { repository.getSessions(800) } returns Result.success(numberedSessions(800))
+        coEvery { repository.getSessions(12) } returns Result.success(numberedSessions(12))
 
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
-                currentSessionId = "session-20",
-                sessions = numberedSessions(800),
-                loadedSessionLimit = 800,
+                currentSessionId = "session-4",
+                sessions = numberedSessions(12),
+                loadedSessionLimit = 12,
                 hasMoreSessions = true,
                 inputText = "hello"
             )
@@ -1517,27 +1517,27 @@ class MainViewModelTest {
 
         viewModel.sendMessage()
         advanceUntilIdle()
-        coVerify { repository.getSessions(800) }
+        coVerify { repository.getSessions(12) }
 
         advanceTimeBy(1200)
         advanceUntilIdle()
-        coVerify(atLeast = 2) { repository.getSessions(800) }
-        coVerify(exactly = 0) { repository.getSessions(400) }
-        assertEquals(800, viewModel.state.value.loadedSessionLimit)
-        assertTrue(viewModel.state.value.sessions.any { it.id == "session-650" })
+        coVerify(exactly = 1) { repository.getSessions(12) }
+        coVerify(exactly = 0) { repository.getSessions(6) }
+        assertEquals(12, viewModel.state.value.loadedSessionLimit)
+        assertTrue(viewModel.state.value.sessions.any { it.id == "session-9" })
     }
 
     @Test
     fun `hasMore uses raw response size not merged selected session`() = runTest {
-        val returned = numberedSessions(799)
+        val returned = numberedSessions(11)
         val outside = Session(id = "outside-session", directory = "/tmp/outside")
-        coEvery { repository.getSessions(800) } returns Result.success(returned)
+        coEvery { repository.getSessions(12) } returns Result.success(returned)
 
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
-                sessions = numberedSessions(400) + outside,
-                loadedSessionLimit = 400,
+                sessions = numberedSessions(6) + outside,
+                loadedSessionLimit = 6,
                 hasMoreSessions = true,
                 currentSessionId = outside.id
             )
@@ -1546,7 +1546,7 @@ class MainViewModelTest {
         viewModel.loadMoreSessions()
         advanceUntilIdle()
 
-        assertEquals(800, viewModel.state.value.sessions.size)
+        assertEquals(12, viewModel.state.value.sessions.size)
         assertTrue(viewModel.state.value.sessions.any { it.id == outside.id })
         assertFalse(viewModel.state.value.hasMoreSessions)
     }
@@ -1597,17 +1597,17 @@ class MainViewModelTest {
         }
         coEvery { repository.checkHealth() } returns Result.failure(IllegalStateException("offline"))
         val moreGate = CompletableDeferred<Unit>()
-        coEvery { repository.getSessions(800) } coAnswers {
+        coEvery { repository.getSessions(12) } coAnswers {
             moreGate.await()
-            Result.success(numberedSessions(800))
+            Result.success(numberedSessions(12))
         }
 
         val viewModel = createViewModel()
         updateState(viewModel) {
             it.copy(
                 isConnected = true,
-                sessions = numberedSessions(400),
-                loadedSessionLimit = 400,
+                sessions = numberedSessions(6),
+                loadedSessionLimit = 6,
                 hasMoreSessions = true,
                 currentSessionId = "session-20"
             )
@@ -1621,7 +1621,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertEquals(second.id, viewModel.state.value.currentHostProfileId)
-        assertEquals(400, viewModel.state.value.loadedSessionLimit)
+        assertEquals(6, viewModel.state.value.loadedSessionLimit)
         assertTrue(viewModel.state.value.sessions.isEmpty())
         assertFalse(viewModel.state.value.isLoadingMoreSessions)
         assertTrue(viewModel.state.value.hasMoreSessions)
