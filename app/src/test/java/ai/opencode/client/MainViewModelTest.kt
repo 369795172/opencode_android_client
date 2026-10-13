@@ -635,8 +635,8 @@ class MainViewModelTest {
     fun `sendMessage success keeps optimistic row until server confirms it`() = runTest {
         coEvery { repository.sendMessage(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { repository.getMessages(any(), any()) } returns Result.success(emptyList())
-        coEvery { repository.getSessions(400) } returns Result.success(
-            listOf(com.yage.opencode_client.data.model.Session(id = "session-1", directory = "/tmp/project"))
+        coEvery { repository.getSessions(6) } returns Result.success(
+            listOf(ai.opencode.client.data.model.Session(id = "session-1", directory = "/tmp/project"))
         )
 
         val viewModel = createViewModel()
