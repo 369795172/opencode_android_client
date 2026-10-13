@@ -1,5 +1,16 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-14 — 上游同步 2026-10-13：15 picks 分 7 批（versionCode 36）
+
+- 批1 乐观发送（`453253a` `86b05be`）：弱网下发送即时上屏 + REST 有界超时，异步失败按会话回滚乐观气泡；测试适配本地包名与六条分页（fix-forward `abb9e95`）。
+- 批2 刷新保位（`f84c202` #110）：刷新不重置已加载窗口，保位逻辑叠加在本地 coalesce + 六条分页之上（测试适配 `a72f25a`）。
+- 批3 chat 渲染五连 + URL 修复（`cdd8393` `872b273` `694781e` `ceefffa` `885b696` `e8df268`）：thinking/tool 行字重降低并进半宽 tile 2-up 网格、后台任务回执卡片（#118）、agent 校验与删除假成功修复、server base URL 尾斜杠归一（#115）。
+- 批4 状态栏前半（`3416bd8` `bd370cf`）：会话状态行 rounds / tool calls / tokens / cache hit（#122）；composer 瞬态状态行并入会话状态栏（#123）。
+- 批5 SSE 流式（`dd5ad76` #121）：消息 part 经 SSE payload 流式上屏，busy 轮询换 heartbeat watchdog；本地 ON_STOP → onAppBackgrounded 生命周期钩子原样保留，TTS 读消息存储与 SSE 流无耦合。
+- 批6 状态栏后半（`7453cf3` `a55812e`）：token 计数进位修复；回合计时进状态栏（#125）。上游 docked-preview BackHandler 依赖上游专属符号（dockedPreviewRequest/imeVisible 等），本地预览走 previewRequest Dialog，弃该块。
+- 批7 subagent 可见性（`d29b353` #126）：父会话 idle 时沿 parentID 聚合 busy 后代，列表次级信号 + composer「子代理正在运行」段，点按跳子会话。
+- Lesson：跨 fork 同步按环境重合度 cherry-pick 而非全量 merge——冲突面收敛到单 pick 语义，上游不可移植代码在编译期即暴露（本次 15 次单测门禁 3 次红均 fix-forward）；包名与分页常数翻译规则可逐批复用，被跳过的上游面（quota 簇、model shortlist、预设）零污染。
+
 ## 2026-10-08 — 主会话 idle 时后台 subagent 仍运行，UI 不显示
 
 - 派给 background subagent 后，父会话这轮结束变 `idle`，subagent 在自己的子会话里 `busy`。列表父行显示 Idle，聊天页也没有进行中的迹象。
