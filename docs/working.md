@@ -9,6 +9,8 @@
 - 批5 SSE 流式（`dd5ad76` #121）：消息 part 经 SSE payload 流式上屏，busy 轮询换 heartbeat watchdog；本地 ON_STOP → onAppBackgrounded 生命周期钩子原样保留，TTS 读消息存储与 SSE 流无耦合。
 - 批6 状态栏后半（`7453cf3` `a55812e`）：token 计数进位修复；回合计时进状态栏（#125）。上游 docked-preview BackHandler 依赖上游专属符号（dockedPreviewRequest/imeVisible 等），本地预览走 previewRequest Dialog，弃该块。
 - 批7 subagent 可见性（`d29b353` #126）：父会话 idle 时沿 parentID 聚合 busy 后代，列表次级信号 + composer「子代理正在运行」段，点按跳子会话。
+- 验收修复：真机发现聊天页渲染两条输入栏——批4（#122）pick 冲突解析时上游无条件 composer 与本地 `hasActiveQuestion` 分叉 composer 并存（两块参数逐字相同，纯重复）；删除上游块保留本地块，单 composer 调用点恢复（versionCode 37）。
+- Lesson：cherry-pick 冲突解析时，替换型改动必须删除被替换的旧块；单测无法发现 UI 组合重复，多入口渲染要在真机验收单里显式覆盖。
 - Lesson：跨 fork 同步按环境重合度 cherry-pick 而非全量 merge——冲突面收敛到单 pick 语义，上游不可移植代码在编译期即暴露（本次 15 次单测门禁 3 次红均 fix-forward）；包名与分页常数翻译规则可逐批复用，被跳过的上游面（quota 簇、model shortlist、预设）零污染。
 
 ## 2026-10-08 — 主会话 idle 时后台 subagent 仍运行，UI 不显示
