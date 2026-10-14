@@ -28,7 +28,7 @@ android {
         applicationId = "ai.opencode.client"
         minSdk = 26
         targetSdk = 34
-        versionCode = 36
+        versionCode = 37
         versionName = "0.1.20261014"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
