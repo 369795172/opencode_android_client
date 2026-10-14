@@ -351,42 +351,6 @@ fun ChatScreen(
         }
 
         if (state.currentSessionId != null) {
-            ChatInputBar(
-                text = state.inputText,
-                isSending = state.currentSessionId?.let { it in state.sendingSessionIds } == true,
-                isRecording = state.isRecording,
-                isTranscribing = state.isTranscribing,
-                hasPreservedSpeechAudio = state.hasPreservedSpeechAudio,
-                isRetryingSpeech = state.isRetryingSpeech,
-                speechAudioLevel = state.speechAudioLevel,
-                isSpeechConfigured = state.aiBuilderConnectionOK && aiBuilderToken.isNotEmpty(),
-                imageAttachments = state.imageAttachments,
-                onTextChange = viewModel::setInputText,
-                onSend = { viewModel.sendMessage() },
-                onAddImages = { imagePickerLauncher.launch("image/*") },
-                onRemoveImage = viewModel::removeImageAttachment,
-                onAbortSpeech = { viewModel.abortSpeechRecognition() },
-                onRetrySpeech = { viewModel.retryPreservedSpeechAudio() },
-                onDiscardSpeech = { viewModel.discardPreservedSpeechAudio() },
-                onToggleRecording = {
-                    if (state.isRecording) {
-                        viewModel.toggleRecording()
-                    } else {
-                        val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasRecordAudioPermission) {
-                            viewModel.toggleRecording()
-                        } else {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
-                }
-            )
-        }
-
-        if (state.currentSessionId != null) {
             if (hasActiveQuestion) {
                 // A pending question replaces the composer so the card gets the
                 // space the input bar would occupy, keeping actions reachable.
