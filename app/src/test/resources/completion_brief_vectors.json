@@ -1,0 +1,338 @@
+{
+  "contract": "completion-brief-v1",
+  "cases": [
+    {
+      "name": "fence_removal_unclosed_tail",
+      "session_payload": {
+        "id": "ses_test0001",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_u0001",
+              "role": "user"
+            },
+            "parts": [
+              {
+                "id": "p_u1",
+                "type": "text",
+                "text": "please summarize"
+              }
+            ]
+          },
+          {
+            "info": {
+              "id": "msg_a0001",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a1",
+                "type": "text",
+                "text": "Summary below.\n```python\nprint('x')\n```\nDone here.\n```\nhidden tail"
+              }
+            ]
+          }
+        ]
+      },
+      "title": "Fix the bug",
+      "expect": {
+        "title": "Fix the bug",
+        "brief": "Summary below. Done here.",
+        "assistant_message_id": "msg_a0001",
+        "dedupe_key": "ses_test0001:msg_a0001"
+      }
+    },
+    {
+      "name": "path_redaction",
+      "session_payload": {
+        "id": "ses_test0002",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0002",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a2",
+                "type": "text",
+                "text": "Wrote /tmp/build/out.txt and updated ~/src/main.kt plus file:///var/log/run.log today; retry_count_max reset."
+              }
+            ]
+          }
+        ]
+      },
+      "title": "Fix /etc/hosts entry",
+      "expect": {
+        "title": "Fix [path] entry",
+        "brief": "Wrote [path] and updated [path] plus [path] today; retrycountmax reset.",
+        "assistant_message_id": "msg_a0002",
+        "dedupe_key": "ses_test0002:msg_a0002"
+      }
+    },
+    {
+      "name": "url_query_fragment_strip",
+      "session_payload": {
+        "id": "ses_test0003",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0003",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a3",
+                "type": "text",
+                "text": "Docs at https://example.test/docs/guide?section=4&page=2 and http://cdn.example.test/a.png#logo are ready."
+              }
+            ]
+          }
+        ]
+      },
+      "title": "Read [the guide](https://example.test/g) now",
+      "expect": {
+        "title": "Read the guide now",
+        "brief": "Docs at https://example.test/docs/guide and http://cdn.example.test/a.png are ready.",
+        "assistant_message_id": "msg_a0003",
+        "dedupe_key": "ses_test0003:msg_a0003"
+      }
+    },
+    {
+      "name": "title_80_cap",
+      "session_payload": {
+        "id": "ses_test0004",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0004",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a4",
+                "type": "text",
+                "text": "All work finished."
+              }
+            ]
+          }
+        ]
+      },
+      "title": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+      "expect": {
+        "title": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "brief": "All work finished.",
+        "assistant_message_id": "msg_a0004",
+        "dedupe_key": "ses_test0004:msg_a0004"
+      }
+    },
+    {
+      "name": "brief_120_cap",
+      "session_payload": {
+        "id": "ses_test0005",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0005",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a5",
+                "type": "text",
+                "text": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+              }
+            ]
+          }
+        ]
+      },
+      "title": "Long run",
+      "expect": {
+        "title": "Long run",
+        "brief": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "assistant_message_id": "msg_a0005",
+        "dedupe_key": "ses_test0005:msg_a0005"
+      }
+    },
+    {
+      "name": "cjk_caps_and_heading",
+      "session_payload": {
+        "id": "ses_test0006",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0006",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a6",
+                "type": "text",
+                "text": "任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成"
+              }
+            ]
+          }
+        ]
+      },
+      "title": "## 数据整理完成",
+      "expect": {
+        "title": "数据整理完成",
+        "brief": "任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成任务已经全部完成",
+        "assistant_message_id": "msg_a0006",
+        "dedupe_key": "ses_test0006:msg_a0006"
+      }
+    },
+    {
+      "name": "surrogate_pair_cap_boundary",
+      "session_payload": {
+        "id": "ses_test0007",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0007",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a7",
+                "type": "text",
+                "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb🚀XY"
+              }
+            ]
+          }
+        ]
+      },
+      "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa🚀",
+      "expect": {
+        "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa🚀",
+        "brief": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb🚀",
+        "assistant_message_id": "msg_a0007",
+        "dedupe_key": "ses_test0007:msg_a0007"
+      }
+    },
+    {
+      "name": "title_fallback_null_title_flat_messages",
+      "session_payload": {
+        "id": "ses_test0008",
+        "messages": [
+          {
+            "id": "msg_u0008",
+            "role": "user",
+            "parts": [
+              {
+                "id": "p_u8",
+                "type": "text",
+                "text": "run"
+              }
+            ]
+          },
+          {
+            "id": "msg_a0008",
+            "role": "assistant",
+            "parts": [
+              {
+                "id": "p_a8",
+                "type": "text",
+                "text": "Finished cleanup."
+              }
+            ]
+          }
+        ]
+      },
+      "title": null,
+      "expect": {
+        "title": "OpenCode task st0008",
+        "brief": "Finished cleanup.",
+        "assistant_message_id": "msg_a0008",
+        "dedupe_key": "ses_test0008:msg_a0008"
+      }
+    },
+    {
+      "name": "brief_falls_back_to_title",
+      "session_payload": {
+        "id": "ses_test0009",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_a0009",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_a9",
+                "type": "text",
+                "text": "```\nonly code here\n```"
+              }
+            ]
+          }
+        ]
+      },
+      "title": "  Quiet **task**  ",
+      "expect": {
+        "title": "Quiet task",
+        "brief": "Quiet task",
+        "assistant_message_id": "msg_a0009",
+        "dedupe_key": "ses_test0009:msg_a0009"
+      }
+    },
+    {
+      "name": "latest_text_assistant_skips_tool_only",
+      "session_payload": {
+        "id": "ses_test0010",
+        "messages": [
+          {
+            "info": {
+              "id": "msg_u1010",
+              "role": "user"
+            },
+            "parts": [
+              {
+                "id": "p_u10",
+                "type": "text",
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "info": {
+              "id": "msg_a1010",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_r10",
+                "type": "reasoning",
+                "text": "deep thinking"
+              },
+              {
+                "id": "p_a10a",
+                "type": "text",
+                "text": "> summary\n- item one\n1. check done\n_final_ note"
+              }
+            ]
+          },
+          {
+            "info": {
+              "id": "msg_a2020",
+              "role": "assistant"
+            },
+            "parts": [
+              {
+                "id": "p_t20",
+                "type": "tool",
+                "tool": "bash"
+              }
+            ]
+          }
+        ]
+      },
+      "title": "",
+      "expect": {
+        "title": "OpenCode task st0010",
+        "brief": "summary item one check done final note",
+        "assistant_message_id": "msg_a1010",
+        "dedupe_key": "ses_test0010:msg_a1010"
+      }
+    }
+  ]
+}

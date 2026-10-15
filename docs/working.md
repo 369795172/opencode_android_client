@@ -1,5 +1,12 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — CompletionBrief 隐私简报契约（通知前置，Phase A）
+
+- 新增 `data/model/CompletionBrief.kt`：纯 Kotlin、零 Android 依赖的完成简报提取器，与外部通知管线孪生实现共享同一确定性契约（S1-S10）——最新含非空文本 part 的 assistant 消息、围栏代码整体删除、Markdown 呈现层剥离、绝对/家目录/file:// 路径替换 `[path]`、http(s) URL 去 query/fragment、空白折叠、title/brief 按 Unicode 码点截断（80/120）、brief 回退 title、title 回退 `OpenCode task <session id 末 6 位>`、dedupe key `<session id>:<assistant message id>`。
+- 实现要点：截断用 `codePointCount`/`offsetByCodePoints`（UTF-16 不拆代理对）；URL 清洗先于路径脱敏（防 query 里的路径形 token 泄漏）；JSON 解析沿用 kotlinx.serialization，payload 兼容裸消息数组与 `{id, messages}` 对象、消息兼容 `info` 嵌套与扁平两种形状。
+- 测试：`CompletionBriefTest` 从 `app/src/test/resources/completion_brief_vectors.json` 加载净化向量（10 例：围栏、路径、URL、title/brief 上限、CJK、代理对边界、title 回退、brief 回退、tool-only 跳过 + 扁平消息形状），换官方向量文件即可复跑 parity；另有裸数组/非法 JSON/短 session id/无文本 part 边界单测。`./gradlew testDebugUnitTest` 全绿。
+- Lesson：跨端确定性契约的最小 parity 面是「向量文件 + 单一加载测试」——实现细节两侧自由，锁的是输出；码点上限测试必须包含代理对恰好在 cap 边界的向量，否则 UTF-16 实现会绿着出错。
+
 ## 2026-10-14 — 上游同步 2026-10-13：15 picks 分 7 批（versionCode 36）
 
 - 批1 乐观发送（`453253a` `86b05be`）：弱网下发送即时上屏 + REST 有界超时，异步失败按会话回滚乐观气泡；测试适配本地包名与六条分页（fix-forward `abb9e95`）。
