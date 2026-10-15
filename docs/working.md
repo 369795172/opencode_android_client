@@ -1,5 +1,12 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — 完成通知双通道契约定稿 + 跨语言 parity 验证（todo 11）
+
+- 文档收口：完成通知从 PRD「Future 栏」移入已交付能力（实现规划新增 CN 行：best-effort 双通道，2026-10-15）——Android 进程存活期消费全量 SSE 弹通知，电脑侧微信通道（rootgrove orchestrator）作可靠保底，权限拒绝/进程死亡只隔离 Android 侧、不阻塞微信送达。PRD 硬边界 N5/生命周期条款/痛点节/已决事项 #4、RFC 新增 Key Decision（为什么拒绝 FCM/WorkManager/常驻服务而走 SSE 事件驱动 + 微信保底）、design.md 新增完成通知设计契约节（触发/内容/动作/降级语义）、test.md 新增完成通知契约测试清单与基线口径同步更新；不改任何代码。
+- 跨语言 parity 验证（rootgrove 侧验证器从外部驱动，本仓零改动）：16 条 CompletionBrief vectors 三端（Kotlin/Python/JS）输出全等；8 条 eligibility 场景（root 119s/120s、child、unknown-start、重复/重连、前台抑制+微信仍送达、权限拒绝+微信仍送达、原生语音失败→附件回退）Kotlin 判定 reason 与 Python/JS 对齐，行为列由本仓既有单测背书。Kotlin 回放经临时 scratch 单测（读 vendored vectors、输出走 JUnit XML，跑完即删、永不提交）。
+- 验证（本仓 gate 重跑）：`./gradlew testDebugUnitTest` 532/532 绿（0 fail 0 skip，与 todo 10 基线一致）；scoped instrumented `ANDROID_SERIAL=emulator-5556` 上 `CompletionNotificationInstrumentedTest`（2/2，含拒绝路径零通知零二次提示）与 `PostCompletionActionInstrumentedTest`（4/4：tap 进精确 session、畸形 id 拒绝、Play 播报精确 brief、动作面只读）全绿。已知预存漂移 `QuestionCardViewTest.longOptionList_showsDismissAndNext` 不在本 todo 范围，状态不变。
+- Lesson：**跨仓「契约一致」的可信证明要落在同一份 vectors 文件被三端真实执行，而不是三份各自理解的规格文字；public 仓的参与可以压缩到「vendored 字节级孪生 + 既有测试名背书」，驱动器留在私有仓侧用临时 scratch 测试从外部注入，跑完即删——零提交污染，全量可比对。**
+
 ## 2026-10-15 — 完成通知 deep-link + 本地 TTS Play 动作（todo 10）
 
 - 通知动作接线：body tap 现在挂不可变 VIEW PendingIntent（`opencode://session/<id>`，显式组件 MainActivity，`spec.deepLinkUri` 只在 id 过 `OpenCodeDeepLinkParser` 的 `ses_…` 校验时生成，畸形 id 回退通用启动 intent，绝不携带断链）；"Play brief" 动作经 `PendingIntent.getForegroundService` 发 `ACTION_SPEAK + EXTRA_TEXT(capped brief) + EXTRA_MESSAGE_ID` 到非导出 TtsService（请求码用 `REQUEST_SLOT_READ_ALOUD` 槽位），动作载荷仅限 capped brief + 消息 id；无 prompt/tool/approval 动作，锁屏 public version 仍仅 title。

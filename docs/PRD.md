@@ -38,7 +38,7 @@ OpenCode Android Client 是一个面向 OpenCode 服务端的原生 Android 远�
 
 #### 非目标（硬边界）
 
-砍错任一条都会翻车。这些不是 future work 列表，是当前产品拒绝去做的事。Future 栏（通知 / Foreground Service / 超百条 Session 优化）见「实现规划」，进成功标准之前不得当已交付能力验收。
+砍错任一条都会翻车。这些不是 future work 列表，是当前产品拒绝去做的事。Future 栏（Foreground Service / 超百条 Session 优化；完成通知已按「进程存活 best-effort 双通道」交付，见「实现规划」）见「实现规划」，进成功标准之前不得当已交付能力验收。
 
 | # | 非目标 | 砍掉 vs 保留 |
 |---|--------|----------------|
@@ -46,7 +46,7 @@ OpenCode Android Client 是一个面向 OpenCode 服务端的原生 Android 远�
 | N2 | 不在手机上运行 OpenCode server，不引入本地推理 / 本地 filesystem / shell | 砍掉：设备变成工作区主机，安全面与电池预算爆炸。保留：App 继续只做远程控制。 |
 | N3 | 不替代完整 Web UI | 砍掉：要在手机上复刻桌面配置（Provider 密钥、MCP、workspace）。保留：重配置仍在电脑端完成。 |
 | N4 | Files Tab 不做主工作流体验堆砌 | 砍掉：文件树成为主入口，Chat 卡片跳转被稀释。保留：Files 只作兜底，稳定可靠即可。 |
-| N5 | 后台不保持 SSE；当前成功标准不含推送 / Foreground Service | 砍掉：后台长连接被系统杀掉且耗电；过早做通知会把 Phase 8 tunnel 生命周期与 FGS 绑死。保留：回前台 REST 全量同步 + 重建 SSE。 |
+| N5 | 后台不保持 SSE；不引入 FCM/厂商推送/WorkManager/常驻后台服务 | 砍掉：后台长连接被系统杀掉且耗电；完成通知改走「进程存活时 SSE 事件驱动 + 微信保底」的双通道（已交付，见实现规划），不依赖 Foreground Service。保留：回前台 REST 全量同步 + 重建 SSE；question/permission 等待时的前台服务提醒仍在 Future。 |
 | N6 | 不优化「超过百条消息」的大型 Session | 砍掉：过早做虚拟化/分页架构。保留：按当前「不预期超百条」使用。 |
 | N7 | SSH 不用系统 VPN、不用 Termux/OpenSSH、不为连上而关闭 host key 校验 | 砍掉：要么变成整机代理，要么静默接受 MITM。保留：app 内 local forward + TOFU。 |
 | N8 | NFC：不支持熄屏触发、多 tag 身份、iOS、tag 加密、从服务器拉 prompt | 砍掉：实验能力膨胀成账号/同步系统。保留：亮屏、单 tag、明文、本机 prompt。 |
@@ -267,7 +267,7 @@ Android 端需要补齐 iOS 已有的连接能力，而不是继续把 Tailscale
 4. 支持 iOS 兼容的 JSON import/export。Export 不包含 private key、Basic Auth password、known host 等 secret/runtime 字段。
 5. SSH host key 使用 TOFU：首次连接保存 gateway `host:port` 的 fingerprint，之后 fingerprint 改变时阻断连接并给出明确恢复入口。
 6. SSH private key 是设备级能力，不是 profile 级 secret。第一版 Android 生成或导入 app 私有 key，并展示 OpenSSH public key 供服务器授权；多个 SSH profiles 复用同一把 key。
-7. 生命周期只承诺前台和回前台恢复。后台长期 tunnel、question/permission 通知和 Foreground Service 属于后续通知增强，不进入 Phase 8 的成功标准。
+7. 生命周期只承诺前台和回前台恢复。后台长期 tunnel 不做；question/permission 等待时的前台服务提醒属于后续通知增强，不进入 Phase 8 的成功标准。任务完成通知是例外：它消费进程存活期间已在接收的 SSE `session.status` 事件（不新增任何后台连接），以「进程存活 best-effort + 微信可靠保底」双通道交付（2026-10，见实现规划 CN 行）。
 
 #### NFC Quick Prompt（Experimental）
 
@@ -321,7 +321,7 @@ Session 搜索继续由 Agent 和 semantic-search 负责，客户端不建设搜
 
 **安全**：初期 App 仅用于本地局域网，安全风险较低。如果后续支持公网访问，需要考虑 TLS、token-based auth 等增强方案。当前的 Basic Auth over HTTP 在局域网环境下可接受，但不适合公网暴露。Android 通过 `network_security_config.xml` 管理明文流量策略。
 
-**人机异步空转（通知缺失）**：当 AI 因 `question` tool、permission 请求或需要人类审查而暂停等待时，人类如果离开了 App（Android 进入后台或锁屏），目前收不到任何通知。这意味着两端都在空转——AI 等着人类的决定，人类不知道需要做决定。这个痛点的实质是 Android 工程问题，而非 UX 设计问题：需要通过 Foreground Service 配合持续通知（Ongoing Notification），或利用 Android 的后台通知机制来主动触达用户。这是 Steer 闭环的关键工程增强项，应在后续版本中作为高优先级实现。
+**人机异步空转（通知缺失）**：当 AI 因 `question` tool、permission 请求或需要人类审查而暂停等待时，人类如果离开了 App（Android 进入后台或锁屏），目前收不到任何通知。这意味着两端都在空转——AI 等着人类的决定，人类不知道需要做决定。这个痛点的实质是 Android 工程问题，而非 UX 设计问题：需要 Android 前台服务配合持续通知来主动触达用户（仍在 Future）。已完成的第一步（2026-10）：任务完成通知以「进程存活 best-effort 双通道」交付——App 进程存活且授权时弹完成通知（tap 进 session、Play 本地播报 brief），同时微信通道（电脑侧）作为可靠保底，权限拒绝/进程死亡不阻塞微信送达；这是 Steer 闭环通知增强的首块拼图。
 
 **首次启动配置复杂度**：OpenCode Server 本身的配置较为复杂（需要配 Tailscale、Provider API key 等），首次连接对新用户存在一定门槛。这是一个真实痛点，但优先级较低——当前用户群主要是已有 OpenCode 使用经验的开发者。
 
@@ -380,7 +380,8 @@ Session 搜索继续由 Agent 和 semantic-search 负责，客户端不建设搜
 | 7 | Markdown Web Preview、Native/Web/Source 三态、平板 Sessions pane 折叠 | 🔲 规划中 (2026-06-14) |
 | 8 | Host Profiles、SSH Tunnel、iOS import/export parity、分阶段连接诊断 | 🔲 规划中 (2026-06-21) |
 | NFC | NFC Quick Prompt（Experimental）：写入 prompt 到 NTAG215、亮屏靠近自动拉起 App 新建 session 并发送 | ✅ 完成 (2026-06-30) |
-| Future | Session 变更文件列表、后台通知/Foreground Service | 🔲 未来可选 |
+| CN | 完成通知（best-effort 双通道）：进程存活期间消费全量 SSE `session.status`，root 会话 busy ≥120s → idle 时弹完成通知（隐私规范化 title/brief、锁屏仅 title、tap 只读深链 session、Play 本地 TTS 播报 brief、前台当前 session 抑制、seen-set 去重）；微信通道（电脑侧 orchestrator）为可靠保底，Android 权限拒绝/进程死亡不影响微信送达 | ✅ 完成 (2026-10-15) |
+| Future | Session 变更文件列表、question/permission 前台服务提醒（Foreground Service） | 🔲 未来可选 |
 
 ---
 
@@ -407,7 +408,7 @@ Session 搜索继续由 Agent 和 semantic-search 负责，客户端不建设搜
 1. **文件内容渲染**：不引入代码语法高亮。Android 端与 iOS 端一致，文件预览保持等宽字体纯文本 + 行号。语法高亮列为 future enhancement，涉及 tokenizer 选型与性能考量。
 2. **Files Tab 定位**：确认为兜底入口。主工作流中文件访问通过 Chat 流中的 tool/patch 卡片点击跳转完成。Files Tab 不投入额外资源做体验优化，保持稳定可靠即可。
 3. **Session 列表交互**：不引入摘要预览（如生成了哪些文件），因主工作流在 Chat 中查看产出。Session 列表专注解决辨识度问题（活跃 vs 死亡）。
-4. **推送通知**：暂不实现，但已识别为高优先级工程增强项——AI 等待人类决策时，需要通过 Android 前台通知机制主动触达用户，消除人机异步空转。
+4. **推送通知**：任务完成通知已按「进程存活 best-effort 双通道」交付（2026-10，实现规划 CN 行）——不依赖 FCM/厂商推送/WorkManager/常驻后台服务，微信为可靠保底。question/permission 等待时的前台服务提醒（Ongoing Notification / Foreground Service）仍属 Future，是消除人机异步空转的下一块拼图。
 5. **大型 Session**：暂不考虑性能优化，不预期 session 超过百条消息。
 6. **后台 SSE 连接**：不保持。App 进入后台时断开 SSE，回到前台时通过 REST 全量同步 + 重建 SSE 恢复。
 7. **SSH Tunnel**：Android 端进入 Phase 8 实现，目标是与 iOS 完成 Host Profiles + SSH Tunnel feature parity。底层采用 JSch app 内 local forward，不使用系统 VPN，不依赖 Termux/OpenSSH，不承诺后台永久保活。

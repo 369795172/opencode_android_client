@@ -32,6 +32,10 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 成本零，每次 commit 跑。新增纯逻辑时优先在这层补测。
 
+### 完成通知契约测试（2026-10）
+
+完成通知的全部判定与内容逻辑都在这层：`CompletionBriefTest`（16 条脱敏 parity vectors，与 rootgrove 侧 Python/JS 实现回放同一份字节级孪生文件——跨语言 parity 由 rootgrove 本地验证器从外部驱动，本仓不含其路径）、`CompletionDetectorTest`（判定序/reason 词汇/119999-120000ms 边界/重复 idle/进程重建/单调 busy-start）、`CompletionSeenStoreTest`（30 天 + 1000 键去重裁剪）、`CompletionCoordinatorTest`（fetch 后 non-root 复核、前台当前抑制标记已送达、权限拒绝回执不崩溃、重复/重连零额外通知）、`NotificationPermissionGateTest`（POST_NOTIFICATIONS 一次提示 + v1 标记）、`TtsSpeakRequestResolutionTest`（显式通知 extras 压过 stale payload）与 Notifier/Spec 契约。当前 unit 基线 532（2026-10-15，todo 10 后）；已知的预存漂移失败仅 `QuestionCardViewTest.longOptionList_showsDismissAndNext`（todo 5 修复编译漂移后遗留的运行时漂移，与完成通知无关，待专项修复）。instrumented 侧：`CompletionNotificationInstrumentedTest`（授权弹通知 / 拒绝零通知零二次提示）与 `PostCompletionActionInstrumentedTest`（tap 精确进当前 host session、畸形 id 拒绝、Play 播报精确 brief）跑 API 34 模拟器（`ANDROID_SERIAL=emulator-5556`；物理 RG-glasses 设备常在连，勿裸跑 connected 任务）。
+
 ## 第二层：component
 
 隔离单个 Composable + 假数据，跑在 Android runtime 上。位置 `app/src/androidTest/`，框架 `androidx.compose.ui.test`（`createComposeRule()`）。

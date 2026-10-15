@@ -241,7 +241,17 @@ Export 使用 bottom sheet 展示只读 JSON 和 `Copy JSON`。Sheet 顶部明�
 - 不重新设计信息架构（手机 = Chat/Files/Settings 底部 tab；平板 = 三栏）。
 - 不引入语法高亮（代码保持纯文本——和现状一致）。
 - 不做 diff viewer / session 摘要预览（功能现状没有，设计不画）。
-- 不引入 Material You 动态取色。
+- 不引入 Material You 动态色。
+
+## 完成通知（2026-10 交付，best-effort 双通道）
+
+任务完成通知是唯一进产品的通知形态；它不引入新视觉语言，复用系统通知 + 既有 Quiet Tech 图标。设计契约：
+
+- **触发**（消费进程存活期已在接收的全量 SSE `session.status`）：root 会话 busy ≥120s → idle，且 fetch 后存在带非空文本的 assistant 消息；child session、时长不足、进程重启后的 unknown busy-start、重复/重连事件一律 typed skip。判定纯函数化（`CompletionPolicy`），与电脑侧 JS/Python 实现回放同一组跨语言 parity vectors。
+- **内容**：title/brief 都是隐私规范化产物（同一确定性提取器：去代码块/Markdown、路径打码 `[path]`、URL 截 query/fragment、80/120 code-point 封顶）；锁屏 public version 只露 title，brief 只进 private body 与 Play 动作载荷，绝不带完整回复/代码/工具输出。
+- **动作**：body tap = 只读深链 `opencode://session/<id>`（当前 host 校验，畸形 id 回退通用启动）；Play = capped brief 交非导出 TtsService 本地播报（显式 notification extras 永远压过 stale staged payload）。无 prompt/tool/approval 写动作。
+- **降级语义**：前台正看该 session → 抑制弹窗但标记已送达；权限拒绝 → 记 `NOTIFICATION_DISABLED` 回执、不崩溃不循环提示；两种情况都不影响电脑侧微信通道送达（双通道独立失效）。
+- **通知样式**：专用 channel（`task_completion_v1`），复用应用主小图标，不加横幅音效堆砌。
 
 ## 与 iOS 的对齐说明
 

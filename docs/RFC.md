@@ -122,6 +122,10 @@ SSH Tunnel 只转发 OpenCode HTTP/SSE 到 `127.0.0.1:<localPort>`，不是整�
 
 Android 会限制后台网络；保活 SSE 既耗电又不可靠。回前台走 `ensureStarted()`（若 SSH）+ REST 全量同步 + 重建 SSE。Foreground Service / 持续通知能解决 `question`/permission 空转，但会把 tunnel 生命周期与通知权限绑在一起；PRD 已把它放在 Future，不进 Phase 8 成功标准。不为了「连着」在后台挂着 tunnel。
 
+#### Why 完成通知用「进程存活 SSE 事件 + 微信保底」双通道，不用 FCM/厂商推送/WorkManager/常驻服务？（2026-10 交付，best-effort 双通道）
+
+完成通知消费的是进程存活期间**已经在接收**的全量 `session.status` SSE 事件（T9 起所有 session 的状态事件都进 detector，不只当前会话），不加任何后台连接或轮询；root 会话 busy ≥120s → idle 且有新 assistant 消息才弹通知，进程死亡后的 idle 一律 typed skip，绝不从 REST 状态倒推时长。Android 通道因此是 best-effort（进程死了就静默），可靠性由电脑侧微信通道保底：同一套 eligibility 契约（跨语言 parity vectors 钉死）、同一份隐私规范化 brief（80/120 code-point 封顶、路径打码、URL 截断），微信先文本后语音（原生优先、附件强制回退）。拒绝 FCM/厂商推送是因为它们引入账号级云依赖与新的密钥面；拒绝 WorkManager 轮询是因为「任务何时完成」服务器本来就会推，轮询是把推模型倒退回拉模型。锁屏 public version 只露已规范化的 title；tap 是只读 `opencode://session/<id>` 深链（当前 host 校验），Play 只带 capped brief 给非导出 TtsService——通知面永远不携带 prompt/审批等写动作。
+
 #### Why 点击即录 PCM16 + 本地 cache replay，不用「等 WebSocket ready 再录音」，也不把停录后 M4A 上传当主路径？
 
 建连和 `session_ready` 常慢于用户开口，等 ready 再录会丢掉句首。PCM cache 从 offset 0 replay，优先保证语音不丢。停录后 M4A 解码上传是早期路径，已对齐 iOS realtime；Grok STT 作为可选 batch 策略存在，但不替换「立即 PCM capture」这条主路径。失败路径保留用户已看见的 partial transcript，不回滚成录音前快照（除非没有任何 partial）。
