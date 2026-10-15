@@ -1,5 +1,12 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — Parity 向量个人路径净化 resync（T2 remediation）
+
+- 向量净化 resync：rootgrove 契约向量的 `absolute_path_redaction` 输入样例从个人路径 `/Users/marvi/dev/notes.md` 净化为虚构路径 `/home/alice/dev/notes.md`（期望输出 `[path]` 不变）；`app/src/test/resources/completion_brief_vectors.json` 随源头 `cp`+`cmp` 字节级 resync，Kotlin `ABSOLUTE_PATH` 本就是通用绝对路径规则，零代码改动。
+- 上一条 vendor 记录的隐私注记（「push 前需人工确认个人路径豁免」）随本次净化失效：`grep -rn '/Users/marvi' app/src` 零命中（`docs/working.md` 2026-08-25 历史审计记录按 remediation 指令保留不触碰）。
+- 验证：`export ANDROID_HOME="$HOME/Library/Android/sdk" && export JAVA_HOME=$(/usr/libexec/java_home -v 17) && ./gradlew testDebugUnitTest --tests '*CompletionBrief*'` BUILD SUCCESSFUL（6 tests，0 failures，含全 16 向量）。
+- Lesson：public 仓 vendor 外部 fixture 时，字节一致与隐私卫生可能冲突；正解不是留豁免注记等人审，而是把样例源头净化掉再三端同步——脱敏管线的测试样例输入本身就不该是真实路径。
+
 ## 2026-10-15 — CompletionBrief 官方 parity 向量（通知前置，Phase B）
 
 - 向量 vendor：`app/src/test/resources/completion_brief_vectors.json` 替换为通知管线 rootgrove 契约的官方净化向量集（16 例 / 458 行），`cmp` 字节级一致；Phase A 本地 10 例向量全部被官方集覆盖，按「字节一致优先」丢弃本地增量。

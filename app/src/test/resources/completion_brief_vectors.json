@@ -121,7 +121,7 @@
             "parts": [
               {
                 "type": "text",
-                "text": "Saved the report to /Users/marvi/dev/notes.md and pushed /tmp/build.out to the archive."
+                "text": "Saved the report to /home/alice/dev/notes.md and pushed /tmp/build.out to the archive."
               }
             ]
           }
