@@ -1,5 +1,14 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — 全 session 完成检测状态机（todo 9）
+
+- 新增 `notifications/CompletionDetector.kt`：纯 `CompletionPolicy.evaluate`（与 rootgrove 参考策略同判定序 root→idle 转移→busy 起点→时长→ids，`EligibilityReason.code` 输出同款 snake_case reason 词汇，供跨语言 eligibility 向量回放），加 `CompletionDetector` 内存 tracker（单调 busy-start：episode 内首次 busy 观察胜出，`retry` 视为 busy 延续不重置计时；进程死亡即失忆——未观察过 busy 的 idle 是 typed skip，绝不从 session 时间戳或 REST 状态造时长）。
+- 新增 `notifications/CompletionSeenStore.kt`：SharedPreferences 持久化 seen-set（键 `<session_id>:<assistant_message_id>` → epoch ms），30 天保留（边界当天存活、更旧剪除）+ 1000 键上限（按时间戳淘汰最旧，tie 按 key 确定性排序）；只持久化键与时间戳，绝不落 brief 全文；损坏 JSON 降级为空。
+- 新增 `notifications/CompletionNotificationCoordinator.kt`：eligibility 通过**之后**才 fetch session+messages（fetch 回来的 session 为权威——parentId 非空补一道 NON_ROOT 复核），`buildBriefPayload` 只带 id/role/parts(type,text) 进 CompletionBrief 抽取器；随后 seen-set 去重 → 前台当前 session 抑制（标记 delivered 不弹通知）→ 交 todo 5 shell（`CompletionNotifier.notify`）；权限拒绝（shell 返回 false）记 `NOTIFICATION_DISABLED` 回执、同样标记 delivered，不崩溃不重试。回执全程本地、typed、不含 brief。
+- 接线（最小面）：`handleIncomingSseEvent` 新增 `onSessionStatusEvent` 回调（默认 no-op，既有调用零改动），`session.status` 分支对**所有** session 触发（不再只喂 current-session 分支）；MainViewModel 在 host-runtime scope 组装 coordinator，`onCleared` 显式 `cancel()`；`appResumed` 标志经 ChatScreen 的 ON_START/ON_STOP lifecycle observer 校正（缺省 true：冷启动首帧即前台，ON_STOP 到来再翻 false）。
+- 验证：`./gradlew testDebugUnitTest --rerun` 全绿 523 testcases（基线 487 + 新增 36：CompletionDetectorTest 17 + CompletionSeenStoreTest 5 + CompletionCoordinatorTest 14），既有 current-session refresh/question/permission 行为全部保持。证据：`.omo/evidence/opencode-dual-completion-notifications/task-9-opencode-dual-completion-notifications{,-skips}.log`（fake clock：root busy T0→idle T+120s 恰一次 handoff；process-recreate/child→typed skip 零通知）。`grep -rn '/Users/marvi' app/src` 零命中。
+- Lesson：跨语言判定对齐的关键是把「决策做成数据」——evaluate 只吃显式入参（含 now），reason 枚举双轨（Kotlin enum + 参考实现字符串码），阶段一（eligibility）与阶段二（fetch 后 dedupe/suppress/post）分离，让 JS/Python/Kotlin 能用同一组向量回放比较；Android 侧 message id 只在 fetch 后才知的现实，用「MISSING_IDS + sessionId 非空 = eligibility 已过、待补 id」的约定桥接，不复制第二套判定逻辑。
+
 ## 2026-10-15 — 完成通知 shell + POST_NOTIFICATIONS 运行时权限流（todo 5）
 
 - 新增 `notifications/`：`CompletionNotifier`（专用通道 `task_completion_v1`，IMPORTANCE_DEFAULT、无 badge，沿 TtsService/SpeechSessionService 通道模式）、`CompletionNotificationSpec`（纯 Kotlin 蓝图，JVM 可测）、`NotificationPermissionGate`（纯决策表）。Shell 是 caller-driven：消费 CompletionBrief 已净化输出，不重做归一化；锁屏 `VISIBILITY_PRIVATE`，public version 仅含已净化 title（不含 brief/原始路径）；PendingIntent 一律 `FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE`，request code 与 notification id 是 session id 的确定性函数（fmix32），落在专用区间（请求码 0x54434D00+、通知 id 9100+），与 TtsService 0-3/9001、SpeechSessionService 9002 无碰撞；预留 READ_BRIEF/READ_ALOUD 动作槽位给后续 todo（动作 extras 仅允许 capped brief，禁止全文）。

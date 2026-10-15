@@ -10,6 +10,10 @@ import ai.opencode.client.ui.session.runningDescendantSessions
 import ai.opencode.client.data.api.AIUsageClient
 import ai.opencode.client.data.repository.HostProfileStore
 import ai.opencode.client.data.repository.OpenCodeRepository
+import ai.opencode.client.notifications.CompletionDetector
+import ai.opencode.client.notifications.CompletionNotificationCoordinator
+import ai.opencode.client.notifications.CompletionNotifier
+import ai.opencode.client.notifications.CompletionSeenStore
 import ai.opencode.client.speech.SpeechSessionService
 import ai.opencode.client.tts.TtsController
 import ai.opencode.client.ssh.SSHKeyManager
@@ -587,6 +591,24 @@ class MainViewModel @Inject constructor(
     private val hostRuntimeScope: CoroutineScope
         get() = CoroutineScope(viewModelScope.coroutineContext + hostRuntimeJob)
 
+    /** True while the host activity is started; corrected by ON_START/ON_STOP. */
+    private var appResumed = true
+    private val completionDetector = CompletionDetector()
+    private val completionNotifier = CompletionNotifier(appContext)
+    private val completionCoordinator = CompletionNotificationCoordinator(
+        scope = hostRuntimeScope,
+        detector = completionDetector,
+        seenStore = CompletionSeenStore(
+            appContext.getSharedPreferences(COMPLETION_PREFS_NAME, Context.MODE_PRIVATE)
+        ),
+        fetchSession = { sessionId -> repository.getSession(sessionId) },
+        fetchMessages = { sessionId -> repository.getMessages(sessionId) },
+        notifyShell = { spec -> completionNotifier.notify(spec) },
+        currentSessionId = { _state.value.currentSessionId },
+        isAppResumed = { appResumed },
+        onIssue = { message -> reportNonFatalIssue(TAG, message) },
+    )
+
     init {
         loadSettings()
         viewModelScope.launch {
@@ -1050,6 +1072,7 @@ class MainViewModel @Inject constructor(
      * transcription continue in the background — screen-off must not discard audio.
      */
     fun onAppBackgrounded() {
+        appResumed = false
         val speechActive = _state.value.let {
             it.isRecording || it.isTranscribing || it.isRetryingSpeech
         }
@@ -1058,6 +1081,11 @@ class MainViewModel @Inject constructor(
             return
         }
         stopSpeechForBackground()
+    }
+
+    /** Called when the activity reaches ON_START; enables foreground-current suppression. */
+    fun onAppResumed() {
+        appResumed = true
     }
 
     private fun startSpeechKeepAlive() {
@@ -2068,6 +2096,10 @@ class MainViewModel @Inject constructor(
             onRecordToolPart = { sessionId, partId ->
                 sessionStatsStore.recordToolPart(sessionId, partId)
                 publishCurrentSessionCounts()
+            },
+            onSessionStatusEvent = { sessionId, statusType ->
+                val isRoot = _state.value.sessions.firstOrNull { it.id == sessionId }?.parentId == null
+                completionCoordinator.onSessionStatus(sessionId, isRoot, statusType)
             }
         )
     }
@@ -2076,6 +2108,7 @@ class MainViewModel @Inject constructor(
         sseJob?.cancel()
         watchdogJob?.cancel()
         speechHeartbeatJob?.cancel()
+        completionCoordinator.cancel()
         microphone.discard()
         stopSpeechKeepAlive()
         runBlocking { speechSession?.let { terminateSpeechSession(it) } }
@@ -2086,6 +2119,7 @@ class MainViewModel @Inject constructor(
 
     private companion object {
         private const val TAG = "MainViewModel"
+        private const val COMPLETION_PREFS_NAME = "completion_notifications"
 
         /** Mirrors VoiceFlowKit's internal heartbeat cadence (12s ping). */
         private const val SPEECH_HEARTBEAT_INTERVAL_SECONDS = 12L
