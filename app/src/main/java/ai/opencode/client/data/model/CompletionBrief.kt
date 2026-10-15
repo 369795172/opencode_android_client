@@ -9,24 +9,29 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * Privacy-safe completion brief for a finished OpenCode session.
  *
- * Deterministic zero-token contract mirrored from the notification pipeline
- * twin. Steps: newest assistant message with a non-empty text part (reasoning
- * and tool-only parts ignored, its id retained); fenced code blocks removed;
- * Markdown presentation stripped; absolute/home/`file://` paths replaced with
- * "[path]"; http(s) URLs keep scheme://host/path and lose query/fragment;
- * whitespace collapsed; title capped at 80 and brief at 120 Unicode code
- * points. The brief falls back to the normalized title; an absent or
- * normalizes-to-empty title falls back to "OpenCode task " plus the last 6
- * characters of the session id. Dedupe key is "<session id>:<assistant message
- * id>", null when either id is missing.
+ * Deterministic zero-token extractor implementing extraction spec S1-S10
+ * shared with the notification pipeline's reference implementation; the
+ * official sanitized vectors vendored at
+ * app/src/test/resources/completion_brief_vectors.json are the behavioral
+ * contract. Pipeline: newest assistant message with a non-empty text part
+ * (its id retained, non-empty text parts joined with a newline); fenced code
+ * blocks removed line-wise; per-line blockquote/heading/list markers, then
+ * emphasis characters (~~ * _ `), then images, then links; file://, ~/, and
+ * slash-prefixed path tokens replaced with "[path]"; http(s) URLs keep
+ * scheme://host/path and lose query/fragment; whitespace runs collapsed with
+ * a Unicode whitespace class equivalent to Python re \s; title capped at 80
+ * and brief at 120 Unicode code points (never splitting surrogate pairs). The
+ * brief falls back to the normalized title; an absent or normalizes-to-empty
+ * title falls back to "OpenCode task " plus the last 6 code points of the
+ * session id. Dedupe key is "<session id>:<assistant message id>" with an
+ * empty segment after the colon when no qualifying assistant message exists;
+ * null only when the payload carries no session id.
  *
- * Contract notes for the parity twin: [sessionPayload] is JSON - either a bare
- * message array or an object carrying the session id ("id"/"session_id"/
+ * Contract notes for the parity twin: [sessionPayload] is JSON - either a
+ * bare message array or an object carrying the session id ("id"/"session_id"/
  * "sessionID") and a "messages" array; each message may nest role/parts under
- * "info" or carry them flat. URL stripping runs before path redaction so
- * path-looking query strings are removed first. A fence is a line whose
- * leading-whitespace-stripped form starts with "```". Pure Kotlin, no Android
- * framework dependency, no network.
+ * "info" or carry them flat. Pure Kotlin, no Android framework dependency,
+ * no network.
  */
 data class CompletionBrief(
     val title: String,
@@ -39,20 +44,27 @@ data class CompletionBrief(
         const val BRIEF_CAP_CODE_POINTS = 120
         private const val PATH_TOKEN = "[path]"
         private const val FALLBACK_TITLE_PREFIX = "OpenCode task "
+        private const val FENCE_MARKER = "```"
+
+        // Python re \s on str: 09-0D, 1C-1F, 20, 85, A0, 1680, 2000-200A,
+        // 2028, 2029, 202F, 205F, 3000. One shared class so markdown markers,
+        // path/URL boundaries, and whitespace collapse agree with the
+        // reference implementation on what counts as whitespace.
+        private const val WHITESPACE_CLASS =
+            "\\x09-\\x0D\\x1C-\\x20\\x85\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-        private val IMAGE_REGEX = Regex("!\\[[^\\]]*\\]\\([^)]*\\)")
-        private val LINK_REGEX = Regex("\\[([^\\]]*)\\]\\([^)]*\\)")
-        private val URL_REGEX = Regex("https?://\\S+")
-        private val FILE_URL_REGEX = Regex("file://\\S+")
-        private val HOME_PATH_REGEX = Regex("(?<![0-9A-Za-z_])~/\\S*")
-        private val ABS_PATH_REGEX = Regex("(?<![0-9A-Za-z_:/~.])/(?:[^\\s/]*/)+\\S*")
-        private val WHITESPACE_REGEX = Regex("\\s+")
-        private val BLOCKQUOTE_REGEX = Regex("^[ \\t]*>+[ \\t]*")
-        private val HEADING_REGEX = Regex("^[ \\t]*#+[ \\t]*")
-        private val LIST_BULLET_REGEX = Regex("^[ \\t]*[-*+][ \\t]+")
-        private val LIST_ORDERED_REGEX = Regex("^[ \\t]*\\d+\\.[ \\t]+")
+        private val WHITESPACE_RUN = Regex("[$WHITESPACE_CLASS]+")
+        private val BLOCKQUOTE_MARKER = Regex("^[$WHITESPACE_CLASS]*>+")
+        private val HEADING_MARKER = Regex("^[$WHITESPACE_CLASS]*#+")
+        private val LIST_MARKER = Regex("^[$WHITESPACE_CLASS]*(?:[-*+]|\\d+\\.)[$WHITESPACE_CLASS]+")
+        private val IMAGE_MD = Regex("!\\[[^\\]]*\\]\\([^)]*\\)")
+        private val LINK_MD = Regex("\\[([^\\]]*)\\]\\([^)]*\\)")
+        private val HTTP_URL = Regex("https?://[^$WHITESPACE_CLASS]+")
+        private val FILE_URL = Regex("file://[^$WHITESPACE_CLASS]+")
+        private val HOME_PATH = Regex("(?<![0-9A-Za-z_])~/[^$WHITESPACE_CLASS]*")
+        private val ABSOLUTE_PATH = Regex("(?<![0-9A-Za-z_:/~.])/(?:[^$WHITESPACE_CLASS/]*/)+[^$WHITESPACE_CLASS]*")
 
         /** Parses the JSON payload; invalid JSON degrades to an empty payload. */
         fun extract(sessionPayload: String, title: String?): CompletionBrief {
@@ -70,7 +82,7 @@ data class CompletionBrief(
 
             val normalizedTitle = normalize(title.orEmpty())
             val resolvedTitle = if (normalizedTitle.isEmpty()) {
-                FALLBACK_TITLE_PREFIX + (sessionId?.let { it.substring(maxOf(0, it.length - 6)) } ?: "")
+                FALLBACK_TITLE_PREFIX + sessionId.orEmpty().takeLastCodePoints(6)
             } else {
                 capCodePoints(normalizedTitle, TITLE_CAP_CODE_POINTS)
             }
@@ -82,9 +94,7 @@ data class CompletionBrief(
                 capCodePoints(normalizedBrief, BRIEF_CAP_CODE_POINTS)
             }
 
-            val dedupeKey = if (sessionId != null && assistantMessageId != null) {
-                "$sessionId:$assistantMessageId"
-            } else null
+            val dedupeKey = sessionId?.let { "$it:${assistantMessageId.orEmpty()}" }
 
             return CompletionBrief(resolvedTitle, resolvedBrief, assistantMessageId, dedupeKey)
         }
@@ -98,7 +108,7 @@ data class CompletionBrief(
             return null
         }
 
-        /** Newest assistant message whose concatenated text parts strip to non-empty. */
+        /** Newest assistant message whose non-blank text parts, joined by "\n", are non-empty. */
         private fun latestAssistantText(payload: JsonElement?): Pair<String, String?> {
             val messages = when (payload) {
                 is JsonArray -> payload
@@ -109,56 +119,66 @@ data class CompletionBrief(
                 val message = messages[index] as? JsonObject ?: continue
                 val info = message["info"] as? JsonObject ?: message
                 if ((info["role"] as? JsonPrimitive)?.content != "assistant") continue
-                val parts = (message["parts"] as? JsonArray)?.takeIf { it.isNotEmpty() }
-                    ?: (info["parts"] as? JsonArray)?.takeIf { it.isNotEmpty() }
+                val parts = (message["parts"] as? JsonArray)
+                    ?: (info["parts"] as? JsonArray)
                     ?: continue
-                val text = parts.joinToString("") { part ->
-                    val partObj = part as? JsonObject ?: return@joinToString ""
-                    val type = (partObj["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                    if (type != null && type != "text") return@joinToString ""
-                    (partObj["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""
-                }.trim()
-                if (text.isNotEmpty()) {
-                    return text to ((info["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
+                val content = parts.mapNotNull { part ->
+                    val partObj = part as? JsonObject ?: return@mapNotNull null
+                    if ((partObj["type"] as? JsonPrimitive)?.content != "text") return@mapNotNull null
+                    val text = (partObj["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                        ?: return@mapNotNull null
+                    text.takeIf { it.isNotBlank() }
+                }
+                if (content.isNotEmpty()) {
+                    val id = (info["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    return content.joinToString("\n") to id
                 }
             }
             return "" to null
         }
 
         private fun normalize(raw: String): String {
-            val unfenced = removeFencedCodeBlocks(raw)
-            val presentationStripped = unfenced.split('\n').joinToString("\n") { stripLinePresentation(it) }
-            var text = IMAGE_REGEX.replace(presentationStripped, "")
-            text = LINK_REGEX.replace(text) { it.groupValues[1] }
-            for (marker in listOf("**", "__", "~~", "`", "*", "_")) {
-                text = text.replace(marker, "")
-            }
-            text = URL_REGEX.replace(text) { match -> stripQueryAndFragment(match.value) }
-            text = FILE_URL_REGEX.replace(text, PATH_TOKEN)
-            text = HOME_PATH_REGEX.replace(text, PATH_TOKEN)
-            text = ABS_PATH_REGEX.replace(text, PATH_TOKEN)
-            return WHITESPACE_REGEX.replace(text, " ").trim()
+            var text = removeFencedCodeBlocks(raw)
+            text = stripMarkdown(text)
+            text = FILE_URL.replace(text, PATH_TOKEN)
+            text = HOME_PATH.replace(text, PATH_TOKEN)
+            text = ABSOLUTE_PATH.replace(text, PATH_TOKEN)
+            text = HTTP_URL.replace(text) { match -> stripQueryAndFragment(match.value) }
+            return WHITESPACE_RUN.replace(text, " ").trim()
         }
 
         private fun removeFencedCodeBlocks(text: String): String {
             val kept = mutableListOf<String>()
             var inFence = false
             for (line in text.split('\n')) {
-                if (line.trimStart().startsWith("```")) {
-                    inFence = !inFence
-                } else if (!inFence) {
-                    kept.add(line)
+                if (inFence) {
+                    if (line.startsWith(FENCE_MARKER)) {
+                        inFence = false
+                    }
+                    continue
                 }
+                if (line.startsWith(FENCE_MARKER)) {
+                    inFence = true
+                    continue
+                }
+                kept.add(line)
             }
             return kept.joinToString("\n")
         }
 
-        private fun stripLinePresentation(line: String): String {
-            var result = BLOCKQUOTE_REGEX.replaceFirst(line, "")
-            result = HEADING_REGEX.replaceFirst(result, "")
-            result = LIST_BULLET_REGEX.replaceFirst(result, "")
-            result = LIST_ORDERED_REGEX.replaceFirst(result, "")
-            return result
+        private fun stripMarkdown(text: String): String {
+            val strippedLines = text.split('\n').map { line ->
+                var result = BLOCKQUOTE_MARKER.replaceFirst(line, "")
+                result = HEADING_MARKER.replaceFirst(result, "")
+                result = LIST_MARKER.replaceFirst(result, "")
+                result
+            }
+            var result = strippedLines.joinToString("\n")
+            for (marker in listOf("~~", "*", "_", "`")) {
+                result = result.replace(marker, "")
+            }
+            result = IMAGE_MD.replace(result, "")
+            return LINK_MD.replace(result) { it.groupValues[1] }
         }
 
         private fun stripQueryAndFragment(url: String): String {
@@ -173,6 +193,12 @@ data class CompletionBrief(
         private fun capCodePoints(text: String, limit: Int): String {
             if (text.codePointCount(0, text.length) <= limit) return text
             return text.substring(0, text.offsetByCodePoints(0, limit))
+        }
+
+        private fun String.takeLastCodePoints(count: Int): String {
+            val total = codePointCount(0, length)
+            if (total <= count) return this
+            return substring(offsetByCodePoints(0, total - count))
         }
     }
 }

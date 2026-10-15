@@ -16,22 +16,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Parity tests for the CompletionBrief contract against sanitized fixture
- * vectors in app/src/test/resources/completion_brief_vectors.json. Swapping
- * that file for the official vector set is sufficient to re-run parity.
+ * Parity tests for the CompletionBrief contract against the OFFICIAL
+ * sanitized vectors vendored byte-identical at
+ * app/src/test/resources/completion_brief_vectors.json. Every vector's
+ * session payload plus input title must produce exactly the expected
+ * title/brief/assistant_message_id/dedupe_key.
  */
 class CompletionBriefTest {
     @Test
-    fun `matches every sanitized vector`() {
+    fun `matches every official parity vector`() {
         val root = vectorsRoot()
-        val cases = root["cases"]?.jsonArray ?: error("vectors file has no cases array")
-        assertTrue("expected at least 8 vectors, got ${cases.size}", cases.size >= 8)
-        cases.forEach { element ->
+        val vectors = root["vectors"]?.jsonArray ?: error("vectors file has no vectors array")
+        assertTrue("expected at least 16 official vectors, got ${vectors.size}", vectors.size >= 16)
+        vectors.forEach { element ->
             val vector = element.jsonObject
             val name = vector.stringOf("name") ?: error("vector without name")
             val payloadJson = vector["session_payload"]!!.toString()
-            val title = (vector["title"] as? JsonPrimitive)?.contentOrNull
-            val expected = vector["expect"]!!.jsonObject
+            val title = (vector["input_title"] as? JsonPrimitive)?.contentOrNull
+            val expected = vector["expected"]!!.jsonObject
             val brief = CompletionBrief.extract(payloadJson, title)
             assertEquals("title mismatch in $name", expected.stringOf("title"), brief.title)
             assertEquals("brief mismatch in $name", expected.stringOf("brief"), brief.brief)
@@ -91,7 +93,8 @@ class CompletionBriefTest {
         val payload = """{"id":"ses_empty01","messages":[{"info":{"id":"m_tool","role":"assistant"},"parts":[{"id":"p1","type":"tool","tool":"bash"}]}]}"""
         val brief = CompletionBrief.extract(payload, "Only title")
         assertNull(brief.assistantMessageId)
-        assertNull(brief.dedupeKey)
+        // S10: session id present, assistant id null -> empty segment after the colon.
+        assertEquals("ses_empty01:", brief.dedupeKey)
         assertEquals("Only title", brief.brief)
     }
 

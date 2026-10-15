@@ -1,5 +1,14 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — CompletionBrief 官方 parity 向量（通知前置，Phase B）
+
+- 向量 vendor：`app/src/test/resources/completion_brief_vectors.json` 替换为通知管线 rootgrove 契约的官方净化向量集（16 例 / 458 行），`cmp` 字节级一致；Phase A 本地 10 例向量全部被官方集覆盖，按「字节一致优先」丢弃本地增量。
+- 唯一向量级分歧（S10 dedupe key）：无合格 assistant 消息时官方向量要求 `"<session id>:"`（冒号后空段），Phase A 实现返回 null。修正为：payload 带 session id 即拼 key、assistant id 缺位补空段；null 仅保留给无 session id 的裸数组形状（Phase A 既有单测钉死）。失败首证：`expected:<ses_test0014:> but was:<null>`。
+- 规范级对齐（现向量集不区分、但属 S1-S10 明文范围，一并修正）：S8 回退 title 的 session id 末 6 位从 UTF-16 substring 改为码点切片；S1 消息选择只认 `type=="text"` 且非空白的 part、以 `\n` 连接（原为全 part 空串连接）；S2 围栏判定回到列 0 `startsWith("```")`；S3 强调符剥离先于图片/链接（镜像参考实现的代码而非其 docstring 字母序，两者顺序矛盾时以代码+向量为准）；S4 路径脱敏先于 S5 URL 裁剪；S6/S3a/S4/S5 共享一个 Python `re \s` 等价的 Unicode 空白字符类（原为 ASCII `\s`，CJK 全角空格等不折叠）。
+- 测试：`CompletionBriefTest` 主测试改为按官方 schema（`vectors`/`input_title`/`expected`）遍历每个向量逐字段断言（title/brief/assistant_message_id/dedupe_key），另修一处钉死旧 null 语义的本地断言至 S10 契约。`./gradlew testDebugUnitTest --tests '*CompletionBrief*'` BUILD SUCCESSFUL（6 tests，0 failures，含全 16 向量）。
+- 隐私注记：官方向量文件含一处用户路径样例（`absolute_path_redaction` 向量的输入文本，其期望输出即脱敏为 `[path]`），按任务要求与 rootgrove 契约保持字节一致、未再净化；本仓为 public fork，push 前需人工确认该豁免。
+- Lesson：跨语言 parity 契约里「参考实现的 docstring」与「参考实现的代码」冲突时，向量和代码才是行为契约（本次 S3 顺序 docstring 与代码相反）；双端各留一份字节一致的向量文件 + 单一遍历测试，是最低成本的 parity 锚点。
+
 ## 2026-10-15 — CompletionBrief 隐私简报契约（通知前置，Phase A）
 
 - 新增 `data/model/CompletionBrief.kt`：纯 Kotlin、零 Android 依赖的完成简报提取器，与外部通知管线孪生实现共享同一确定性契约（S1-S10）——最新含非空文本 part 的 assistant 消息、围栏代码整体删除、Markdown 呈现层剥离、绝对/家目录/file:// 路径替换 `[path]`、http(s) URL 去 query/fragment、空白折叠、title/brief 按 Unicode 码点截断（80/120）、brief 回退 title、title 回退 `OpenCode task <session id 末 6 位>`、dedupe key `<session id>:<assistant message id>`。
