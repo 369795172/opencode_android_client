@@ -6,6 +6,7 @@ import ai.opencode.client.notifications.CompletionNotificationSpec
 import ai.opencode.client.notifications.CompletionNotifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -130,5 +131,52 @@ class CompletionNotifierTest {
         assertEquals(ids.size, ids.toSet().size)
         // TtsService posts at 9001 and SpeechSessionService at 9002.
         ids.forEach { assertTrue(it in 9100..9355) }
+    }
+
+    @Test
+    fun `deep link uri is produced only for valid ses session ids`() {
+        assertEquals(
+            "opencode://session/ses_target_1",
+            CompletionNotificationSpec.deepLinkUriFor("ses_target_1")
+        )
+        assertNull(CompletionNotificationSpec.deepLinkUriFor("not-valid"))
+        assertNull(CompletionNotificationSpec.deepLinkUriFor("ses_"))
+        assertNull(CompletionNotificationSpec.deepLinkUriFor("ses_a/b"))
+        assertNull(CompletionNotificationSpec.deepLinkUriFor("ses_has space"))
+        assertNull(CompletionNotificationSpec.deepLinkUriFor("ses_query?x=1"))
+        assertNull(CompletionNotificationSpec.deepLinkUriFor("ses_frag#f"))
+    }
+
+    @Test
+    fun `spec exposes its deep link and falls back to null for malformed ids`() {
+        assertEquals(
+            "opencode://session/ses_ok",
+            CompletionNotificationSpec(sessionId = "ses_ok", title = "t", brief = "b").deepLinkUri
+        )
+        assertNull(
+            CompletionNotificationSpec(sessionId = "not_valid", title = "t", brief = "b").deepLinkUri
+        )
+    }
+
+    @Test
+    fun `assistant message id rides along with a null default`() {
+        val plain = CompletionNotificationSpec(sessionId = "ses_a", title = "t", brief = "b")
+        assertNull(plain.assistantMessageId)
+        val withId = plain.copy(assistantMessageId = "msg_1")
+        assertEquals("msg_1", withId.assistantMessageId)
+        // Equality/default keeps existing todo-5 constructions source-compatible.
+        assertEquals(plain, CompletionNotificationSpec(sessionId = "ses_a", title = "t", brief = "b"))
+    }
+
+    @Test
+    fun `play request code uses the read aloud slot and is deterministic`() {
+        val spec = CompletionNotificationSpec(sessionId = "ses_play", title = "t", brief = "b")
+        assertEquals(
+            CompletionNotificationSpec.requestCodeFor(
+                CompletionNotificationSpec.REQUEST_SLOT_READ_ALOUD, "ses_play"
+            ),
+            spec.playRequestCode
+        )
+        assertFalse(spec.playRequestCode == spec.contentRequestCode)
     }
 }

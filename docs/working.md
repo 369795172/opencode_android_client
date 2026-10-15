@@ -1,5 +1,14 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — 完成通知 deep-link + 本地 TTS Play 动作（todo 10）
+
+- 通知动作接线：body tap 现在挂不可变 VIEW PendingIntent（`opencode://session/<id>`，显式组件 MainActivity，`spec.deepLinkUri` 只在 id 过 `OpenCodeDeepLinkParser` 的 `ses_…` 校验时生成，畸形 id 回退通用启动 intent，绝不携带断链）；"Play brief" 动作经 `PendingIntent.getForegroundService` 发 `ACTION_SPEAK + EXTRA_TEXT(capped brief) + EXTRA_MESSAGE_ID` 到非导出 TtsService（请求码用 `REQUEST_SLOT_READ_ALOUD` 槽位），动作载荷仅限 capped brief + 消息 id；无 prompt/tool/approval 动作，锁屏 public version 仍仅 title。
+- ACTION_SPEAK 优先级修复（本 todo 的具名验收点）：显式通知 extras 一律压过 `TtsController.consumePendingSpeakPayload()`——纯函数 `resolveSpeakRequest`（`TtsSpeakRequestResolutionTest` 5 用例）编码该决策，service 仅在请求无显式文本时才**消费**staged payload（有显式文本时连消费都不做，避免吞掉在途 in-app speak）；新增 engine 检查前的隐私安全日志 `speak request source=… len=… messageId=…`（只有长度与 id，无文本），让无 TTS 引擎的设备也能在 logcat 里证明优先级。
+- FGS 实测（非推断）：app 退后台后用 instrumentation 自有 UiAutomation 连接真实点开 shade 点 "Play brief"（shell `uiautomator dump` 与 instrumentation 的 UiAutomation 连接冲突，dump 全空——换 androidx uiautomator 库走同连接解决），API 34 模拟器零 `ForegroundServiceStartNotAllowedException`，无需 foreground-first 回退路径；`getForegroundService` + manifest `exported=false` + `mediaPlayback` 类型在测试里断言。
+- Instrumented QA（`PostCompletionActionInstrumentedTest`，4/4）：MockWebServer（androidTestImplementation 复用既有 okhttp 版本 catalog 条目）承载 current-host 校验——tap 后 mock 收到 `GET /session/ses_target_1` + `/message`（截图证据 header 显示目标 session 打开）；畸形 id 零 session 查找；反射播种 stale payload 后 Play，logcat `source=notification len=34 messageId=msg_target_1` 且全程无 `msg_STALE_001`。
+- 验证：`./gradlew testDebugUnitTest --rerun` 全绿 532（523 + 9：resolver 5 + spec/notifier 4），todo 5/9 全部既有测试保持绿。证据：`task-10-opencode-dual-completion-notifications.png`（tap 打开目标 session）+ `-failure.log`（stale/畸形 + logcat transcript + FGS verdict）。已知预存失败（本 todo 禁触文件）：`QuestionCardViewTest.longOptionList_showsDismissAndNext` 在干净 HEAD fadd2ae 上同样失败（stash 验证），系 todo 5 修编译漂移后遗留的运行时漂移。
+- Lesson：通知动作测试里「app 进程内 `PendingIntent.send()`」不等价于用户点按——in-process 发送拿不到 user-interaction 的 FGS 豁免，会测出假阴性；真实路径必须经 SystemUI 派发（shade 真点）。同理 `uiautomator dump` shell 二进制与 instrumentation 的 UiAutomation 连接互斥，跨进程 UI 断言要么走 androidx uiautomator 库（同连接），要么在无 instrumentation 挂载时用 adb。MockWebServer 断言记得累积请求日志——`takeRequest()` 是破坏性出队，分轮 drain 会把同轮到达的请求「取证即销毁」。
+
 ## 2026-10-15 — 全 session 完成检测状态机（todo 9）
 
 - 新增 `notifications/CompletionDetector.kt`：纯 `CompletionPolicy.evaluate`（与 rootgrove 参考策略同判定序 root→idle 转移→busy 起点→时长→ids，`EligibilityReason.code` 输出同款 snake_case reason 词汇，供跨语言 eligibility 向量回放），加 `CompletionDetector` 内存 tracker（单调 busy-start：episode 内首次 busy 观察胜出，`retry` 视为 busy 延续不重置计时；进程死亡即失忆——未观察过 busy 的 idle 是 typed skip，绝不从 session 时间戳或 REST 状态造时长）。

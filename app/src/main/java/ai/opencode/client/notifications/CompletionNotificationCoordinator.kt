@@ -141,6 +141,7 @@ class CompletionNotificationCoordinator(
             sessionId = sessionId,
             title = brief.title,
             brief = brief.brief,
+            assistantMessageId = brief.assistantMessageId,
         )
         // Mark delivered either way: a disabled channel must not loop or
         // re-notify later completions of the same turn.

@@ -120,6 +120,13 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.kotlinx.coroutines.android)
+    // Instrumented deep-link QA needs a controllable OpenCode server on the
+    // emulator; same okhttp version as the app (plan-prescribed MockWebServer).
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    // Shade automation for the notification-action tap: the shell
+    // `uiautomator dump` binary conflicts with the instrumentation's own
+    // UiAutomation connection, so the tap goes through this library instead.
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

@@ -148,19 +148,38 @@ class TtsService : Service() {
         when (intent?.action) {
             ACTION_STOP -> stopPlayback(removeNotification = true)
             ACTION_SPEAK -> {
-                val payload = ttsController?.consumePendingSpeakPayload()
-                val text = payload?.text ?: intent.getStringExtra(EXTRA_TEXT)
+                // Explicit notification extras win over any staged payload;
+                // staged is consulted (and consumed) only when the request
+                // carries no explicit text.
+                val explicitText = intent.getStringExtra(EXTRA_TEXT)
+                val staged = if (explicitText.isNullOrBlank()) {
+                    ttsController?.consumePendingSpeakPayload()
+                } else {
+                    null
+                }
+                val resolution = resolveSpeakRequest(
+                    explicitText = explicitText,
+                    explicitMessageId = intent.getStringExtra(EXTRA_MESSAGE_ID),
+                    staged = staged,
+                )
+                val text = resolution.text
                 if (text.isNullOrBlank()) {
                     stopPlayback(removeNotification = true)
                     return START_NOT_STICKY
                 }
+                // Privacy-safe observability (id + length only, never text).
+                Log.i(
+                    TAG,
+                    "speak request source=" + (if (explicitText.isNullOrBlank()) "staged" else "notification") +
+                        " len=${text.length} messageId=${resolution.messageId}"
+                )
                 if (selectedEngine == null || tts == null) {
                     notifyTtsError("文字转语音不可用，请检查系统 TTS 设置。")
                     stopPlayback(removeNotification = true)
                     return START_NOT_STICKY
                 }
-                val messageId = payload?.messageId ?: intent.getStringExtra(EXTRA_MESSAGE_ID)
-                val rate = payload?.speechRate
+                val messageId = resolution.messageId
+                val rate = resolution.speechRate
                     ?: intent.getFloatExtra(EXTRA_SPEECH_RATE, speechRate)
                 speechRate = rate.coerceIn(0.5f, 2.5f)
                 pendingSpeechRate = speechRate

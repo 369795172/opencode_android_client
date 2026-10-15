@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import ai.opencode.client.MainActivity
 import ai.opencode.client.R
+import ai.opencode.client.tts.TtsService
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -54,14 +56,28 @@ class CompletionNotifier(private val context: Context) {
     }
 
     internal fun buildNotification(spec: CompletionNotificationSpec): Notification {
-        // Generic content intent for now; per-session deep-link routing and
-        // "Read brief"/"Read aloud" actions arrive in a later todo. The
-        // per-session request code keeps PendingIntents collision-safe even
-        // while the intent itself is still generic.
+        // Per-session deep link when the id parses as a read-only ses_ link;
+        // anything else keeps the generic launch intent (never a broken URI).
+        // Navigation itself is validated again by MainActivity's deep-link
+        // path against the current host.
         val contentIntent = PendingIntent.getActivity(
             context,
             spec.contentRequestCode,
-            Intent(context, MainActivity::class.java),
+            spec.deepLinkUri?.let { uri ->
+                Intent(Intent.ACTION_VIEW, Uri.parse(uri), context, MainActivity::class.java)
+            } ?: Intent(context, MainActivity::class.java),
+            PENDING_INTENT_FLAGS
+        )
+        // Play brief: only the capped brief + assistant message id ride to the
+        // non-exported TtsService; no other session content leaves the shell.
+        val playIntent = PendingIntent.getForegroundService(
+            context,
+            spec.playRequestCode,
+            Intent(context, TtsService::class.java).apply {
+                action = TtsService.ACTION_SPEAK
+                putExtra(TtsService.EXTRA_TEXT, spec.brief)
+                putExtra(TtsService.EXTRA_MESSAGE_ID, spec.assistantMessageId)
+            },
             PENDING_INTENT_FLAGS
         )
         val publicVersion = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -73,6 +89,13 @@ class CompletionNotifier(private val context: Context) {
             .setContentTitle(spec.title)
             .setContentText(spec.brief)
             .setContentIntent(contentIntent)
+            .addAction(
+                NotificationCompat.Action(
+                    android.R.drawable.ic_media_play,
+                    PLAY_ACTION_LABEL,
+                    playIntent
+                )
+            )
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -83,6 +106,7 @@ class CompletionNotifier(private val context: Context) {
 
     companion object {
         const val CHANNEL_ID = "task_completion_v1"
+        const val PLAY_ACTION_LABEL = "Play brief"
 
         /** All shell PendingIntents are immutable and update-safe. */
         const val PENDING_INTENT_FLAGS =
