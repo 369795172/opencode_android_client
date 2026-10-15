@@ -243,4 +243,6 @@
     <string name="task_notification_open_session">Open subagent session</string>
     <string name="task_notification_no_output">No output</string>
     <string name="chat_large_message_preview_notice">Large message: showing first %1$d of %2$d characters. Markdown rendering is skipped to keep the app responsive.</string>
+    <string name="notification_permission_denied">Turn on notifications to get alerts when tasks finish.</string>
+    <string name="notification_permission_open_settings">Settings</string>
 </resources>

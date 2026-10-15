@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import ai.opencode.client.data.model.Session
+import ai.opencode.client.data.model.SessionStatus
 import ai.opencode.client.ui.session.SessionList
 import org.junit.Rule
 import org.junit.Test

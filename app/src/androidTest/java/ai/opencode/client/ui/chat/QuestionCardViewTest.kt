@@ -47,7 +47,7 @@ class QuestionCardViewTest {
         )
 
         composeRule.setContent {
-            OpenCodeTheme(darkTheme = false, dynamicColor = false) {
+            OpenCodeTheme(darkTheme = false) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter

@@ -670,6 +670,13 @@ class MainViewModel @Inject constructor(
 
     fun getHostProfiles(): List<HostProfile> = hostProfileStore.profiles()
 
+    fun hasNotificationPermissionBeenPrompted(): Boolean =
+        settingsManager.notificationPermissionPromptedV1
+
+    fun markNotificationPermissionPrompted() {
+        settingsManager.notificationPermissionPromptedV1 = true
+    }
+
     fun currentHostProfile(): HostProfile = hostProfileStore.currentProfile()
 
     fun saveHostProfile(profile: HostProfile, basicAuthPassword: String? = null) {

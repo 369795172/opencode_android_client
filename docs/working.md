@@ -1,5 +1,13 @@
 # OpenCode Android 客户端工作日志
 
+## 2026-10-15 — 完成通知 shell + POST_NOTIFICATIONS 运行时权限流（todo 5）
+
+- 新增 `notifications/`：`CompletionNotifier`（专用通道 `task_completion_v1`，IMPORTANCE_DEFAULT、无 badge，沿 TtsService/SpeechSessionService 通道模式）、`CompletionNotificationSpec`（纯 Kotlin 蓝图，JVM 可测）、`NotificationPermissionGate`（纯决策表）。Shell 是 caller-driven：消费 CompletionBrief 已净化输出，不重做归一化；锁屏 `VISIBILITY_PRIVATE`，public version 仅含已净化 title（不含 brief/原始路径）；PendingIntent 一律 `FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE`，request code 与 notification id 是 session id 的确定性函数（fmix32），落在专用区间（请求码 0x54434D00+、通知 id 9100+），与 TtsService 0-3/9001、SpeechSessionService 9002 无碰撞；预留 READ_BRIEF/READ_ALOUD 动作槽位给后续 todo（动作 extras 仅允许 capped brief，禁止全文）。
+- POST_NOTIFICATIONS 运行时权限流（API 33+）：首次服务器连接成功后经 `NotificationPermissionGate` 恰好请求一次；`notification_permission_prompted_v1` 标记在**请求时**（非结果时）落 SettingsManager（EncryptedSharedPreferences），拒绝或关窗都永不再问；拒绝显示一次性 snackbar 引导系统设置（en/zh strings，无应用内设置页）。Manifest 的 `POST_NOTIFICATIONS` 声明此前已存在，无新增。
+- 顺手修复两处既有 androidTest 编译漂移（`SessionListInstrumentedTest` 缺 `SessionStatus` import；`QuestionCardViewTest` 传已删除的 `OpenCodeTheme(dynamicColor=)` 参数）——它们阻塞整个 androidTest 源集编译。
+- 验证：`./gradlew testDebugUnitTest --rerun` 全绿（CompletionNotifierTest 8 + NotificationPermissionGateTest 5，全套 487 testcases）；`ANDROID_SERIAL=emulator-5556 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ai.opencode.client.CompletionNotificationInstrumentedTest` 在 Pixel_Tablet（API 34）模拟器 2/2 通过（本机同时挂有物理设备，全程未触碰）；通知截图证据含 `[path]` 净化标题。测试夹具用虚构 `/home/alice/` 路径，`grep -rn '/Users/marvi' app/src` 零命中。
+- Lesson：Android 在撤权瞬间杀死持有 POST_NOTIFICATIONS 的应用进程（"permissions revoked" kill）——instrumentation 内**永远不能 pm revoke**：denial 路径要消费 fresh install 的未授权态（`@FixMethodOrder(NAME_ASCENDING)` 让 denied 先跑、granted 后授权，授权不杀进程）。另一坑：NotificationManagerService 的 post/cancel 是异步施加，同步断言 `activeNotifications` 会闪烁，一律有界轮询。
+
 ## 2026-10-15 — Parity 向量个人路径净化 resync（T2 remediation）
 
 - 向量净化 resync：rootgrove 契约向量的 `absolute_path_redaction` 输入样例从个人路径 `/Users/marvi/dev/notes.md` 净化为虚构路径 `/home/alice/dev/notes.md`（期望输出 `[path]` 不变）；`app/src/test/resources/completion_brief_vectors.json` 随源头 `cp`+`cmp` 字节级 resync，Kotlin `ABSOLUTE_PATH` 本就是通用绝对路径规则，零代码改动。
