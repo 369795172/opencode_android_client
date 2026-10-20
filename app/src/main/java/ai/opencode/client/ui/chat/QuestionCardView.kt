@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.*
@@ -23,7 +25,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ai.opencode.client.R
 import ai.opencode.client.data.model.QuestionOption
@@ -64,6 +69,8 @@ fun QuestionCardView(
 
     // Key all state by question.id — resets cleanly when a new question arrives
     var currentTab by remember(question.id) { mutableIntStateOf(0) }
+    // Collapsed pill state — a new question (new id) resets to expanded
+    var collapsed by remember(question.id) { mutableStateOf(false) }
     // Per-question selected answers — inner lists are snapshot-aware
     val answers = remember(question.id) {
         mutableStateListOf<MutableList<String>>().also { list ->
@@ -197,7 +204,54 @@ fun QuestionCardView(
             containerColor = accent.copy(alpha = 0.07f)
         )
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (collapsed) {
+            // Compact single-line pill; the whole row expands the card, so the
+            // trailing arrow is decorative (no contentDescription of its own).
+            val expandLabel = stringResource(R.string.question_expand)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable { collapsed = false }
+                    .semantics { contentDescription = expandLabel }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Help,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.question_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accent
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.question_of, currentTab + 1, question.questions.size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = currentQuestion.question,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowUp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        } else BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             // Prefer parent constraints when bounded; otherwise fall back to full screen height.
             val configuration = LocalConfiguration.current
             val boundedHeight = minOf(maxHeight, configuration.screenHeightDp.dp)
@@ -237,6 +291,15 @@ fun QuestionCardView(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    IconButton(onClick = { collapsed = !collapsed }) {
+                        Icon(
+                            imageVector = if (collapsed) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = stringResource(
+                                if (collapsed) R.string.question_expand else R.string.question_collapse
+                            ),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 // Progress dots

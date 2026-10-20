@@ -227,6 +227,8 @@
     <string name="question_submit">Submit</string>
     <string name="question_of">%1$d of %2$d</string>
     <string name="question_empty">(No questions)</string>
+    <string name="question_collapse">Collapse question</string>
+    <string name="question_expand">Expand question</string>
     <string name="nfc_section_title">Experimental</string>
     <string name="nfc_quick_prompt">NFC Quick Prompt</string>
     <string name="nfc_prompt_label">Prompt to write to NFC tag</string>
