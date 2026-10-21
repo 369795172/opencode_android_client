@@ -171,6 +171,11 @@ class SettingsManager @Inject constructor(
         get() = encryptedPrefs.getBoolean(KEY_NFC_AUTO_SEND, false)
         set(value) = encryptedPrefs.edit().putBoolean(KEY_NFC_AUTO_SEND, value).apply()
 
+    /** One-shot marker: the POST_NOTIFICATIONS runtime prompt already fired (v1). */
+    var notificationPermissionPromptedV1: Boolean
+        get() = encryptedPrefs.getBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED_V1, false)
+        set(value) = encryptedPrefs.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED_V1, value).apply()
+
     var autoReadAloud: Boolean
         get() = encryptedPrefs.getBoolean(KEY_AUTO_READ_ALOUD, true)
         set(value) = encryptedPrefs.edit().putBoolean(KEY_AUTO_READ_ALOUD, value).apply()
@@ -286,6 +291,7 @@ class SettingsManager @Inject constructor(
         private const val KEY_NFC_PROMPT = "nfc_prompt"
         private const val KEY_NFC_AUTO_SEND = "nfc_auto_send"
         private const val KEY_AUTO_READ_ALOUD = "auto_read_aloud"
+        private const val KEY_NOTIFICATION_PERMISSION_PROMPTED_V1 = "notification_permission_prompted_v1"
         private const val KEY_TTS_SPEECH_RATE = "tts_speech_rate"
 
         private const val MODEL_PRESET_SCHEMA_VERSION = 1

@@ -1,12 +1,18 @@
 package ai.opencode.client
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.nfc.NfcAdapter
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -43,6 +49,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import ai.opencode.client.ui.MainViewModel
 import ai.opencode.client.ui.DeepLinkError
+import ai.opencode.client.notifications.NotificationPermissionGate
 import ai.opencode.client.ui.chat.ChatScreen
 import ai.opencode.client.ui.files.FilesScreen
 import ai.opencode.client.ui.files.FilesViewModel
@@ -139,6 +146,29 @@ class MainActivity : AppCompatActivity() {
             LaunchedEffect(state.languageMode) {
                 AppLocaleController.apply(state.languageMode)
             }
+            var showNotificationPermissionDenied by remember { mutableStateOf(false) }
+            val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                if (!granted) showNotificationPermissionDenied = true
+            }
+            // POST_NOTIFICATIONS is asked exactly once, after the first
+            // successful connection. The v1 marker persists at REQUEST time
+            // (not result time), so a denial or dismissed dialog never
+            // re-prompts; denials get a one-shot settings snackbar instead.
+            LaunchedEffect(state.isConnected) {
+                if (!state.isConnected) return@LaunchedEffect
+                val shouldAsk = NotificationPermissionGate.shouldRequestOnce(
+                    hasPromptedV1 = mainViewModel.hasNotificationPermissionBeenPrompted(),
+                    notificationsEnabled = NotificationManagerCompat.from(this@MainActivity)
+                        .areNotificationsEnabled(),
+                    runtimePermissionSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
+                )
+                if (shouldAsk) {
+                    mainViewModel.markNotificationPermissionPrompted()
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
             val darkTheme = when (state.themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
@@ -158,6 +188,17 @@ class MainActivity : AppCompatActivity() {
                         isResolving = state.isResolvingDeepLink,
                         error = state.deepLinkError,
                         onDismissError = mainViewModel::clearDeepLinkError
+                    )
+                    NotificationPermissionFeedback(
+                        visible = showNotificationPermissionDenied,
+                        onOpenSettings = {
+                            showNotificationPermissionDenied = false
+                            startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            )
+                        },
+                        onDismiss = { showNotificationPermissionDenied = false },
                     )
                 }
             }
@@ -354,6 +395,33 @@ private fun BoxScope.DeepLinkFeedback(
                 )
             )
         }
+    }
+}
+
+@Composable
+private fun BoxScope.NotificationPermissionFeedback(
+    visible: Boolean,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    if (!visible) return
+    Snackbar(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(16.dp)
+            .testTag("notification-permission-denied"),
+        dismissAction = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_dismiss))
+            }
+        },
+        action = {
+            TextButton(onClick = onOpenSettings) {
+                Text(stringResource(R.string.notification_permission_open_settings))
+            }
+        }
+    ) {
+        Text(stringResource(R.string.notification_permission_denied))
     }
 }
 

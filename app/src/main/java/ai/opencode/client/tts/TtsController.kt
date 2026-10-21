@@ -25,6 +25,43 @@ internal data class TtsSpeakPayload(
     val speechRate: Float,
 )
 
+internal data class SpeakRequestResolution(
+    val text: String?,
+    val messageId: String?,
+    val speechRate: Float?,
+    /** Whether the caller should consume (clear) the staged payload. */
+    val consumeStaged: Boolean,
+)
+
+/**
+ * Precedence for ACTION_SPEAK requests: explicit intent extras (the
+ * notification "Play brief" action) always win over the controller's staged
+ * [TtsSpeakPayload]; the staged payload participates only when the request
+ * carries no explicit text of its own (the in-app controller flow, which
+ * dispatches without EXTRA_TEXT). A staged payload must never override the
+ * text a notification visibly displays.
+ */
+internal fun resolveSpeakRequest(
+    explicitText: String?,
+    explicitMessageId: String?,
+    staged: TtsSpeakPayload?,
+): SpeakRequestResolution =
+    if (explicitText.isNullOrBlank()) {
+        SpeakRequestResolution(
+            text = staged?.text,
+            messageId = staged?.messageId,
+            speechRate = staged?.speechRate,
+            consumeStaged = true,
+        )
+    } else {
+        SpeakRequestResolution(
+            text = explicitText,
+            messageId = explicitMessageId,
+            speechRate = null,
+            consumeStaged = false,
+        )
+    }
+
 @Singleton
 class TtsController(
     private val context: Context,

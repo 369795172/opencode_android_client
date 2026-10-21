@@ -5,6 +5,61 @@
 - 提问卡新增折叠/展开：header 行尾 chevron 切换，折叠后缩成单行 pill，被挡住的聊天记录恢复可见，点 pill 重新展开，已选答案与进度不丢；新问题默认展开。
 - 备注（已知且接受的行为，非 bug）：① 重新展开后题面滚动位置回到顶部；② pendingQuestions 短暂清空（如 SSE resync）时整卡卸载、answers 与 collapsed 一并重置，既有行为，本次不新增不修复。
 - Lesson：覆盖在聊天流上的浮层卡需要自带紧凑态，折叠成单行 pill 保护滚动连续性，比压缩卡片本身更可靠。
+## 2026-10-15 — 完成通知双通道契约定稿 + 跨语言 parity 验证（todo 11）
+
+- 文档收口：完成通知从 PRD「Future 栏」移入已交付能力（实现规划新增 CN 行：best-effort 双通道，2026-10-15）——Android 进程存活期消费全量 SSE 弹通知，电脑侧微信通道（rootgrove orchestrator）作可靠保底，权限拒绝/进程死亡只隔离 Android 侧、不阻塞微信送达。PRD 硬边界 N5/生命周期条款/痛点节/已决事项 #4、RFC 新增 Key Decision（为什么拒绝 FCM/WorkManager/常驻服务而走 SSE 事件驱动 + 微信保底）、design.md 新增完成通知设计契约节（触发/内容/动作/降级语义）、test.md 新增完成通知契约测试清单与基线口径同步更新；不改任何代码。
+- 跨语言 parity 验证（rootgrove 侧验证器从外部驱动，本仓零改动）：16 条 CompletionBrief vectors 三端（Kotlin/Python/JS）输出全等；8 条 eligibility 场景（root 119s/120s、child、unknown-start、重复/重连、前台抑制+微信仍送达、权限拒绝+微信仍送达、原生语音失败→附件回退）Kotlin 判定 reason 与 Python/JS 对齐，行为列由本仓既有单测背书。Kotlin 回放经临时 scratch 单测（读 vendored vectors、输出走 JUnit XML，跑完即删、永不提交）。
+- 验证（本仓 gate 重跑）：`./gradlew testDebugUnitTest` 532/532 绿（0 fail 0 skip，与 todo 10 基线一致）；scoped instrumented `ANDROID_SERIAL=emulator-5556` 上 `CompletionNotificationInstrumentedTest`（2/2，含拒绝路径零通知零二次提示）与 `PostCompletionActionInstrumentedTest`（4/4：tap 进精确 session、畸形 id 拒绝、Play 播报精确 brief、动作面只读）全绿。已知预存漂移 `QuestionCardViewTest.longOptionList_showsDismissAndNext` 不在本 todo 范围，状态不变。
+- Lesson：**跨仓「契约一致」的可信证明要落在同一份 vectors 文件被三端真实执行，而不是三份各自理解的规格文字；public 仓的参与可以压缩到「vendored 字节级孪生 + 既有测试名背书」，驱动器留在私有仓侧用临时 scratch 测试从外部注入，跑完即删——零提交污染，全量可比对。**
+
+## 2026-10-15 — 完成通知 deep-link + 本地 TTS Play 动作（todo 10）
+
+- 通知动作接线：body tap 现在挂不可变 VIEW PendingIntent（`opencode://session/<id>`，显式组件 MainActivity，`spec.deepLinkUri` 只在 id 过 `OpenCodeDeepLinkParser` 的 `ses_…` 校验时生成，畸形 id 回退通用启动 intent，绝不携带断链）；"Play brief" 动作经 `PendingIntent.getForegroundService` 发 `ACTION_SPEAK + EXTRA_TEXT(capped brief) + EXTRA_MESSAGE_ID` 到非导出 TtsService（请求码用 `REQUEST_SLOT_READ_ALOUD` 槽位），动作载荷仅限 capped brief + 消息 id；无 prompt/tool/approval 动作，锁屏 public version 仍仅 title。
+- ACTION_SPEAK 优先级修复（本 todo 的具名验收点）：显式通知 extras 一律压过 `TtsController.consumePendingSpeakPayload()`——纯函数 `resolveSpeakRequest`（`TtsSpeakRequestResolutionTest` 5 用例）编码该决策，service 仅在请求无显式文本时才**消费**staged payload（有显式文本时连消费都不做，避免吞掉在途 in-app speak）；新增 engine 检查前的隐私安全日志 `speak request source=… len=… messageId=…`（只有长度与 id，无文本），让无 TTS 引擎的设备也能在 logcat 里证明优先级。
+- FGS 实测（非推断）：app 退后台后用 instrumentation 自有 UiAutomation 连接真实点开 shade 点 "Play brief"（shell `uiautomator dump` 与 instrumentation 的 UiAutomation 连接冲突，dump 全空——换 androidx uiautomator 库走同连接解决），API 34 模拟器零 `ForegroundServiceStartNotAllowedException`，无需 foreground-first 回退路径；`getForegroundService` + manifest `exported=false` + `mediaPlayback` 类型在测试里断言。
+- Instrumented QA（`PostCompletionActionInstrumentedTest`，4/4）：MockWebServer（androidTestImplementation 复用既有 okhttp 版本 catalog 条目）承载 current-host 校验——tap 后 mock 收到 `GET /session/ses_target_1` + `/message`（截图证据 header 显示目标 session 打开）；畸形 id 零 session 查找；反射播种 stale payload 后 Play，logcat `source=notification len=34 messageId=msg_target_1` 且全程无 `msg_STALE_001`。
+- 验证：`./gradlew testDebugUnitTest --rerun` 全绿 532（523 + 9：resolver 5 + spec/notifier 4），todo 5/9 全部既有测试保持绿。证据：`task-10-opencode-dual-completion-notifications.png`（tap 打开目标 session）+ `-failure.log`（stale/畸形 + logcat transcript + FGS verdict）。已知预存失败（本 todo 禁触文件）：`QuestionCardViewTest.longOptionList_showsDismissAndNext` 在干净 HEAD fadd2ae 上同样失败（stash 验证），系 todo 5 修编译漂移后遗留的运行时漂移。
+- Lesson：通知动作测试里「app 进程内 `PendingIntent.send()`」不等价于用户点按——in-process 发送拿不到 user-interaction 的 FGS 豁免，会测出假阴性；真实路径必须经 SystemUI 派发（shade 真点）。同理 `uiautomator dump` shell 二进制与 instrumentation 的 UiAutomation 连接互斥，跨进程 UI 断言要么走 androidx uiautomator 库（同连接），要么在无 instrumentation 挂载时用 adb。MockWebServer 断言记得累积请求日志——`takeRequest()` 是破坏性出队，分轮 drain 会把同轮到达的请求「取证即销毁」。
+
+## 2026-10-15 — 全 session 完成检测状态机（todo 9）
+
+- 新增 `notifications/CompletionDetector.kt`：纯 `CompletionPolicy.evaluate`（与 rootgrove 参考策略同判定序 root→idle 转移→busy 起点→时长→ids，`EligibilityReason.code` 输出同款 snake_case reason 词汇，供跨语言 eligibility 向量回放），加 `CompletionDetector` 内存 tracker（单调 busy-start：episode 内首次 busy 观察胜出，`retry` 视为 busy 延续不重置计时；进程死亡即失忆——未观察过 busy 的 idle 是 typed skip，绝不从 session 时间戳或 REST 状态造时长）。
+- 新增 `notifications/CompletionSeenStore.kt`：SharedPreferences 持久化 seen-set（键 `<session_id>:<assistant_message_id>` → epoch ms），30 天保留（边界当天存活、更旧剪除）+ 1000 键上限（按时间戳淘汰最旧，tie 按 key 确定性排序）；只持久化键与时间戳，绝不落 brief 全文；损坏 JSON 降级为空。
+- 新增 `notifications/CompletionNotificationCoordinator.kt`：eligibility 通过**之后**才 fetch session+messages（fetch 回来的 session 为权威——parentId 非空补一道 NON_ROOT 复核），`buildBriefPayload` 只带 id/role/parts(type,text) 进 CompletionBrief 抽取器；随后 seen-set 去重 → 前台当前 session 抑制（标记 delivered 不弹通知）→ 交 todo 5 shell（`CompletionNotifier.notify`）；权限拒绝（shell 返回 false）记 `NOTIFICATION_DISABLED` 回执、同样标记 delivered，不崩溃不重试。回执全程本地、typed、不含 brief。
+- 接线（最小面）：`handleIncomingSseEvent` 新增 `onSessionStatusEvent` 回调（默认 no-op，既有调用零改动），`session.status` 分支对**所有** session 触发（不再只喂 current-session 分支）；MainViewModel 在 host-runtime scope 组装 coordinator，`onCleared` 显式 `cancel()`；`appResumed` 标志经 ChatScreen 的 ON_START/ON_STOP lifecycle observer 校正（缺省 true：冷启动首帧即前台，ON_STOP 到来再翻 false）。
+- 验证：`./gradlew testDebugUnitTest --rerun` 全绿 523 testcases（基线 487 + 新增 36：CompletionDetectorTest 17 + CompletionSeenStoreTest 5 + CompletionCoordinatorTest 14），既有 current-session refresh/question/permission 行为全部保持。证据：`.omo/evidence/opencode-dual-completion-notifications/task-9-opencode-dual-completion-notifications{,-skips}.log`（fake clock：root busy T0→idle T+120s 恰一次 handoff；process-recreate/child→typed skip 零通知）。`grep -rn '/Users/marvi' app/src` 零命中。
+- Lesson：跨语言判定对齐的关键是把「决策做成数据」——evaluate 只吃显式入参（含 now），reason 枚举双轨（Kotlin enum + 参考实现字符串码），阶段一（eligibility）与阶段二（fetch 后 dedupe/suppress/post）分离，让 JS/Python/Kotlin 能用同一组向量回放比较；Android 侧 message id 只在 fetch 后才知的现实，用「MISSING_IDS + sessionId 非空 = eligibility 已过、待补 id」的约定桥接，不复制第二套判定逻辑。
+
+## 2026-10-15 — 完成通知 shell + POST_NOTIFICATIONS 运行时权限流（todo 5）
+
+- 新增 `notifications/`：`CompletionNotifier`（专用通道 `task_completion_v1`，IMPORTANCE_DEFAULT、无 badge，沿 TtsService/SpeechSessionService 通道模式）、`CompletionNotificationSpec`（纯 Kotlin 蓝图，JVM 可测）、`NotificationPermissionGate`（纯决策表）。Shell 是 caller-driven：消费 CompletionBrief 已净化输出，不重做归一化；锁屏 `VISIBILITY_PRIVATE`，public version 仅含已净化 title（不含 brief/原始路径）；PendingIntent 一律 `FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE`，request code 与 notification id 是 session id 的确定性函数（fmix32），落在专用区间（请求码 0x54434D00+、通知 id 9100+），与 TtsService 0-3/9001、SpeechSessionService 9002 无碰撞；预留 READ_BRIEF/READ_ALOUD 动作槽位给后续 todo（动作 extras 仅允许 capped brief，禁止全文）。
+- POST_NOTIFICATIONS 运行时权限流（API 33+）：首次服务器连接成功后经 `NotificationPermissionGate` 恰好请求一次；`notification_permission_prompted_v1` 标记在**请求时**（非结果时）落 SettingsManager（EncryptedSharedPreferences），拒绝或关窗都永不再问；拒绝显示一次性 snackbar 引导系统设置（en/zh strings，无应用内设置页）。Manifest 的 `POST_NOTIFICATIONS` 声明此前已存在，无新增。
+- 顺手修复两处既有 androidTest 编译漂移（`SessionListInstrumentedTest` 缺 `SessionStatus` import；`QuestionCardViewTest` 传已删除的 `OpenCodeTheme(dynamicColor=)` 参数）——它们阻塞整个 androidTest 源集编译。
+- 验证：`./gradlew testDebugUnitTest --rerun` 全绿（CompletionNotifierTest 8 + NotificationPermissionGateTest 5，全套 487 testcases）；`ANDROID_SERIAL=emulator-5556 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ai.opencode.client.CompletionNotificationInstrumentedTest` 在 Pixel_Tablet（API 34）模拟器 2/2 通过（本机同时挂有物理设备，全程未触碰）；通知截图证据含 `[path]` 净化标题。测试夹具用虚构 `/home/alice/` 路径，`grep -rn '/Users/marvi' app/src` 零命中。
+- Lesson：Android 在撤权瞬间杀死持有 POST_NOTIFICATIONS 的应用进程（"permissions revoked" kill）——instrumentation 内**永远不能 pm revoke**：denial 路径要消费 fresh install 的未授权态（`@FixMethodOrder(NAME_ASCENDING)` 让 denied 先跑、granted 后授权，授权不杀进程）。另一坑：NotificationManagerService 的 post/cancel 是异步施加，同步断言 `activeNotifications` 会闪烁，一律有界轮询。
+
+## 2026-10-15 — Parity 向量个人路径净化 resync（T2 remediation）
+
+- 向量净化 resync：rootgrove 契约向量的 `absolute_path_redaction` 输入样例从个人路径 `/Users/marvi/dev/notes.md` 净化为虚构路径 `/home/alice/dev/notes.md`（期望输出 `[path]` 不变）；`app/src/test/resources/completion_brief_vectors.json` 随源头 `cp`+`cmp` 字节级 resync，Kotlin `ABSOLUTE_PATH` 本就是通用绝对路径规则，零代码改动。
+- 上一条 vendor 记录的隐私注记（「push 前需人工确认个人路径豁免」）随本次净化失效：`grep -rn '/Users/marvi' app/src` 零命中（`docs/working.md` 2026-08-25 历史审计记录按 remediation 指令保留不触碰）。
+- 验证：`export ANDROID_HOME="$HOME/Library/Android/sdk" && export JAVA_HOME=$(/usr/libexec/java_home -v 17) && ./gradlew testDebugUnitTest --tests '*CompletionBrief*'` BUILD SUCCESSFUL（6 tests，0 failures，含全 16 向量）。
+- Lesson：public 仓 vendor 外部 fixture 时，字节一致与隐私卫生可能冲突；正解不是留豁免注记等人审，而是把样例源头净化掉再三端同步——脱敏管线的测试样例输入本身就不该是真实路径。
+
+## 2026-10-15 — CompletionBrief 官方 parity 向量（通知前置，Phase B）
+
+- 向量 vendor：`app/src/test/resources/completion_brief_vectors.json` 替换为通知管线 rootgrove 契约的官方净化向量集（16 例 / 458 行），`cmp` 字节级一致；Phase A 本地 10 例向量全部被官方集覆盖，按「字节一致优先」丢弃本地增量。
+- 唯一向量级分歧（S10 dedupe key）：无合格 assistant 消息时官方向量要求 `"<session id>:"`（冒号后空段），Phase A 实现返回 null。修正为：payload 带 session id 即拼 key、assistant id 缺位补空段；null 仅保留给无 session id 的裸数组形状（Phase A 既有单测钉死）。失败首证：`expected:<ses_test0014:> but was:<null>`。
+- 规范级对齐（现向量集不区分、但属 S1-S10 明文范围，一并修正）：S8 回退 title 的 session id 末 6 位从 UTF-16 substring 改为码点切片；S1 消息选择只认 `type=="text"` 且非空白的 part、以 `\n` 连接（原为全 part 空串连接）；S2 围栏判定回到列 0 `startsWith("```")`；S3 强调符剥离先于图片/链接（镜像参考实现的代码而非其 docstring 字母序，两者顺序矛盾时以代码+向量为准）；S4 路径脱敏先于 S5 URL 裁剪；S6/S3a/S4/S5 共享一个 Python `re \s` 等价的 Unicode 空白字符类（原为 ASCII `\s`，CJK 全角空格等不折叠）。
+- 测试：`CompletionBriefTest` 主测试改为按官方 schema（`vectors`/`input_title`/`expected`）遍历每个向量逐字段断言（title/brief/assistant_message_id/dedupe_key），另修一处钉死旧 null 语义的本地断言至 S10 契约。`./gradlew testDebugUnitTest --tests '*CompletionBrief*'` BUILD SUCCESSFUL（6 tests，0 failures，含全 16 向量）。
+- 隐私注记：官方向量文件含一处用户路径样例（`absolute_path_redaction` 向量的输入文本，其期望输出即脱敏为 `[path]`），按任务要求与 rootgrove 契约保持字节一致、未再净化；本仓为 public fork，push 前需人工确认该豁免。
+- Lesson：跨语言 parity 契约里「参考实现的 docstring」与「参考实现的代码」冲突时，向量和代码才是行为契约（本次 S3 顺序 docstring 与代码相反）；双端各留一份字节一致的向量文件 + 单一遍历测试，是最低成本的 parity 锚点。
+
+## 2026-10-15 — CompletionBrief 隐私简报契约（通知前置，Phase A）
+
+- 新增 `data/model/CompletionBrief.kt`：纯 Kotlin、零 Android 依赖的完成简报提取器，与外部通知管线孪生实现共享同一确定性契约（S1-S10）——最新含非空文本 part 的 assistant 消息、围栏代码整体删除、Markdown 呈现层剥离、绝对/家目录/file:// 路径替换 `[path]`、http(s) URL 去 query/fragment、空白折叠、title/brief 按 Unicode 码点截断（80/120）、brief 回退 title、title 回退 `OpenCode task <session id 末 6 位>`、dedupe key `<session id>:<assistant message id>`。
+- 实现要点：截断用 `codePointCount`/`offsetByCodePoints`（UTF-16 不拆代理对）；URL 清洗先于路径脱敏（防 query 里的路径形 token 泄漏）；JSON 解析沿用 kotlinx.serialization，payload 兼容裸消息数组与 `{id, messages}` 对象、消息兼容 `info` 嵌套与扁平两种形状。
+- 测试：`CompletionBriefTest` 从 `app/src/test/resources/completion_brief_vectors.json` 加载净化向量（10 例：围栏、路径、URL、title/brief 上限、CJK、代理对边界、title 回退、brief 回退、tool-only 跳过 + 扁平消息形状），换官方向量文件即可复跑 parity；另有裸数组/非法 JSON/短 session id/无文本 part 边界单测。`./gradlew testDebugUnitTest` 全绿。
+- Lesson：跨端确定性契约的最小 parity 面是「向量文件 + 单一加载测试」——实现细节两侧自由，锁的是输出；码点上限测试必须包含代理对恰好在 cap 边界的向量，否则 UTF-16 实现会绿着出错。
 
 ## 2026-10-14 — 上游同步 2026-10-13：15 picks 分 7 批（versionCode 36）
 

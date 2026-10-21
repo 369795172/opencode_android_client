@@ -139,7 +139,8 @@ internal fun handleIncomingSseEvent(
     onNonFatalIssue: (String) -> Unit,
     onSessionReplyComplete: (String) -> Unit = {},
     onRecordUserMessage: (String, String) -> Unit = { _, _ -> },
-    onRecordToolPart: (String, String) -> Unit = { _, _ -> }
+    onRecordToolPart: (String, String) -> Unit = { _, _ -> },
+    onSessionStatusEvent: (sessionId: String, statusType: String) -> Unit = { _, _ -> }
 ) {
     when (event.payload.type) {
         "session.created" -> {
@@ -166,6 +167,9 @@ internal fun handleIncomingSseEvent(
                         sessionStatuses = it.sessionStatuses + (statusEvent.sessionId to statusEvent.status)
                     )
                 }
+
+                // Completion detection needs every session's status, not just the current one.
+                onSessionStatusEvent(statusEvent.sessionId, statusEvent.status.type)
 
                 if (statusEvent.sessionId == state.value.currentSessionId && !statusEvent.status.isBusy) {
                     state.update {

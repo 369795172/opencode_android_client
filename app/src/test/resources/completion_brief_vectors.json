@@ -1,0 +1,458 @@
+{
+  "vectors": [
+    {
+      "name": "no_title_fallback",
+      "session_payload": {
+        "id": "ses_test0001",
+        "messages": [
+          {
+            "id": "msg_u1",
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "text": "run the build"
+              }
+            ]
+          },
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Build finished. All checks passed."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": null,
+      "expected": {
+        "title": "OpenCode task st0001",
+        "brief": "Build finished. All checks passed.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0001:msg_a1"
+      }
+    },
+    {
+      "name": "empty_brief_falls_back_to_title",
+      "session_payload": {
+        "id": "ses_test0002",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "```\ndef run():\n    pass\n```"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Refactor pipeline module",
+      "expected": {
+        "title": "Refactor pipeline module",
+        "brief": "Refactor pipeline module",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0002:msg_a1"
+      }
+    },
+    {
+      "name": "code_fence_removal",
+      "session_payload": {
+        "id": "ses_test0003",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Here is the fix:\n```python\ndef f():\n    return 1\n```\nShips tomorrow."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Fix summary",
+      "expected": {
+        "title": "Fix summary",
+        "brief": "Here is the fix: Ships tomorrow.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0003:msg_a1"
+      }
+    },
+    {
+      "name": "markdown_stripping",
+      "session_payload": {
+        "id": "ses_test0004",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "## Status Report\n\n- **Deploy** succeeded\n- `cache` cleared\n- ![logo](https://example.com/logo.png) shown\n> see [docs](https://example.com/docs) for details"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Weekly sync notes",
+      "expected": {
+        "title": "Weekly sync notes",
+        "brief": "Status Report Deploy succeeded cache cleared shown see docs for details",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0004:msg_a1"
+      }
+    },
+    {
+      "name": "absolute_path_redaction",
+      "session_payload": {
+        "id": "ses_test0005",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Saved the report to /home/alice/dev/notes.md and pushed /tmp/build.out to the archive."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Report export",
+      "expected": {
+        "title": "Report export",
+        "brief": "Saved the report to [path] and pushed [path] to the archive.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0005:msg_a1"
+      }
+    },
+    {
+      "name": "home_tilde_path_redaction",
+      "session_payload": {
+        "id": "ses_test0006",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Draft stored at ~/work/scratch.md before review."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Draft saved",
+      "expected": {
+        "title": "Draft saved",
+        "brief": "Draft stored at [path] before review.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0006:msg_a1"
+      }
+    },
+    {
+      "name": "file_url_redaction",
+      "session_payload": {
+        "id": "ses_test0007",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Open file:///var/log/service.log to inspect the error."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Log inspection",
+      "expected": {
+        "title": "Log inspection",
+        "brief": "Open [path] to inspect the error.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0007:msg_a1"
+      }
+    },
+    {
+      "name": "url_query_fragment_strip",
+      "session_payload": {
+        "id": "ses_test0008",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Details at https://example.com/results?page=2&sort=desc#anchor and more docs exist."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Lookup results",
+      "expected": {
+        "title": "Lookup results",
+        "brief": "Details at https://example.com/results and more docs exist.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0008:msg_a1"
+      }
+    },
+    {
+      "name": "whitespace_collapse",
+      "session_payload": {
+        "id": "ses_test0009",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Started   the\tjob\n\n\nand   finished\n  quietly   "
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Whitespace test",
+      "expected": {
+        "title": "Whitespace test",
+        "brief": "Started the job and finished quietly",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0009:msg_a1"
+      }
+    },
+    {
+      "name": "title_80_cap_ascii",
+      "session_payload": {
+        "id": "ses_test0010",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Done."
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij",
+      "expected": {
+        "title": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij",
+        "brief": "Done.",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0010:msg_a1"
+      }
+    },
+    {
+      "name": "brief_120_cap_ascii",
+      "session_payload": {
+        "id": "ses_test0011",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Cap check",
+      "expected": {
+        "title": "Cap check",
+        "brief": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0011:msg_a1"
+      }
+    },
+    {
+      "name": "cjk_emoji_cap_counts_code_points",
+      "session_payload": {
+        "id": "ses_test0012",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "🚀🚀🚀🚀🚀語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢",
+      "expected": {
+        "title": "漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢",
+        "brief": "🚀🚀🚀🚀🚀語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語語",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0012:msg_a1"
+      }
+    },
+    {
+      "name": "reasoning_only_assistant_skipped",
+      "session_payload": {
+        "id": "ses_test0013",
+        "messages": [
+          {
+            "id": "msg_u1",
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "text": "please analyze"
+              }
+            ]
+          },
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "reasoning",
+                "text": "internal deliberation"
+              }
+            ]
+          },
+          {
+            "id": "msg_a2",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Final answer ready."
+              }
+            ]
+          },
+          {
+            "id": "msg_a3",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "reasoning",
+                "text": "more deliberation"
+              },
+              {
+                "type": "tool",
+                "tool": "bash"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Analysis",
+      "expected": {
+        "title": "Analysis",
+        "brief": "Final answer ready.",
+        "assistant_message_id": "msg_a2",
+        "dedupe_key": "ses_test0013:msg_a2"
+      }
+    },
+    {
+      "name": "no_assistant_message",
+      "session_payload": {
+        "id": "ses_test0014",
+        "messages": [
+          {
+            "id": "msg_u1",
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "text": "just asking"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Only a title",
+      "expected": {
+        "title": "Only a title",
+        "brief": "Only a title",
+        "assistant_message_id": null,
+        "dedupe_key": "ses_test0014:"
+      }
+    },
+    {
+      "name": "unclosed_fence_removes_to_end",
+      "session_payload": {
+        "id": "ses_test0015",
+        "messages": [
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Migration started\n```\nINSERT INTO users VALUES (1);\nnever closed"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Migration run",
+      "expected": {
+        "title": "Migration run",
+        "brief": "Migration started",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0015:msg_a1"
+      }
+    },
+    {
+      "name": "mixed_realistic",
+      "session_payload": {
+        "id": "ses_test0016",
+        "messages": [
+          {
+            "id": "msg_u1",
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "text": "auth is broken again"
+              }
+            ]
+          },
+          {
+            "id": "msg_a1",
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "text": "Patched /etc/hosts and rotated keys.\n\n```\nrm -rf /tmp/cache\n```\n\nAudit trail: https://api.example.com/v1/users?id=7&scope=full#top"
+              }
+            ]
+          }
+        ]
+      },
+      "input_title": "Fix **auth** flow in `/srv/app/login.py`",
+      "expected": {
+        "title": "Fix auth flow in [path]",
+        "brief": "Patched [path] and rotated keys. Audit trail: https://api.example.com/v1/users",
+        "assistant_message_id": "msg_a1",
+        "dedupe_key": "ses_test0016:msg_a1"
+      }
+    }
+  ]
+}

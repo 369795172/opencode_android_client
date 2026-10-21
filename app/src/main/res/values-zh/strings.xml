@@ -245,4 +245,6 @@
     <string name="task_notification_open_session">打开子代理会话</string>
     <string name="task_notification_no_output">无输出</string>
     <string name="chat_large_message_preview_notice">消息较长：当前只显示前 %1$d / %2$d 个字符。为保持流畅，已跳过 Markdown 渲染。</string>
+    <string name="notification_permission_denied">开启通知，任务完成时及时收到提醒。</string>
+    <string name="notification_permission_open_settings">设置</string>
 </resources>

@@ -150,8 +150,10 @@ fun ChatScreen(
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.onAppBackgrounded()
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.onAppResumed()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppBackgrounded()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
